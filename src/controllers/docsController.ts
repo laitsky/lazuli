@@ -38,10 +38,8 @@ export class DocsController {
     router="hash"
     layout="sidebar"
     hideInternal="false"
-    hideTryIt="false"
     hideSchemas="false"
     hideExport="false"
-    tryItCredentialsPolicy="omit"
   />
 </body>
 </html>`;
