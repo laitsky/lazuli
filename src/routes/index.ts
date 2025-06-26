@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { exchangeController } from '../controllers/exchangeController';
 import { tickerController } from '../controllers/tickerController';
 import { dataController } from '../controllers/dataController';
+import { docsController } from '../controllers/docsController';
 
 // Create Express router for API v1 endpoints
 const router = Router();
@@ -49,6 +50,21 @@ router.post('/data/markets/:exchange', async (req, res) => {
 // DELETE /api/v1/data/cleanup - Clean up old ticker data
 router.delete('/data/cleanup', async (req, res) => {
   await dataController.cleanupOldData(req, res);
+});
+
+// GET /api/v1/docs - Serve interactive API documentation
+router.get('/docs', async (req, res) => {
+  await docsController.serveDocs(req, res);
+});
+
+// GET /api/v1/docs/spec - Serve OpenAPI specification
+router.get('/docs/spec', async (req, res) => {
+  await docsController.serveApiSpec(req, res);
+});
+
+// GET /api/v1/docs/info - Get documentation metadata
+router.get('/docs/info', async (req, res) => {
+  await docsController.getDocsInfo(req, res);
 });
 
 export default router;
