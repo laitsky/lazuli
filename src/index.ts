@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes';
 import { errorResponse } from './utils/response';
+import { testDatabaseConnection } from './utils/supabase';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -20,8 +21,26 @@ app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use('/api/v1', routes);
 
 // Health check endpoint for monitoring
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: Date.now() });
+app.get('/health', async (_req, res) => {
+  // Test database connection only if database features are being used
+  let dbStatus = 'not_required';
+  try {
+    const hasDbCredentials = process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY;
+    if (hasDbCredentials) {
+      const connected = await testDatabaseConnection();
+      dbStatus = connected ? 'connected' : 'disconnected';
+    }
+  } catch (error) {
+    dbStatus = 'error';
+  }
+  
+  res.json({ 
+    status: 'ok', 
+    api: 'ready',
+    database: dbStatus,
+    exchanges: ['binance', 'bybit', 'okx', 'hyperliquid'],
+    timestamp: Date.now() 
+  });
 });
 
 // Handle 404 errors for undefined routes
@@ -37,7 +56,11 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`Lazuli API server running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`API endpoints: http://localhost:${PORT}/api/v1`);
+  console.log(`🚀 Lazuli API server running on port ${PORT}`);
+  console.log(`📊 Live data endpoints: http://localhost:${PORT}/api/v1`);
+  console.log(`💚 Health check: http://localhost:${PORT}/health`);
+  console.log(`📈 Ready to serve real-time cryptocurrency data!`);
+  console.log('');
+  console.log('📋 Available exchanges: Binance, Bybit, OKX, Hyperliquid');
+  console.log('💡 Database features are optional - see /data/* endpoints');
 });

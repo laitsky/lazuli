@@ -1,12 +1,15 @@
 # Lazuli Development Guidelines
 
 ## Project Overview
-Lazuli is a cryptocurrency trading tool that aggregates data from multiple exchanges to help traders make informed decisions. Currently implemented as a REST API with TypeScript.
+Lazuli is a cryptocurrency trading tool that provides **real-time** data from multiple exchanges to help traders make informed decisions. Implemented as a REST API with TypeScript.
+
+**Core Philosophy**: Prioritize live data from exchanges directly. Database features are optional for advanced use cases only.
 
 ## Architecture
 - **Language**: TypeScript with strict type checking
 - **Framework**: Express.js REST API
-- **Database**: Supabase (PostgreSQL) - credentials to be provided
+- **Primary Data**: Live exchange APIs (CCXT + Hyperliquid)
+- **Database**: Supabase (PostgreSQL) - **OPTIONAL** for advanced features
 - **Exchanges**: CCXT (Binance, Bybit, OKX) + Hyperliquid
 - **Future**: May expand to web interface or Telegram bot
 
@@ -60,13 +63,21 @@ src/
    ```
 
 ### Environment Variables
-Create `.env` file:
+Create `.env` file (use `.env.example` as template):
 ```
 PORT=3000
 NODE_ENV=development
-SUPABASE_URL=<to-be-provided>
-SUPABASE_ANON_KEY=<to-be-provided>
+SUPABASE_URL=https://jaxglbziswzllhrxcnyp.supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
 ```
+
+### Database Integration (Optional)
+- **Purpose**: Only for advanced features (historical data, alerts, analytics)
+- **Primary Use**: Live exchange data via APIs (no database needed)
+- **Supabase**: PostgreSQL database with REST API (when needed)
+- **Client**: `@supabase/supabase-js` for database operations
+- **Health Check**: `/health` endpoint includes optional database status
+- **Setup**: Only required if using `/data/*` endpoints
 
 ### Testing Commands
 Always run these before committing:
@@ -75,10 +86,18 @@ npm run lint
 ```
 
 ### API Endpoints Structure
+
+#### Core Endpoints (Live Data - No DB)
 - `GET /api/v1/exchanges` - List supported exchanges
 - `GET /api/v1/tickers/:exchange` - Get all tickers for an exchange
 - `GET /api/v1/tickers/:exchange/:symbol` - Get specific ticker
 - `GET /api/v1/markets/:exchange` - Get all markets (spot/perp)
+
+#### Advanced Endpoints (Optional DB Features)
+- `POST /api/v1/data/store/:exchange` - Store live data
+- `GET /api/v1/data/history/:symbol` - Historical data
+- `GET /api/v1/data/latest/:exchange/:symbol` - Latest stored
+- `DELETE /api/v1/data/cleanup` - Cleanup old data
 
 ### Integration Notes
 
