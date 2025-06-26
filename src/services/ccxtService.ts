@@ -2,51 +2,70 @@ import ccxt from 'ccxt';
 import { Ticker, Market } from '../types';
 
 export class CCXTService {
-  private exchanges: Map<string, any>;
+  private spotExchanges: Map<string, any>;
+  private perpExchanges: Map<string, any>;
 
   constructor() {
-    this.exchanges = new Map();
+    this.spotExchanges = new Map();
+    this.perpExchanges = new Map();
     this.initializeExchanges();
   }
 
   private initializeExchanges(): void {
-    this.exchanges.set('binance', new ccxt.binance({
+    // Initialize spot exchanges
+    this.spotExchanges.set('binance', new ccxt.binance({
       enableRateLimit: true,
       options: {
         defaultType: 'spot',
       },
     }));
 
-    this.exchanges.set('bybit', new ccxt.bybit({
+    this.spotExchanges.set('bybit', new ccxt.bybit({
       enableRateLimit: true,
       options: {
         defaultType: 'spot',
       },
     }));
 
-    this.exchanges.set('okx', new ccxt.okx({
+    this.spotExchanges.set('okx', new ccxt.okx({
       enableRateLimit: true,
       options: {
         defaultType: 'spot',
+      },
+    }));
+
+    // Initialize perpetual/swap exchanges
+    this.perpExchanges.set('binance', new ccxt.binance({
+      enableRateLimit: true,
+      options: {
+        defaultType: 'future',
+      },
+    }));
+
+    this.perpExchanges.set('bybit', new ccxt.bybit({
+      enableRateLimit: true,
+      options: {
+        defaultType: 'swap',
+      },
+    }));
+
+    this.perpExchanges.set('okx', new ccxt.okx({
+      enableRateLimit: true,
+      options: {
+        defaultType: 'swap',
       },
     }));
   }
 
   private getExchange(exchangeId: string, marketType: 'spot' | 'perp' = 'spot'): any {
-    const exchange = this.exchanges.get(exchangeId);
+    const exchangeMap = marketType === 'spot' ? this.spotExchanges : this.perpExchanges;
+    const exchange = exchangeMap.get(exchangeId);
+    
     if (!exchange) {
-      throw new Error(`Exchange ${exchangeId} not supported`);
+      throw new Error(`Exchange ${exchangeId} not supported for ${marketType} markets`);
     }
 
-    const clonedExchange = new (exchange.constructor as any)({
-      ...exchange.options,
-      options: {
-        ...exchange.options,
-        defaultType: marketType === 'perp' ? 'future' : 'spot',
-      },
-    });
-
-    return clonedExchange;
+    return exchange;
   }
 
   async loadMarkets(exchangeId: string): Promise<void> {
