@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { exchangeController } from '../controllers/exchangeController';
 import { tickerController } from '../controllers/tickerController';
+import { dataController } from '../controllers/dataController';
 
 // Create Express router for API v1 endpoints
 const router = Router();
@@ -23,6 +24,31 @@ router.get('/tickers/:exchange/:symbol', async (req, res) => {
 // GET /api/v1/markets/:exchange - Get all markets for an exchange
 router.get('/markets/:exchange', async (req, res) => {
   await tickerController.getMarkets(req, res);
+});
+
+// POST /api/v1/data/store/:exchange - Store live ticker data for an exchange
+router.post('/data/store/:exchange', async (req, res) => {
+  await dataController.storeLiveTickers(req, res);
+});
+
+// GET /api/v1/data/history/:symbol - Get historical ticker data for a symbol
+router.get('/data/history/:symbol', async (req, res) => {
+  await dataController.getHistoricalTickers(req, res);
+});
+
+// GET /api/v1/data/latest/:exchange/:symbol - Get latest stored ticker
+router.get('/data/latest/:exchange/:symbol', async (req, res) => {
+  await dataController.getLatestStoredTicker(req, res);
+});
+
+// POST /api/v1/data/markets/:exchange - Store market data for an exchange
+router.post('/data/markets/:exchange', async (req, res) => {
+  await dataController.storeMarkets(req, res);
+});
+
+// DELETE /api/v1/data/cleanup - Clean up old ticker data
+router.delete('/data/cleanup', async (req, res) => {
+  await dataController.cleanupOldData(req, res);
 });
 
 export default router;
