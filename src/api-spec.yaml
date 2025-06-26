@@ -1,0 +1,647 @@
+openapi: 3.0.3
+info:
+  title: Lazuli Cryptocurrency Trading API
+  description: Real-time cryptocurrency data from multiple exchanges to help traders make informed decisions
+  version: 1.0.0
+  contact:
+    name: Lazuli API Support
+servers:
+  - url: /api/v1
+    description: Current server
+  - url: http://localhost:3000/api/v1
+    description: Development server
+paths:
+  /exchanges:
+    get:
+      summary: List supported exchanges
+      description: Returns a list of all supported cryptocurrency exchanges
+      operationId: listExchanges
+      tags:
+        - Exchanges
+      responses:
+        '200':
+          description: Successfully retrieved list of exchanges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExchangesResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tickers/{exchange}:
+    get:
+      summary: Get all tickers for an exchange
+      description: Retrieves all ticker data for a specific exchange
+      operationId: getAllTickers
+      tags:
+        - Tickers
+      parameters:
+        - name: exchange
+          in: path
+          required: true
+          description: Exchange name (binance, bybit, okx, hyperliquid)
+          schema:
+            type: string
+            enum: [binance, bybit, okx, hyperliquid]
+      responses:
+        '200':
+          description: Successfully retrieved tickers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TickersResponse'
+        '400':
+          description: Invalid exchange parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /tickers/{exchange}/{symbol}:
+    get:
+      summary: Get specific ticker data
+      description: Retrieves ticker data for a specific symbol on an exchange
+      operationId: getTicker
+      tags:
+        - Tickers
+      parameters:
+        - name: exchange
+          in: path
+          required: true
+          description: Exchange name
+          schema:
+            type: string
+            enum: [binance, bybit, okx, hyperliquid]
+        - name: symbol
+          in: path
+          required: true
+          description: Trading pair symbol (e.g., BTC/USDT)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully retrieved ticker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TickerResponse'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Symbol not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /markets/{exchange}:
+    get:
+      summary: Get all markets for an exchange
+      description: Retrieves all available markets (spot/perpetual) for a specific exchange
+      operationId: getMarkets
+      tags:
+        - Markets
+      parameters:
+        - name: exchange
+          in: path
+          required: true
+          description: Exchange name
+          schema:
+            type: string
+            enum: [binance, bybit, okx, hyperliquid]
+      responses:
+        '200':
+          description: Successfully retrieved markets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarketsResponse'
+        '400':
+          description: Invalid exchange parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /data/store/{exchange}:
+    post:
+      summary: Store live ticker data
+      description: Stores current ticker data for all symbols on an exchange (requires database)
+      operationId: storeLiveTickers
+      tags:
+        - Data Storage
+      parameters:
+        - name: exchange
+          in: path
+          required: true
+          description: Exchange name
+          schema:
+            type: string
+            enum: [binance, bybit, okx, hyperliquid]
+      responses:
+        '200':
+          description: Successfully stored ticker data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataStoreResponse'
+        '400':
+          description: Invalid exchange parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error or database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /data/history/{symbol}:
+    get:
+      summary: Get historical ticker data
+      description: Retrieves historical ticker data for a symbol (requires database)
+      operationId: getHistoricalTickers
+      tags:
+        - Data Storage
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          description: Trading pair symbol
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Maximum number of records to return
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 1000
+        - name: exchange
+          in: query
+          description: Filter by specific exchange
+          schema:
+            type: string
+            enum: [binance, bybit, okx, hyperliquid]
+      responses:
+        '200':
+          description: Successfully retrieved historical data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoricalDataResponse'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error or database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /data/latest/{exchange}/{symbol}:
+    get:
+      summary: Get latest stored ticker
+      description: Retrieves the most recent stored ticker data for a symbol (requires database)
+      operationId: getLatestStoredTicker
+      tags:
+        - Data Storage
+      parameters:
+        - name: exchange
+          in: path
+          required: true
+          description: Exchange name
+          schema:
+            type: string
+            enum: [binance, bybit, okx, hyperliquid]
+        - name: symbol
+          in: path
+          required: true
+          description: Trading pair symbol
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Successfully retrieved latest ticker
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LatestTickerResponse'
+        '400':
+          description: Invalid parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No data found for symbol
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error or database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /data/markets/{exchange}:
+    post:
+      summary: Store market data
+      description: Stores market information for an exchange (requires database)
+      operationId: storeMarkets
+      tags:
+        - Data Storage
+      parameters:
+        - name: exchange
+          in: path
+          required: true
+          description: Exchange name
+          schema:
+            type: string
+            enum: [binance, bybit, okx, hyperliquid]
+      responses:
+        '200':
+          description: Successfully stored market data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DataStoreResponse'
+        '400':
+          description: Invalid exchange parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error or database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /data/cleanup:
+    delete:
+      summary: Clean up old ticker data
+      description: Removes old ticker data based on retention policy (requires database)
+      operationId: cleanupOldData
+      tags:
+        - Data Storage
+      parameters:
+        - name: days
+          in: query
+          description: Number of days to retain data (default 30)
+          schema:
+            type: integer
+            default: 30
+            minimum: 1
+            maximum: 365
+      responses:
+        '200':
+          description: Successfully cleaned up old data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CleanupResponse'
+        '500':
+          description: Internal server error or database unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    BaseResponse:
+      type: object
+      required:
+        - success
+        - timestamp
+      properties:
+        success:
+          type: boolean
+          description: Whether the request was successful
+        timestamp:
+          type: number
+          description: Unix timestamp of the response
+          
+    ErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - error
+          properties:
+            success:
+              type: boolean
+              enum: [false]
+            error:
+              type: string
+              description: Error message
+            data:
+              type: 'null'
+
+    ExchangesResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            success:
+              type: boolean
+              enum: [true]
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    description: Exchange name
+                  id:
+                    type: string
+                    description: Exchange identifier
+                  type:
+                    type: string
+                    description: Exchange type (ccxt or custom)
+            error:
+              type: 'null'
+
+    Ticker:
+      type: object
+      properties:
+        symbol:
+          type: string
+          description: Trading pair symbol
+        last:
+          type: number
+          description: Last traded price
+        bid:
+          type: number
+          description: Highest bid price
+        ask:
+          type: number
+          description: Lowest ask price
+        high:
+          type: number
+          description: 24h highest price
+        low:
+          type: number
+          description: 24h lowest price
+        volume:
+          type: number
+          description: 24h trading volume
+        change:
+          type: number
+          description: 24h price change
+        percentage:
+          type: number
+          description: 24h price change percentage
+        timestamp:
+          type: number
+          description: Data timestamp
+
+    TickerResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            success:
+              type: boolean
+              enum: [true]
+            data:
+              $ref: '#/components/schemas/Ticker'
+            error:
+              type: 'null'
+
+    TickersResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            success:
+              type: boolean
+              enum: [true]
+            data:
+              type: object
+              properties:
+                exchange:
+                  type: string
+                  description: Exchange name
+                tickers:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Ticker'
+                count:
+                  type: number
+                  description: Number of tickers returned
+            error:
+              type: 'null'
+
+    Market:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Market identifier
+        symbol:
+          type: string
+          description: Trading pair symbol
+        base:
+          type: string
+          description: Base currency
+        quote:
+          type: string
+          description: Quote currency
+        type:
+          type: string
+          description: Market type (spot, swap, future)
+        active:
+          type: boolean
+          description: Whether market is active
+        minAmount:
+          type: number
+          description: Minimum order amount
+        maxAmount:
+          type: number
+          description: Maximum order amount
+
+    MarketsResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            success:
+              type: boolean
+              enum: [true]
+            data:
+              type: object
+              properties:
+                exchange:
+                  type: string
+                  description: Exchange name
+                markets:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Market'
+                count:
+                  type: number
+                  description: Number of markets returned
+            error:
+              type: 'null'
+
+    DataStoreResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            success:
+              type: boolean
+              enum: [true]
+            data:
+              type: object
+              properties:
+                stored:
+                  type: number
+                  description: Number of records stored
+                exchange:
+                  type: string
+                  description: Exchange name
+            error:
+              type: 'null'
+
+    HistoricalDataResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            success:
+              type: boolean
+              enum: [true]
+            data:
+              type: object
+              properties:
+                symbol:
+                  type: string
+                  description: Trading pair symbol
+                records:
+                  type: array
+                  items:
+                    allOf:
+                      - $ref: '#/components/schemas/Ticker'
+                      - type: object
+                        properties:
+                          exchange:
+                            type: string
+                            description: Exchange name
+                          stored_at:
+                            type: string
+                            format: date-time
+                            description: When data was stored
+                count:
+                  type: number
+                  description: Number of records returned
+            error:
+              type: 'null'
+
+    LatestTickerResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            success:
+              type: boolean
+              enum: [true]
+            data:
+              allOf:
+                - $ref: '#/components/schemas/Ticker'
+                - type: object
+                  properties:
+                    exchange:
+                      type: string
+                      description: Exchange name
+                    stored_at:
+                      type: string
+                      format: date-time
+                      description: When data was stored
+            error:
+              type: 'null'
+
+    CleanupResponse:
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          required:
+            - data
+          properties:
+            success:
+              type: boolean
+              enum: [true]
+            data:
+              type: object
+              properties:
+                deleted:
+                  type: number
+                  description: Number of records deleted
+                older_than_days:
+                  type: number
+                  description: Records older than this many days were deleted
+            error:
+              type: 'null'
+
+tags:
+  - name: Exchanges
+    description: Operations related to supported exchanges
+  - name: Tickers
+    description: Real-time ticker data operations
+  - name: Markets
+    description: Market information operations
+  - name: Data Storage
+    description: Optional database operations for historical data
