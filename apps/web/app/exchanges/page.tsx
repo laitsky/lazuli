@@ -3,18 +3,34 @@
  * Shows exchange capabilities and links to their tickers/markets
  */
 
+'use client'
+
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { LazuliAPI } from '@/lib/api-client'
+import type { ExchangeInfo } from '@lazuli/shared'
 
-export const dynamic = 'force-dynamic'
+export default function ExchangesPage() {
+  const [exchanges, setExchanges] = useState<ExchangeInfo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-export default async function ExchangesPage() {
-  const response = await LazuliAPI.getExchanges()
-  const exchanges = response.success ? response.data : []
+  useEffect(() => {
+    async function fetchExchanges() {
+      const response = await LazuliAPI.getExchanges()
+      if (response.success) {
+        setExchanges(response.data)
+      } else {
+        setError(response.error)
+      }
+      setLoading(false)
+    }
+    fetchExchanges()
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -26,18 +42,27 @@ export default async function ExchangesPage() {
         </p>
       </div>
 
+      {/* Loading State */}
+      {loading && (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <p className="text-muted-foreground">Loading exchanges...</p>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Error State */}
-      {!response.success && (
+      {!loading && error && (
         <Card className="border-destructive">
           <CardHeader>
             <CardTitle className="text-destructive">Error Loading Exchanges</CardTitle>
-            <CardDescription>{response.error}</CardDescription>
+            <CardDescription>{error}</CardDescription>
           </CardHeader>
         </Card>
       )}
 
       {/* Exchanges Grid */}
-      {response.success && (
+      {!loading && !error && (
         <>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-2">
             {exchanges.map((exchange) => (
@@ -71,15 +96,17 @@ export default async function ExchangesPage() {
 
                   {/* Actions */}
                   <div className="flex space-x-2">
-                    <Link href={`/tickers?exchange=${exchange.id}`} className="flex-1">
-                      <Button variant="default" className="w-full">
-                        View Tickers
-                      </Button>
+                    <Link
+                      href={`/tickers?exchange=${exchange.id}`}
+                      className="flex-1 inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+                    >
+                      View Tickers
                     </Link>
-                    <Link href={`/markets?exchange=${exchange.id}`} className="flex-1">
-                      <Button variant="outline" className="w-full">
-                        View Markets
-                      </Button>
+                    <Link
+                      href={`/markets?exchange=${exchange.id}`}
+                      className="flex-1 inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                    >
+                      View Markets
                     </Link>
                   </div>
                 </CardContent>
