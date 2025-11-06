@@ -85,13 +85,12 @@ export default async function HomePage() {
                   {exchange.hasSpot && <Badge>Spot</Badge>}
                   {exchange.hasPerp && <Badge variant="secondary">Perp</Badge>}
                 </div>
-                <div className="flex space-x-2">
-                  <Link href={`/tickers?exchange=${exchange.id}`}>
-                    <Button size="sm" variant="outline" className="w-full">
-                      View Tickers
-                    </Button>
-                  </Link>
-                </div>
+                <Link
+                  href={`/tickers?exchange=${exchange.id}`}
+                  className="w-full inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-medium border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                >
+                  View Tickers
+                </Link>
               </CardContent>
             </Card>
           ))}
@@ -108,8 +107,11 @@ export default async function HomePage() {
               <CardDescription>View all supported cryptocurrency exchanges</CardDescription>
             </CardHeader>
             <CardContent>
-              <Link href="/exchanges">
-                <Button className="w-full">View Exchanges</Button>
+              <Link
+                href="/exchanges"
+                className="w-full inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+              >
+                View Exchanges
               </Link>
             </CardContent>
           </Card>
@@ -120,8 +122,11 @@ export default async function HomePage() {
               <CardDescription>Real-time price data and market information</CardDescription>
             </CardHeader>
             <CardContent>
-              <Link href="/tickers">
-                <Button className="w-full">View Tickers</Button>
+              <Link
+                href="/tickers"
+                className="w-full inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+              >
+                View Tickers
               </Link>
             </CardContent>
           </Card>
@@ -132,8 +137,11 @@ export default async function HomePage() {
               <CardDescription>Browse available trading pairs and markets</CardDescription>
             </CardHeader>
             <CardContent>
-              <Link href="/markets">
-                <Button className="w-full">View Markets</Button>
+              <Link
+                href="/markets"
+                className="w-full inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+              >
+                View Markets
               </Link>
             </CardContent>
           </Card>

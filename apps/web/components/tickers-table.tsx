@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Ticker } from '@/lib/types'
+import { Ticker } from '@lazuli/shared'
 import { formatCurrency, formatPercentage, formatVolume, getChangeColor } from '@/lib/api-client'
 
 interface TickersTableProps {

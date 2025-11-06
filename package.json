@@ -1,33 +1,38 @@
 {
   "name": "lazuli",
   "version": "1.0.0",
-  "main": "dist/index.js",
+  "description": "Full-stack cryptocurrency trading tool with real-time data",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "nodemon --exec tsx src/index.ts",
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "lint": "tsc --noEmit",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "npm run dev --workspace=@lazuli/api",
+    "dev:api": "npm run dev --workspace=@lazuli/api",
+    "dev:web": "npm run dev --workspace=@lazuli/web",
+    "dev:all": "npm run dev:api & npm run dev:web",
+    "build": "npm run build --workspaces --if-present",
+    "build:api": "npm run build --workspace=@lazuli/api",
+    "build:web": "npm run build --workspace=@lazuli/web",
+    "lint": "npm run lint --workspaces --if-present",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/.next apps/*/dist"
   },
-  "keywords": [],
+  "keywords": [
+    "cryptocurrency",
+    "trading",
+    "api",
+    "nextjs",
+    "monorepo",
+    "binance",
+    "bybit",
+    "okx",
+    "hyperliquid"
+  ],
   "author": "",
   "license": "ISC",
-  "description": "",
-  "devDependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.3",
-    "@types/node": "^24.0.4",
-    "nodemon": "^3.1.10",
-    "tsx": "^4.20.3",
-    "typescript": "^5.8.3"
-  },
-  "dependencies": {
-    "@stoplight/elements": "^9.0.2",
-    "@supabase/supabase-js": "^2.50.2",
-    "axios": "^1.10.0",
-    "ccxt": "^4.4.91",
-    "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
-    "express": "^5.1.0"
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   }
 }

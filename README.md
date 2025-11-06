@@ -1,6 +1,6 @@
 # Lazuli - Cryptocurrency Trading Tool
 
-A full-stack application that provides **real-time** cryptocurrency data from multiple exchanges including Binance, Bybit, OKX, and Hyperliquid.
+A modern full-stack monorepo application that provides **real-time** cryptocurrency data from multiple exchanges including Binance, Bybit, OKX, and Hyperliquid.
 
 **🚀 Ready to use immediately** - no database setup required for live trading data!
 
@@ -13,172 +13,115 @@ A full-stack application that provides **real-time** cryptocurrency data from mu
 - 📈 **Spot & Perpetual Markets** - Support for both market types
 - 🎨 **Modern UI** - Built with Shadcn UI and Tailwind CSS
 - 💾 **Optional Database** - PostgreSQL for historical data (optional)
+- 🏗️ **Monorepo Structure** - Industry-standard npm workspaces
 
 ## Project Structure
 
-```
+\`\`\`
 lazuli/
-├── src/              # Backend API (Express.js + TypeScript)
-│   ├── controllers/  # Request handlers
-│   ├── routes/       # API route definitions
-│   ├── services/     # Business logic & exchange integrations
-│   └── types/        # TypeScript type definitions
-├── web/              # Frontend (Next.js 15 + Shadcn UI)
-│   ├── app/          # Next.js pages (Dashboard, Exchanges, Tickers, Markets)
-│   ├── components/   # React components
-│   └── lib/          # API client & utilities
-└── package.json      # Backend dependencies
-```
+├── apps/
+│   ├── api/              # Backend REST API (Express.js + TypeScript)
+│   │   ├── src/          # Source code
+│   │   ├── .env.example  # Environment template
+│   │   └── package.json  # API dependencies
+│   └── web/              # Frontend (Next.js 16 + Shadcn UI)
+│       ├── app/          # Next.js pages & routes
+│       ├── components/   # React components
+│       ├── lib/          # Utilities & API client
+│       └── package.json  # Web dependencies
+├── packages/
+│   └── shared/           # Shared types between API and Web
+│       └── src/          # TypeScript interfaces
+├── package.json          # Root workspace configuration
+└── README.md             # This file
+\`\`\`
 
 ## Quick Start
 
-### Backend API
+### Prerequisites
 
-1. Install dependencies:
-```bash
+- Node.js >= 18.0.0
+- npm >= 9.0.0
+
+### Installation
+
+1. **Clone and install all dependencies:**
+\`\`\`bash
+git clone <repository-url>
+cd lazuli
 npm install
-```
+\`\`\`
 
-2. Create `.env` file:
-```bash
+This will install dependencies for all workspaces (API, Web, and Shared).
+
+### Running the Applications
+
+**Option 1: Run both applications together**
+\`\`\`bash
+npm run dev:all
+\`\`\`
+
+**Option 2: Run individually**
+
+API only (port 3000):
+\`\`\`bash
+npm run dev:api
+\`\`\`
+
+Web only (port 3001):
+\`\`\`bash
+npm run dev:web
+\`\`\`
+
+### Environment Configuration
+
+**Backend API:**
+\`\`\`bash
+cd apps/api
 cp .env.example .env
-```
+# Edit .env with your configuration
+\`\`\`
 
-3. Run development server:
-```bash
-npm run dev
-```
-
-The API will be available at `http://localhost:3000`
-
-### Web Frontend
-
-1. Navigate to web directory:
-```bash
-cd web
-```
-
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. Create environment file:
-```bash
+**Frontend Web:**
+\`\`\`bash
+cd apps/web
 cp .env.example .env.local
-```
+# Edit .env.local - set NEXT_PUBLIC_API_URL if needed
+\`\`\`
 
-4. Run development server:
-```bash
-npm run dev
-```
+## Available Scripts
 
-The web interface will be available at `http://localhost:3001`
+From the root directory:
 
-**For detailed frontend setup and features, see [web/README.md](web/README.md)**
+| Command | Description |
+|---------|-------------|
+| \`npm run dev\` | Run API in development mode |
+| \`npm run dev:api\` | Run API only |
+| \`npm run dev:web\` | Run Web only |
+| \`npm run dev:all\` | Run both API and Web |
+| \`npm run build\` | Build all workspaces |
+| \`npm run build:api\` | Build API only |
+| \`npm run build:web\` | Build Web only |
+| \`npm run lint\` | Lint all workspaces |
+| \`npm run clean\` | Clean all node_modules and build artifacts |
 
-## API Endpoints
+## Monorepo Architecture
 
-Base URL: `http://localhost:3000/api/v1`
+Lazuli uses **npm workspaces** for monorepo management:
 
-### 🔥 Live Trading Data (No DB Required)
-- `GET /exchanges` - List all supported exchanges
-- `GET /tickers/:exchange` - Get all tickers for an exchange (binance, bybit, okx, hyperliquid)
-- `GET /tickers/:exchange/:symbol` - Get specific ticker data
-- `GET /markets/:exchange` - Get all available markets for an exchange
+- **Shared Types**: Common TypeScript interfaces in \`packages/shared\`
+- **Independent Apps**: Separate \`package.json\` for API and Web
+- **Unified Dependencies**: Shared dependencies hoisted to root
+- **Workspace Commands**: Run scripts across all or specific packages
 
-### 💾 Optional Database Features (Advanced Use Only)
-*Only needed for historical analysis, alerts, or custom features*
-- `POST /data/store/:exchange` - Store live ticker data for an exchange
-- `GET /data/history/:symbol?exchange=X&limit=100` - Get historical ticker data
-- `GET /data/latest/:exchange/:symbol` - Get latest stored ticker for a symbol
-- `POST /data/markets/:exchange` - Store market information for an exchange
-- `DELETE /data/cleanup?days=30` - Clean up old ticker data
+### Benefits
 
-## Example Usage
+- ✅ Type safety across frontend and backend
+- ✅ Single \`npm install\` for entire project
+- ✅ Consistent tooling and versions
+- ✅ Easy to add new packages/apps
+- ✅ Industry-standard structure
 
-### 🚀 Ready to Use (Live Data)
-```bash
-# List exchanges
-curl http://localhost:3000/api/v1/exchanges
+## License
 
-# Get all Binance tickers (live prices)
-curl http://localhost:3000/api/v1/tickers/binance
-
-# Get specific ticker (real-time)
-curl http://localhost:3000/api/v1/tickers/binance/BTC/USDT
-
-# Get Hyperliquid markets
-curl http://localhost:3000/api/v1/markets/hyperliquid
-```
-
-### 💾 Advanced Features (Optional DB Setup Required)
-```bash
-# Store live Binance ticker data
-curl -X POST http://localhost:3000/api/v1/data/store/binance
-
-# Get historical data for BTC/USDT
-curl http://localhost:3000/api/v1/data/history/BTC/USDT?exchange=binance&limit=50
-```
-
-## Database Setup (Optional)
-
-**Only needed if you want to use `/data/*` endpoints for advanced features:**
-
-1. Copy the content of `database-setup.sql` 
-2. Run it in your Supabase SQL Editor (one-time setup)
-3. Start using database endpoints for historical data, alerts, etc.
-
-## Development
-
-### Backend (API)
-- Run development server: `npm run dev` (port 3000)
-- Build for production: `npm run build`
-- Run production build: `npm start`
-- Type checking: `npm run lint`
-
-### Frontend (Web)
-- Run development server: `cd web && npm run dev` (port 3001)
-- Build for production: `cd web && npm run build`
-- Run production build: `cd web && npm start`
-
-## Web Interface Features
-
-The web frontend provides a beautiful interface for:
-
-- **Dashboard** - System status, exchange overview, and quick access
-- **Exchanges** - View all supported exchanges and their capabilities
-- **Live Tickers** - Real-time price data with advanced search and filtering
-- **Markets** - Browse all available trading pairs across exchanges
-
-Key Features:
-- 🔍 Advanced search and filtering
-- 📊 Sortable tables by price, volume, and change
-- 🌙 Dark mode support
-- 📱 Fully responsive design
-- ⚡ Real-time data updates
-- 🎨 Modern UI with Shadcn components
-
-## Documentation
-
-- [CLAUDE.md](CLAUDE.md) - Development guidelines and project philosophy
-- [TODO.md](TODO.md) - Feature roadmap and upcoming features
-- [web/README.md](web/README.md) - Frontend-specific documentation
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture details
-
-## Tech Stack
-
-### Backend
-- **Runtime**: Node.js with TypeScript
-- **Framework**: Express.js
-- **Exchange APIs**: CCXT (Binance, Bybit, OKX) + Hyperliquid REST API
-- **Database**: Supabase (PostgreSQL) - Optional
-- **Documentation**: OpenAPI 3.0 with Stoplight Elements
-
-### Frontend
-- **Framework**: Next.js 15 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS v4
-- **UI Components**: Shadcn UI
-- **Icons**: Lucide React
-- **Deployment**: Static export or Node.js server
+ISC

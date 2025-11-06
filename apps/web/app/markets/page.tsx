@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { LazuliAPI } from '@/lib/api-client'
-import { Market, ExchangeInfo, SupportedExchange } from '@/lib/types'
+import { Market, ExchangeInfo, SupportedExchange } from '@lazuli/shared'
 
 export default function MarketsPage() {
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>([])

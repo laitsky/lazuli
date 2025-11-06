@@ -12,7 +12,7 @@ import {
   MarketsResponse,
   HealthResponse,
   SupportedExchange,
-} from './types'
+} from '@lazuli/shared'
 
 // API base URL - defaults to localhost in development
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'

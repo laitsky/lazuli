@@ -1,6 +1,6 @@
 /**
- * Type definitions matching the Lazuli backend API
- * These types ensure type safety when working with API responses
+ * Shared types and interfaces between API and Web applications
+ * This package provides type safety across the full stack
  */
 
 /**

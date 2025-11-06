@@ -1,27 +1,29 @@
 {
-  "name": "web",
-  "version": "0.1.0",
+  "name": "@lazuli/web",
+  "version": "1.0.0",
+  "description": "Lazuli Web Frontend - Beautiful cryptocurrency trading interface",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "start": "next start -p 3001",
+    "lint": "next lint"
   },
   "dependencies": {
+    "@lazuli/shared": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.552.0",
     "next": "16.0.1",
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
     "tailwindcss": "^4",
