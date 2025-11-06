@@ -22,7 +22,7 @@ export class TickerController {
       const exchangeId = exchange.toLowerCase() as SupportedExchange;
 
       let tickers;
-      
+
       // Route to appropriate service based on exchange type
       switch (exchangeId) {
         case 'binance':
@@ -37,7 +37,14 @@ export class TickerController {
           return errorResponse(res, `Exchange ${exchange} not supported`, 400);
       }
 
-      return successResponse(res, tickers);
+      // Return structured response matching TickersResponse interface
+      const response = {
+        exchange: exchangeId,
+        tickers,
+        count: tickers.length,
+      };
+
+      return successResponse(res, response);
     } catch (error) {
       console.error('Error in getAllTickers:', error);
       return errorResponse(res, `Failed to fetch tickers: ${error}`, 500);
@@ -96,7 +103,7 @@ export class TickerController {
       const exchangeId = exchange.toLowerCase() as SupportedExchange;
 
       let markets;
-      
+
       // Route to appropriate service based on exchange type
       switch (exchangeId) {
         case 'binance':
@@ -111,7 +118,14 @@ export class TickerController {
           return errorResponse(res, `Exchange ${exchange} not supported`, 400);
       }
 
-      return successResponse(res, markets);
+      // Return structured response matching MarketsResponse interface
+      const response = {
+        exchange: exchangeId,
+        markets,
+        count: markets.length,
+      };
+
+      return successResponse(res, response);
     } catch (error) {
       console.error('Error in getMarkets:', error);
       return errorResponse(res, `Failed to fetch markets: ${error}`, 500);
