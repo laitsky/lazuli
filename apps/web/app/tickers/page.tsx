@@ -9,12 +9,53 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { TickersTable } from '@/components/tickers-table'
 import { LazuliAPI } from '@/lib/api-client'
+import { Ticker, SupportedExchange } from '@lazuli/shared'
 import Link from 'next/link'
 
 export const dynamic = 'force-dynamic'
 
 interface TickersPageProps {
   searchParams: Promise<{ exchange?: string }>
+}
+
+/**
+ * Fetch all tickers from all pages without any limit
+ * Continues fetching until all pages are retrieved
+ */
+async function fetchAllTickers(exchange: SupportedExchange) {
+  const allTickers: Ticker[] = []
+  let currentPage = 1
+  let hasMorePages = true
+  const pageLimit = 500 // Maximum allowed by backend
+
+  while (hasMorePages) {
+    const response = await LazuliAPI.getTickers(exchange, {
+      page: currentPage,
+      limit: pageLimit,
+      sortBy: 'volume',
+      sortOrder: 'desc',
+    })
+
+    if (!response.success || !response.data) {
+      // If any page fails, return what we have so far
+      break
+    }
+
+    allTickers.push(...response.data.tickers)
+
+    // Check if there are more pages
+    if (response.data.pagination && response.data.pagination.hasNext) {
+      currentPage++
+    } else {
+      hasMorePages = false
+    }
+  }
+
+  return {
+    exchange,
+    tickers: allTickers,
+    count: allTickers.length,
+  }
 }
 
 export default async function TickersPage({ searchParams }: TickersPageProps) {
@@ -27,19 +68,13 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
     ? (selectedExchange as any)
     : 'binance'
 
-  // Fetch exchanges list and tickers with pagination (limit 500 to get all major tickers)
-  const [exchangesResponse, tickersResponse] = await Promise.all([
+  // Fetch exchanges list and ALL tickers (no limit)
+  const [exchangesResponse, tickersData] = await Promise.all([
     LazuliAPI.getExchanges(),
-    LazuliAPI.getTickers(exchange, {
-      page: 1,
-      limit: 500,
-      sortBy: 'volume',
-      sortOrder: 'desc',
-    }),
+    fetchAllTickers(exchange),
   ])
 
   const exchanges = exchangesResponse.success ? exchangesResponse.data : []
-  const tickersData = tickersResponse.success ? tickersResponse.data : null
 
   return (
     <div className="space-y-6">
@@ -78,18 +113,8 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
         </CardContent>
       </Card>
 
-      {/* Error State */}
-      {!tickersResponse.success && (
-        <Card className="border-destructive">
-          <CardHeader>
-            <CardTitle className="text-destructive">Error Loading Tickers</CardTitle>
-            <CardDescription>{tickersResponse.error}</CardDescription>
-          </CardHeader>
-        </Card>
-      )}
-
       {/* Tickers Data */}
-      {tickersResponse.success && tickersData && (
+      {tickersData && tickersData.tickers.length > 0 && (
         <>
           {/* Stats */}
           <Card>
@@ -98,12 +123,7 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
                 {tickersData.exchange.charAt(0).toUpperCase() + tickersData.exchange.slice(1)} Market Overview
               </CardTitle>
               <CardDescription>
-                Last updated: {new Date().toLocaleTimeString()} •
-                {tickersData.pagination && (
-                  <span className="ml-1">
-                    Showing {tickersData.count} of {tickersData.pagination.total} tickers (sorted by volume)
-                  </span>
-                )}
+                Last updated: {new Date().toLocaleTimeString()} • Showing all {tickersData.count} tickers (sorted by volume)
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -131,6 +151,16 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
           {/* Tickers Table */}
           <TickersTable tickers={tickersData.tickers} exchange={tickersData.exchange} />
         </>
+      )}
+
+      {/* No Data State */}
+      {tickersData && tickersData.tickers.length === 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>No Tickers Available</CardTitle>
+            <CardDescription>No ticker data found for this exchange.</CardDescription>
+          </CardHeader>
+        </Card>
       )}
     </div>
   )
