@@ -1,0 +1,33 @@
+# Bun configuration file
+# https://bun.sh/docs/runtime/bunfig
+
+[install]
+# Configure package installation behavior
+# Use the same lockfile format across all platforms
+lockfile = true
+
+# Install peer dependencies by default
+peer = true
+
+# Prefer offline cache when available
+cache = true
+
+# Store global bins in a standard location
+globalBin = "~/.bun/bin"
+
+[install.scopes]
+# Configure registry scopes if needed
+# "@myorg" = { url = "https://registry.myorg.com" }
+
+[test]
+# Configure test behavior
+coverage = false
+preload = []
+
+[run]
+# Configure runtime behavior
+# Automatically install dependencies when running scripts
+autoInstall = true
+
+# Shell to use for running scripts
+shell = "/bin/bash"
