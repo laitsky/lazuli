@@ -36,13 +36,23 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     // Check if it's a futures contract (contains :)
     if (symbol.includes(':')) {
       const [base, rest] = symbol.split(':')
-      // Check if there's an expiry date (YYMMDD format)
-      const expiryMatch = rest.match(/^([A-Z]+)(\d{6})$/)
+      // Check if there's an expiry date (YYMMDD format) - allow lowercase too
+      const expiryMatch = rest.match(/^([A-Za-z]+)(\d{6})$/)
       if (expiryMatch) {
         return {
           base,
           quote: expiryMatch[1],
           expiry: expiryMatch[2],
+          isFutures: true,
+        }
+      }
+      // Also check for dash/underscore separators (e.g., "USDT-251226" or "USDT_251226")
+      const expiryMatchWithSep = rest.match(/^([A-Za-z]+)[-_](\d{6})$/)
+      if (expiryMatchWithSep) {
+        return {
+          base,
+          quote: expiryMatchWithSep[1],
+          expiry: expiryMatchWithSep[2],
           isFutures: true,
         }
       }
@@ -112,6 +122,33 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
       }
     })
     return Array.from(quotes).sort()
+  }, [tickers])
+
+  // Debug: Log contract type distribution
+  useMemo(() => {
+    const perpCount = tickers.filter(t => t.type === 'perp').length
+    const futuresCount = tickers.filter(t => {
+      const parsed = parseFuturesSymbol(t.symbol)
+      return t.type === 'perp' && (parsed.isFutures || parsed.expiry !== null)
+    }).length
+    const perpetualCount = tickers.filter(t => {
+      const parsed = parseFuturesSymbol(t.symbol)
+      return t.type === 'perp' && !parsed.expiry && !parsed.isFutures
+    }).length
+
+    console.log('[Tickers Debug]', {
+      total: tickers.length,
+      perp: perpCount,
+      futures: futuresCount,
+      perpetual: perpetualCount,
+      sampleFutures: tickers
+        .filter(t => {
+          const parsed = parseFuturesSymbol(t.symbol)
+          return t.type === 'perp' && parsed.isFutures
+        })
+        .slice(0, 3)
+        .map(t => ({ symbol: t.symbol, parsed: parseFuturesSymbol(t.symbol) }))
+    })
   }, [tickers])
 
   // Filter and sort tickers
