@@ -1,83 +1,206 @@
 # Lazuli - Cryptocurrency Trading Tool
 
-A REST API service that provides **real-time** cryptocurrency data from multiple exchanges including Binance, Bybit, OKX, and Hyperliquid.
+A modern full-stack monorepo application that provides **real-time** cryptocurrency data from multiple exchanges including Binance, Bybit, OKX, and Hyperliquid.
 
 **🚀 Ready to use immediately** - no database setup required for live trading data!
 
+## Features
+
+- 📊 **Beautiful Web Interface** - Modern Next.js frontend with real-time data
+- 🔌 **REST API** - Powerful TypeScript backend with Express.js
+- 💱 **Multi-Exchange Support** - Binance, Bybit, OKX, and Hyperliquid
+- 🎯 **Live Trading Data** - Real-time prices, volumes, and market statistics
+- 📈 **Spot & Perpetual Markets** - Support for both market types
+- 🎨 **Modern UI** - Built with Shadcn UI and Tailwind CSS
+- 💾 **Optional Database** - PostgreSQL for historical data (optional)
+- 🏗️ **Monorepo Structure** - Industry-standard npm workspaces
+
+## Project Structure
+
+```
+lazuli/
+├── apps/
+│   ├── api/              # Backend REST API (Express.js + TypeScript)
+│   │   ├── src/          # Source code
+│   │   ├── .env.example  # Environment template
+│   │   └── package.json  # API dependencies
+│   └── web/              # Frontend (Next.js 16 + Shadcn UI)
+│       ├── app/          # Next.js pages & routes
+│       ├── components/   # React components
+│       ├── lib/          # Utilities & API client
+│       └── package.json  # Web dependencies
+├── packages/
+│   └── shared/           # Shared types between API and Web
+│       └── src/          # TypeScript interfaces
+├── package.json          # Root workspace configuration
+└── README.md             # This file
+```
+
 ## Quick Start
 
-1. Install dependencies:
+### Prerequisites
+
+- Node.js >= 18.0.0
+- npm >= 9.0.0
+
+### Installation
+
+1. **Clone and install all dependencies:**
+
 ```bash
+git clone <repository-url>
+cd lazuli
 npm install
 ```
 
-2. Create `.env` file:
+This will install dependencies for all workspaces (API, Web, and Shared).
+
+### Running the Applications
+
+**Option 1: Run both applications together**
+
 ```bash
-cp .env.example .env
+npm run dev:all
 ```
 
-3. Run development server:
+**Option 2: Run individually**
+
+API only (port 3000):
 ```bash
-npm run dev
+npm run dev:api
 ```
+
+Web only (port 3001):
+```bash
+npm run dev:web
+```
+
+### Environment Configuration
+
+**Backend API:**
+```bash
+cd apps/api
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+**Frontend Web:**
+```bash
+cd apps/web
+cp .env.example .env.local
+# Edit .env.local - set NEXT_PUBLIC_API_URL if needed
+```
+
+## Available Scripts
+
+From the root directory:
+
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Run API in development mode |
+| `npm run dev:api` | Run API only |
+| `npm run dev:web` | Run Web only |
+| `npm run dev:all` | Run both API and Web |
+| `npm run build` | Build all workspaces |
+| `npm run build:api` | Build API only |
+| `npm run build:web` | Build Web only |
+| `npm run lint` | Lint all workspaces |
+| `npm run clean` | Clean all node_modules and build artifacts |
 
 ## API Endpoints
 
 Base URL: `http://localhost:3000/api/v1`
 
-### 🔥 Live Trading Data (No DB Required)
+### Core Endpoints (Live Data - No DB Required)
 - `GET /exchanges` - List all supported exchanges
-- `GET /tickers/:exchange` - Get all tickers for an exchange (binance, bybit, okx, hyperliquid)
+- `GET /tickers/:exchange` - Get all tickers for an exchange
 - `GET /tickers/:exchange/:symbol` - Get specific ticker data
-- `GET /markets/:exchange` - Get all available markets for an exchange
+- `GET /markets/:exchange` - Get all available markets
 
-### 💾 Optional Database Features (Advanced Use Only)
-*Only needed for historical analysis, alerts, or custom features*
-- `POST /data/store/:exchange` - Store live ticker data for an exchange
-- `GET /data/history/:symbol?exchange=X&limit=100` - Get historical ticker data
-- `GET /data/latest/:exchange/:symbol` - Get latest stored ticker for a symbol
-- `POST /data/markets/:exchange` - Store market information for an exchange
-- `DELETE /data/cleanup?days=30` - Clean up old ticker data
+### Optional Database Endpoints
+- `POST /data/store/:exchange` - Store live ticker data
+- `GET /data/history/:symbol` - Get historical data
+- `GET /data/latest/:exchange/:symbol` - Get latest stored ticker
+- `DELETE /data/cleanup` - Clean up old data
 
-## Example Usage
+## Web Interface
 
-### 🚀 Ready to Use (Live Data)
-```bash
-# List exchanges
-curl http://localhost:3000/api/v1/exchanges
+Access the web interface at `http://localhost:3001`
 
-# Get all Binance tickers (live prices)
-curl http://localhost:3000/api/v1/tickers/binance
+**Pages:**
+- **/** - Dashboard with system status and exchange overview
+- **/exchanges** - List of all supported exchanges
+- **/tickers** - Live price data with search and filtering
+- **/markets** - Browse all available trading pairs
 
-# Get specific ticker (real-time)
-curl http://localhost:3000/api/v1/tickers/binance/BTC/USDT
+**Features:**
+- 🔍 Advanced search and filtering
+- 📊 Sortable tables by price, volume, and change
+- 🌙 Dark mode support
+- 📱 Fully responsive design
+- ⚡ Real-time data updates
 
-# Get Hyperliquid markets
-curl http://localhost:3000/api/v1/markets/hyperliquid
-```
+## Monorepo Architecture
 
-### 💾 Advanced Features (Optional DB Setup Required)
-```bash
-# Store live Binance ticker data
-curl -X POST http://localhost:3000/api/v1/data/store/binance
+Lazuli uses **npm workspaces** for monorepo management:
 
-# Get historical data for BTC/USDT
-curl http://localhost:3000/api/v1/data/history/BTC/USDT?exchange=binance&limit=50
-```
+- **Shared Types**: Common TypeScript interfaces in `packages/shared`
+- **Independent Apps**: Separate `package.json` for API and Web
+- **Unified Dependencies**: Shared dependencies hoisted to root
+- **Workspace Commands**: Run scripts across all or specific packages
+
+### Benefits
+
+- ✅ Type safety across frontend and backend
+- ✅ Single `npm install` for entire project
+- ✅ Consistent tooling and versions
+- ✅ Easy to add new packages/apps
+- ✅ Industry-standard structure
+
+## Tech Stack
+
+### Backend (apps/api)
+- **Runtime**: Node.js with TypeScript
+- **Framework**: Express.js
+- **Exchange APIs**: CCXT (Binance, Bybit, OKX) + Hyperliquid REST API
+- **Database**: Supabase (PostgreSQL) - Optional
+- **Documentation**: OpenAPI 3.0 with Stoplight Elements
+
+### Frontend (apps/web)
+- **Framework**: Next.js 16 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS v4
+- **UI Components**: Shadcn UI
+- **Icons**: Lucide React
+- **State**: React Hooks
+
+### Shared (packages/shared)
+- TypeScript interfaces
+- API response types
+- Common type definitions
+
+## Development Guidelines
+
+- See [apps/api/CLAUDE.md](apps/api/CLAUDE.md) for backend development guidelines
+- See [apps/web/README.md](apps/web/README.md) for frontend-specific documentation
+- See [apps/api/TODO.md](apps/api/TODO.md) for feature roadmap
 
 ## Database Setup (Optional)
 
-**Only needed if you want to use `/data/*` endpoints for advanced features:**
+**Only needed for advanced features:**
 
-1. Copy the content of `database-setup.sql` 
-2. Run it in your Supabase SQL Editor (one-time setup)
-3. Start using database endpoints for historical data, alerts, etc.
+1. Copy `apps/api/database-setup.sql` content
+2. Run in your Supabase SQL Editor (one-time setup)
+3. Configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `apps/api/.env`
+4. Use `/data/*` endpoints for historical analysis
 
-## Development
+## Contributing
 
-- Run development server: `npm run dev`
-- Build for production: `npm run build`
-- Run production build: `npm start`
-- Type checking: `npm run lint`
+1. Create feature branches
+2. Write descriptive commit messages
+3. Test with `npm run lint` and `npm run build`
+4. Update documentation as needed
 
-See CLAUDE.md for detailed development guidelines and TODO.md for feature roadmap.
+## License
+
+ISC
