@@ -25,15 +25,70 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'spot' | 'perp'>('all')
   const [quoteFilter, setQuoteFilter] = useState<string>('all')
+  const [contractFilter, setContractFilter] = useState<'all' | 'perpetual' | 'futures'>('all')
   const [sortBy, setSortBy] = useState<'symbol' | 'price' | 'change' | 'volume'>('volume')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 50 // Show 50 tickers per page
 
+  // Parse futures contract symbol (e.g., "BTC:USDT251226" -> {base: "BTC", quote: "USDT", expiry: "251226"})
+  const parseFuturesSymbol = (symbol: string) => {
+    // Check if it's a futures contract (contains :)
+    if (symbol.includes(':')) {
+      const [base, rest] = symbol.split(':')
+      // Check if there's an expiry date (YYMMDD format)
+      const expiryMatch = rest.match(/^([A-Z]+)(\d{6})$/)
+      if (expiryMatch) {
+        return {
+          base,
+          quote: expiryMatch[1],
+          expiry: expiryMatch[2],
+          isFutures: true,
+        }
+      }
+      // Perpetual contract (no date)
+      return {
+        base,
+        quote: rest,
+        expiry: null,
+        isFutures: false,
+      }
+    }
+    // Spot market
+    const parts = symbol.split('/')
+    return {
+      base: parts[0] || '',
+      quote: parts[1] || '',
+      expiry: null,
+      isFutures: false,
+    }
+  }
+
+  // Format expiry date (YYMMDD -> readable format)
+  const formatExpiryDate = (expiry: string): string => {
+    if (!expiry || expiry.length !== 6) return ''
+    const year = '20' + expiry.substring(0, 2)
+    const month = expiry.substring(2, 4)
+    const day = expiry.substring(4, 6)
+    const date = new Date(`${year}-${month}-${day}`)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  // Get display symbol (clean format for UI)
+  const getDisplaySymbol = (symbol: string): string => {
+    const parsed = parseFuturesSymbol(symbol)
+    if (parsed.expiry) {
+      // Futures with expiry: "BTC/USDT (Dec 26, 2025)"
+      return `${parsed.base}/${parsed.quote}`
+    }
+    // Perpetual or Spot: show as-is (but replace : with /)
+    return symbol.replace(':', '/')
+  }
+
   // Extract quote currency from symbol (e.g., "BTC/USDT" -> "USDT")
   const getQuoteCurrency = (symbol: string): string => {
-    const parts = symbol.split('/')
-    return parts.length > 1 ? parts[1] : ''
+    const parsed = parseFuturesSymbol(symbol)
+    return parsed.quote
   }
 
   // Normalize quote currency to group stablecoins
@@ -73,7 +128,18 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
         matchesQuote = normalizedTickerQuote === quoteFilter
       }
 
-      return matchesSearch && matchesType && matchesQuote
+      // Contract type filter (perpetual vs futures)
+      let matchesContract = true
+      if (contractFilter !== 'all') {
+        const parsed = parseFuturesSymbol(ticker.symbol)
+        if (contractFilter === 'perpetual') {
+          matchesContract = !parsed.expiry && !parsed.isFutures
+        } else if (contractFilter === 'futures') {
+          matchesContract = parsed.isFutures || parsed.expiry !== null
+        }
+      }
+
+      return matchesSearch && matchesType && matchesQuote && matchesContract
     })
 
     // Sort tickers
@@ -112,7 +178,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     })
 
     return filtered
-  }, [tickers, searchQuery, typeFilter, quoteFilter, sortBy, sortOrder])
+  }, [tickers, searchQuery, typeFilter, quoteFilter, contractFilter, sortBy, sortOrder])
 
   const toggleSort = (column: typeof sortBy) => {
     if (sortBy === column) {
@@ -137,6 +203,11 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
 
   const handleQuoteFilterChange = (quote: string) => {
     setQuoteFilter(quote)
+    setCurrentPage(1)
+  }
+
+  const handleContractFilterChange = (contract: 'all' | 'perpetual' | 'futures') => {
+    setContractFilter(contract)
     setCurrentPage(1)
   }
 
@@ -262,6 +333,42 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
             </div>
           </div>
 
+          {/* Contract Type Filter (for perpetual markets) */}
+          {typeFilter === 'perp' && (
+            <div>
+              <p className="text-sm font-medium mb-2">Contract Type</p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={contractFilter === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleContractFilterChange('all')}
+                >
+                  All
+                </Button>
+                <Button
+                  variant={contractFilter === 'perpetual' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleContractFilterChange('perpetual')}
+                >
+                  Perpetual ({tickers.filter(t => {
+                    const parsed = parseFuturesSymbol(t.symbol)
+                    return t.type === 'perp' && !parsed.expiry && !parsed.isFutures
+                  }).length})
+                </Button>
+                <Button
+                  variant={contractFilter === 'futures' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleContractFilterChange('futures')}
+                >
+                  Futures ({tickers.filter(t => {
+                    const parsed = parseFuturesSymbol(t.symbol)
+                    return t.type === 'perp' && (parsed.isFutures || parsed.expiry !== null)
+                  }).length})
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Results Count */}
           <p className="text-sm text-muted-foreground">
             Showing {startIndex + 1}-{Math.min(endIndex, filteredTickers.length)} of {filteredTickers.length} tickers
@@ -309,14 +416,40 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {paginatedTickers.map((ticker) => (
-                      <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
-                        <TableCell className="font-medium">{ticker.symbol}</TableCell>
-                        <TableCell>
-                          <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
-                            {ticker.type}
-                          </Badge>
-                        </TableCell>
+                    {paginatedTickers.map((ticker) => {
+                      const parsed = parseFuturesSymbol(ticker.symbol)
+                      const displaySymbol = getDisplaySymbol(ticker.symbol)
+                      const expiryDate = parsed.expiry ? formatExpiryDate(parsed.expiry) : null
+
+                      return (
+                        <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
+                          <TableCell className="font-medium">
+                            <div className="flex flex-col">
+                              <span>{displaySymbol}</span>
+                              {expiryDate && (
+                                <span className="text-xs text-muted-foreground">
+                                  Exp: {expiryDate}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
+                                {ticker.type}
+                              </Badge>
+                              {ticker.type === 'perp' && parsed.isFutures && (
+                                <Badge variant="outline" className="text-xs">
+                                  Futures
+                                </Badge>
+                              )}
+                              {ticker.type === 'perp' && !parsed.isFutures && !parsed.expiry && (
+                                <Badge variant="outline" className="text-xs">
+                                  Perpetual
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
                         <TableCell className="text-right font-mono">
                           {formatCurrency(ticker.last)}
                         </TableCell>
