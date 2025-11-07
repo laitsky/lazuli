@@ -4,23 +4,28 @@ import { Ticker, Market } from '../types';
 /**
  * Database service for managing ticker and market data
  * Provides programmatic access to store and retrieve trading data
- * 
+ *
  * NOTE: Database features are OPTIONAL - only use if you need:
  * - Historical data storage
  * - Price alerts
  * - Arbitrage tracking
  * - Custom analytics
- * 
+ *
  * For live trading data, use the direct exchange endpoints instead.
  */
 export class DatabaseService {
-  
+
   /**
    * Store ticker data in the database
    * @param ticker - Ticker object to store
    * @returns Promise<boolean> - True if successful
    */
   async storeTicker(ticker: Ticker): Promise<boolean> {
+    if (!supabase) {
+      console.warn('Database not configured - skipping ticker storage');
+      return false;
+    }
+
     try {
       const { error } = await supabase.from('tickers').insert({
         symbol: ticker.symbol,
@@ -57,6 +62,11 @@ export class DatabaseService {
    * @returns Promise<number> - Number of successfully stored tickers
    */
   async storeTickers(tickers: Ticker[]): Promise<number> {
+    if (!supabase) {
+      console.warn('Database not configured - skipping tickers batch storage');
+      return 0;
+    }
+
     try {
       const tickerData = tickers.map(ticker => ({
         symbol: ticker.symbol,
@@ -96,6 +106,11 @@ export class DatabaseService {
    * @returns Promise<boolean> - True if successful
    */
   async storeMarket(market: Market): Promise<boolean> {
+    if (!supabase) {
+      console.warn('Database not configured - skipping market storage');
+      return false;
+    }
+
     try {
       const { error } = await supabase.from('markets').upsert({
         id: market.id,
@@ -125,6 +140,11 @@ export class DatabaseService {
    * @returns Promise<number> - Number of successfully stored markets
    */
   async storeMarkets(markets: Market[]): Promise<number> {
+    if (!supabase) {
+      console.warn('Database not configured - skipping markets batch storage');
+      return 0;
+    }
+
     try {
       const marketData = markets.map(market => ({
         id: market.id,
@@ -159,6 +179,11 @@ export class DatabaseService {
    * @returns Promise<Ticker[]> - Array of historical tickers
    */
   async getHistoricalTickers(symbol: string, exchange?: string, limit = 100): Promise<Ticker[]> {
+    if (!supabase) {
+      console.warn('Database not configured - cannot fetch historical tickers');
+      return [];
+    }
+
     try {
       let query = supabase
         .from('tickers')
@@ -209,6 +234,11 @@ export class DatabaseService {
    * @returns Promise<Ticker | null> - Latest ticker or null
    */
   async getLatestTicker(symbol: string, exchange: string): Promise<Ticker | null> {
+    if (!supabase) {
+      console.warn('Database not configured - cannot fetch latest ticker');
+      return null;
+    }
+
     try {
       const { data, error } = await supabase
         .from('tickers')
@@ -252,6 +282,11 @@ export class DatabaseService {
    * @returns Promise<number> - Number of records deleted
    */
   async cleanupOldTickers(daysToKeep = 30): Promise<number> {
+    if (!supabase) {
+      console.warn('Database not configured - cannot cleanup old tickers');
+      return 0;
+    }
+
     try {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);

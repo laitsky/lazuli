@@ -26,9 +26,14 @@ export async function runMigrations(): Promise<boolean> {
  * @returns Promise<boolean> - True if all required tables exist
  */
 export async function checkTablesExist(): Promise<boolean> {
+  // If Supabase is not configured, skip table check
+  if (!supabase) {
+    return false;
+  }
+
   try {
     const requiredTables = ['tickers', 'markets', 'price_alerts', 'arbitrage_opportunities'];
-    
+
     for (const table of requiredTables) {
       const { error } = await supabase.from(table).select('*').limit(1);
       
