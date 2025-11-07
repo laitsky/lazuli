@@ -39,7 +39,10 @@ export default function MarketsPage() {
     async function loadMarkets() {
       setLoading(true)
       setError(null)
-      const response = await LazuliAPI.getMarkets(selectedExchange)
+      const response = await LazuliAPI.getMarkets(selectedExchange, {
+        page: 1,
+        limit: 100,
+      })
       if (response.success) {
         setMarkets(response.data.markets)
       } else {

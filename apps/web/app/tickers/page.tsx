@@ -27,10 +27,15 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
     ? (selectedExchange as any)
     : 'binance'
 
-  // Fetch exchanges list and tickers
+  // Fetch exchanges list and tickers with pagination (limit 50 for better performance)
   const [exchangesResponse, tickersResponse] = await Promise.all([
     LazuliAPI.getExchanges(),
-    LazuliAPI.getTickers(exchange),
+    LazuliAPI.getTickers(exchange, {
+      page: 1,
+      limit: 50,
+      sortBy: 'volume',
+      sortOrder: 'desc',
+    }),
   ])
 
   const exchanges = exchangesResponse.success ? exchangesResponse.data : []
@@ -93,7 +98,12 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
                 {tickersData.exchange.charAt(0).toUpperCase() + tickersData.exchange.slice(1)} Market Overview
               </CardTitle>
               <CardDescription>
-                Last updated: {new Date().toLocaleTimeString()}
+                Last updated: {new Date().toLocaleTimeString()} •
+                {tickersData.pagination && (
+                  <span className="ml-1">
+                    Showing {tickersData.count} of {tickersData.pagination.total} tickers (sorted by volume)
+                  </span>
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent>

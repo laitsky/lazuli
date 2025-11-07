@@ -1,8 +1,9 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { hyperliquidService } from '../services/hyperliquidService';
+import { cacheService } from '../services/cacheService';
 import { successResponse, errorResponse } from '../utils/response';
-import { SupportedExchange } from '../types';
+import { SupportedExchange, Ticker, PaginationMeta } from '@lazuli/shared';
 
 /**
  * Controller for ticker and market data endpoints
@@ -10,10 +11,19 @@ import { SupportedExchange } from '../types';
  */
 export class TickerController {
   /**
-   * Get all ticker data for a specific exchange
-   * @param req - Express request with exchange parameter
+   * Get all ticker data for a specific exchange with pagination and filtering
+   *
+   * Query parameters:
+   * - page: Page number (default: 1)
+   * - limit: Items per page (default: 100, max: 500)
+   * - type: Filter by market type ('spot' or 'perp')
+   * - search: Search by symbol (case-insensitive)
+   * - sortBy: Sort field ('volume', 'price', 'change', default: 'volume')
+   * - sortOrder: Sort order ('asc' or 'desc', default: 'desc')
+   *
+   * @param req - Express request with exchange parameter and query params
    * @param res - Express response object
-   * @returns Response with array of all tickers for the exchange
+   * @returns Response with paginated and filtered tickers
    */
   async getAllTickers(req: Request, res: Response): Promise<Response> {
     try {
@@ -21,27 +31,93 @@ export class TickerController {
       const { exchange } = req.params;
       const exchangeId = exchange.toLowerCase() as SupportedExchange;
 
-      let tickers;
-
-      // Route to appropriate service based on exchange type
-      switch (exchangeId) {
-        case 'binance':
-        case 'bybit':
-        case 'okx':
-          tickers = await ccxtService.getAllTickers(exchangeId);
-          break;
-        case 'hyperliquid':
-          tickers = await hyperliquidService.getAllTickers();
-          break;
-        default:
-          return errorResponse(res, `Exchange ${exchange} not supported`, 400);
+      // Validate exchange
+      if (!['binance', 'bybit', 'okx', 'hyperliquid'].includes(exchangeId)) {
+        return errorResponse(res, `Exchange ${exchange} not supported`, 400);
       }
+
+      // Parse query parameters with defaults
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 100));
+      const typeFilter = req.query.type as 'spot' | 'perp' | undefined;
+      const searchQuery = (req.query.search as string)?.toLowerCase().trim();
+      const sortBy = (req.query.sortBy as string) || 'volume';
+      const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
+
+      // Try to get tickers from cache first (30 second TTL)
+      const cacheKey = `tickers:${exchangeId}`;
+      let allTickers = cacheService.get<Ticker[]>(cacheKey);
+
+      // If not cached, fetch from exchange
+      if (!allTickers) {
+        console.log(`Cache miss for ${cacheKey}, fetching from exchange...`);
+
+        switch (exchangeId) {
+          case 'binance':
+          case 'bybit':
+          case 'okx':
+            allTickers = await ccxtService.getAllTickers(exchangeId);
+            break;
+          case 'hyperliquid':
+            allTickers = await hyperliquidService.getAllTickers();
+            break;
+        }
+
+        // Cache the results for 30 seconds
+        cacheService.set(cacheKey, allTickers, 30000);
+      } else {
+        console.log(`Cache hit for ${cacheKey}`);
+      }
+
+      // Apply filters
+      let filteredTickers = allTickers;
+
+      // Filter by type (spot/perp)
+      if (typeFilter && (typeFilter === 'spot' || typeFilter === 'perp')) {
+        filteredTickers = filteredTickers.filter(t => t.type === typeFilter);
+      }
+
+      // Filter by search query (symbol)
+      if (searchQuery) {
+        filteredTickers = filteredTickers.filter(t =>
+          t.symbol.toLowerCase().includes(searchQuery)
+        );
+      }
+
+      // Apply sorting
+      filteredTickers = this.sortTickers(filteredTickers, sortBy, sortOrder);
+
+      // Calculate pagination
+      const total = filteredTickers.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+
+      // Get paginated slice
+      const paginatedTickers = filteredTickers.slice(startIndex, endIndex);
+
+      // Build pagination metadata
+      const pagination: PaginationMeta = {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      };
 
       // Return structured response matching TickersResponse interface
       const response = {
         exchange: exchangeId,
-        tickers,
-        count: tickers.length,
+        tickers: paginatedTickers,
+        count: paginatedTickers.length,
+        pagination,
+        filters: {
+          type: typeFilter,
+          search: searchQuery,
+          sortBy,
+          sortOrder,
+        },
       };
 
       return successResponse(res, response);
@@ -49,6 +125,47 @@ export class TickerController {
       console.error('Error in getAllTickers:', error);
       return errorResponse(res, `Failed to fetch tickers: ${error}`, 500);
     }
+  }
+
+  /**
+   * Sort tickers by specified field and order
+   * @param tickers - Array of tickers to sort
+   * @param sortBy - Field to sort by
+   * @param sortOrder - Sort order (asc/desc)
+   * @returns Sorted array of tickers
+   */
+  private sortTickers(tickers: Ticker[], sortBy: string, sortOrder: 'asc' | 'desc'): Ticker[] {
+    const sorted = [...tickers].sort((a, b) => {
+      let aValue: number | null = null;
+      let bValue: number | null = null;
+
+      switch (sortBy) {
+        case 'volume':
+          aValue = a.volume24h;
+          bValue = b.volume24h;
+          break;
+        case 'price':
+          aValue = a.last;
+          bValue = b.last;
+          break;
+        case 'change':
+          aValue = a.percentage24h;
+          bValue = b.percentage24h;
+          break;
+        default:
+          aValue = a.volume24h;
+          bValue = b.volume24h;
+      }
+
+      // Handle null values (put them at the end)
+      if (aValue === null && bValue === null) return 0;
+      if (aValue === null) return 1;
+      if (bValue === null) return -1;
+
+      return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
+    });
+
+    return sorted;
   }
 
   /**
@@ -91,10 +208,18 @@ export class TickerController {
   }
 
   /**
-   * Get all available markets (trading pairs) for an exchange
-   * @param req - Express request with exchange parameter
+   * Get all available markets (trading pairs) for an exchange with pagination and filtering
+   *
+   * Query parameters:
+   * - page: Page number (default: 1)
+   * - limit: Items per page (default: 100, max: 500)
+   * - type: Filter by market type ('spot' or 'perp')
+   * - search: Search by symbol (case-insensitive)
+   * - active: Filter by active status (true/false)
+   *
+   * @param req - Express request with exchange parameter and query params
    * @param res - Express response object
-   * @returns Response with array of market information
+   * @returns Response with paginated and filtered markets
    */
   async getMarkets(req: Request, res: Response): Promise<Response> {
     try {
@@ -102,27 +227,93 @@ export class TickerController {
       const { exchange } = req.params;
       const exchangeId = exchange.toLowerCase() as SupportedExchange;
 
-      let markets;
-
-      // Route to appropriate service based on exchange type
-      switch (exchangeId) {
-        case 'binance':
-        case 'bybit':
-        case 'okx':
-          markets = await ccxtService.getMarkets(exchangeId);
-          break;
-        case 'hyperliquid':
-          markets = await hyperliquidService.getMarkets();
-          break;
-        default:
-          return errorResponse(res, `Exchange ${exchange} not supported`, 400);
+      // Validate exchange
+      if (!['binance', 'bybit', 'okx', 'hyperliquid'].includes(exchangeId)) {
+        return errorResponse(res, `Exchange ${exchange} not supported`, 400);
       }
+
+      // Parse query parameters with defaults
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 100));
+      const typeFilter = req.query.type as 'spot' | 'perp' | undefined;
+      const searchQuery = (req.query.search as string)?.toLowerCase().trim();
+      const activeFilter = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
+
+      // Try to get markets from cache first (5 minute TTL, markets don't change often)
+      const cacheKey = `markets:${exchangeId}`;
+      let allMarkets = cacheService.get<any[]>(cacheKey);
+
+      // If not cached, fetch from exchange
+      if (!allMarkets) {
+        console.log(`Cache miss for ${cacheKey}, fetching from exchange...`);
+
+        switch (exchangeId) {
+          case 'binance':
+          case 'bybit':
+          case 'okx':
+            allMarkets = await ccxtService.getMarkets(exchangeId);
+            break;
+          case 'hyperliquid':
+            allMarkets = await hyperliquidService.getMarkets();
+            break;
+        }
+
+        // Cache the results for 5 minutes (markets don't change frequently)
+        cacheService.set(cacheKey, allMarkets, 300000);
+      } else {
+        console.log(`Cache hit for ${cacheKey}`);
+      }
+
+      // Apply filters
+      let filteredMarkets = allMarkets;
+
+      // Filter by type (spot/perp)
+      if (typeFilter && (typeFilter === 'spot' || typeFilter === 'perp')) {
+        filteredMarkets = filteredMarkets.filter(m => m.type === typeFilter);
+      }
+
+      // Filter by active status
+      if (activeFilter !== undefined) {
+        filteredMarkets = filteredMarkets.filter(m => m.active === activeFilter);
+      }
+
+      // Filter by search query (symbol)
+      if (searchQuery) {
+        filteredMarkets = filteredMarkets.filter(m =>
+          m.symbol.toLowerCase().includes(searchQuery)
+        );
+      }
+
+      // Calculate pagination
+      const total = filteredMarkets.length;
+      const totalPages = Math.ceil(total / limit);
+      const startIndex = (page - 1) * limit;
+      const endIndex = startIndex + limit;
+
+      // Get paginated slice
+      const paginatedMarkets = filteredMarkets.slice(startIndex, endIndex);
+
+      // Build pagination metadata
+      const pagination: PaginationMeta = {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      };
 
       // Return structured response matching MarketsResponse interface
       const response = {
         exchange: exchangeId,
-        markets,
-        count: markets.length,
+        markets: paginatedMarkets,
+        count: paginatedMarkets.length,
+        pagination,
+        filters: {
+          type: typeFilter,
+          search: searchQuery,
+          active: activeFilter,
+        },
       };
 
       return successResponse(res, response);

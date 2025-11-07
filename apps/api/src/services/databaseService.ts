@@ -1,4 +1,4 @@
-import { supabase, isSupabaseAvailable } from '../utils/supabase';
+import { supabase } from '../utils/supabase';
 import { Ticker, Market } from '../types';
 
 /**
