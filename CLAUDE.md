@@ -6,39 +6,69 @@ Lazuli is a cryptocurrency trading tool that provides **real-time** data from mu
 **Core Philosophy**: Prioritize live data from exchanges directly. Database features are optional for advanced use cases only.
 
 ## Architecture
+- **Runtime**: Bun - Fast JavaScript runtime with built-in TypeScript support
+- **Monorepo**: Turborepo for efficient multi-package builds
 - **Language**: TypeScript with strict type checking
-- **Framework**: Express.js REST API
+- **API Framework**: Express.js REST API
+- **Web Framework**: Next.js with React
 - **Primary Data**: Live exchange APIs (CCXT + Hyperliquid)
 - **Database**: Supabase (PostgreSQL) - **OPTIONAL** for advanced features
 - **Exchanges**: CCXT (Binance, Bybit, OKX) + Hyperliquid
-- **Future**: May expand to web interface or Telegram bot
 
 ## Development Workflow
 
 ### Running the Project
 ```bash
-# Development mode with hot reload
-npm run dev
+# Install dependencies (first time only)
+bun install
 
-# Build for production
-npm run build
+# Development mode with hot reload (all apps)
+bun run dev
 
-# Run production build
-npm start
+# Development mode for specific app
+bun run dev:api    # API server only
+bun run dev:web    # Web frontend only
+
+# Build for production (all apps)
+bun run build
+
+# Build specific app
+bun run build:api  # API server only
+bun run build:web  # Web frontend only
 
 # Type checking
-npm run lint
+bun run type-check
+
+# Linting
+bun run lint
+
+# Format code
+bun run format
 ```
 
 ### Project Structure
 ```
-src/
-├── index.ts          # Express server entry point
-├── routes/           # API route definitions
-├── controllers/      # Request handlers
-├── services/         # Business logic and external integrations
-├── types/            # TypeScript type definitions
-└── utils/            # Helper functions
+lazuli/                      # Monorepo root
+├── apps/
+│   ├── api/                # Express.js REST API
+│   │   ├── src/
+│   │   │   ├── index.ts    # Server entry point
+│   │   │   ├── routes/     # API route definitions
+│   │   │   ├── controllers/# Request handlers
+│   │   │   ├── services/   # Business logic & exchange integrations
+│   │   │   └── types/      # TypeScript type definitions
+│   │   └── package.json
+│   └── web/                # Next.js web frontend
+│       ├── src/
+│       │   ├── app/        # Next.js app router
+│       │   └── components/ # React components
+│       └── package.json
+├── packages/
+│   └── shared/             # Shared TypeScript types and utilities
+│       └── src/
+├── bunfig.toml             # Bun configuration
+├── turbo.json              # Turborepo configuration
+└── package.json            # Root workspace configuration
 ```
 
 ### Code Standards
@@ -79,10 +109,20 @@ SUPABASE_ANON_KEY=your_supabase_anon_key_here
 - **Health Check**: `/health` endpoint includes optional database status
 - **Setup**: Only required if using `/data/*` endpoints
 
+### Bun Runtime Features
+- **Native TypeScript**: Run `.ts` files directly without transpilation
+- **Fast Installation**: Up to 25x faster than npm for package installation
+- **Built-in Watch Mode**: `bun --watch` for hot reload during development
+- **Performance**: Optimized JavaScript runtime built on JavaScriptCore
+- **Compatibility**: Drop-in replacement for Node.js with `bun --bun` flag
+- **Workspaces**: Full support for monorepo workspaces
+
 ### Testing Commands
 Always run these before committing:
 ```bash
-npm run lint
+bun run lint
+bun run type-check
+bun run format:check
 ```
 
 ### API Endpoints Structure

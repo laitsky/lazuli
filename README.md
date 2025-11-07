@@ -13,7 +13,8 @@ A modern full-stack monorepo application that provides **real-time** cryptocurre
 - 📈 **Spot & Perpetual Markets** - Support for both market types
 - 🎨 **Modern UI** - Built with Shadcn UI and Tailwind CSS
 - 💾 **Optional Database** - PostgreSQL for historical data (optional)
-- 🏗️ **Monorepo Structure** - Industry-standard npm workspaces
+- 🏗️ **Monorepo Structure** - Industry-standard Turborepo with Bun
+- ⚡ **Fast Runtime** - Built with Bun for maximum performance
 
 ## Project Structure
 
@@ -40,8 +41,7 @@ lazuli/
 
 ### Prerequisites
 
-- Node.js >= 18.0.0
-- npm >= 9.0.0
+- Bun >= 1.0.0 (Install from https://bun.sh)
 
 ### Installation
 
@@ -50,29 +50,29 @@ lazuli/
 ```bash
 git clone <repository-url>
 cd lazuli
-npm install
+bun install
 ```
 
-This will install dependencies for all workspaces (API, Web, and Shared).
+This will install dependencies for all workspaces (API, Web, and Shared) using Bun's fast package manager.
 
 ### Running the Applications
 
 **Option 1: Run both applications together**
 
 ```bash
-npm run dev:all
+bun run dev
 ```
 
 **Option 2: Run individually**
 
 API only (port 3000):
 ```bash
-npm run dev:api
+bun run dev:api
 ```
 
 Web only (port 3001):
 ```bash
-npm run dev:web
+bun run dev:web
 ```
 
 ### Environment Configuration
@@ -97,15 +97,16 @@ From the root directory:
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Run API in development mode |
-| `npm run dev:api` | Run API only |
-| `npm run dev:web` | Run Web only |
-| `npm run dev:all` | Run both API and Web |
-| `npm run build` | Build all workspaces |
-| `npm run build:api` | Build API only |
-| `npm run build:web` | Build Web only |
-| `npm run lint` | Lint all workspaces |
-| `npm run clean` | Clean all node_modules and build artifacts |
+| `bun run dev` | Run both API and Web in development mode |
+| `bun run dev:api` | Run API only |
+| `bun run dev:web` | Run Web only |
+| `bun run build` | Build all workspaces |
+| `bun run build:api` | Build API only |
+| `bun run build:web` | Build Web only |
+| `bun run lint` | Lint all workspaces |
+| `bun run type-check` | Type check all workspaces |
+| `bun run format` | Format all code |
+| `bun run clean` | Clean all build artifacts |
 
 ## API Endpoints
 
@@ -142,17 +143,20 @@ Access the web interface at `http://localhost:3001`
 
 ## Monorepo Architecture
 
-Lazuli uses **npm workspaces** for monorepo management:
+Lazuli uses **Turborepo** with **Bun workspaces** for monorepo management:
 
+- **Fast Builds**: Turborepo's intelligent caching and task orchestration
 - **Shared Types**: Common TypeScript interfaces in `packages/shared`
 - **Independent Apps**: Separate `package.json` for API and Web
 - **Unified Dependencies**: Shared dependencies hoisted to root
-- **Workspace Commands**: Run scripts across all or specific packages
+- **Parallel Execution**: Run tasks across workspaces simultaneously
 
 ### Benefits
 
+- ⚡ Lightning-fast package installation with Bun (up to 25x faster)
 - ✅ Type safety across frontend and backend
-- ✅ Single `npm install` for entire project
+- ✅ Single `bun install` for entire project
+- 🚀 Parallel builds and incremental caching with Turborepo
 - ✅ Consistent tooling and versions
 - ✅ Easy to add new packages/apps
 - ✅ Industry-standard structure
@@ -160,11 +164,12 @@ Lazuli uses **npm workspaces** for monorepo management:
 ## Tech Stack
 
 ### Backend (apps/api)
-- **Runtime**: Node.js with TypeScript
+- **Runtime**: Bun with native TypeScript support
 - **Framework**: Express.js
 - **Exchange APIs**: CCXT (Binance, Bybit, OKX) + Hyperliquid REST API
 - **Database**: Supabase (PostgreSQL) - Optional
 - **Documentation**: OpenAPI 3.0 with Stoplight Elements
+- **Dev Mode**: Built-in watch mode with `bun --watch`
 
 ### Frontend (apps/web)
 - **Framework**: Next.js 16 (App Router)
@@ -194,11 +199,27 @@ Lazuli uses **npm workspaces** for monorepo management:
 3. Configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `apps/api/.env`
 4. Use `/data/*` endpoints for historical analysis
 
+## Why Bun?
+
+Lazuli has migrated from Node.js/npm to Bun for significant performance improvements:
+
+- ⚡ **25x faster** package installation compared to npm
+- 🚀 **Native TypeScript** support - no need for tsx, ts-node, or build steps in development
+- 🔥 **Built-in watch mode** - faster hot reload with `bun --watch`
+- 📦 **Drop-in replacement** - compatible with Node.js packages and APIs
+- 💾 **Lower memory usage** - more efficient runtime
+- 🛠️ **All-in-one tool** - package manager, bundler, and runtime combined
+
+To migrate from npm to Bun:
+1. Install Bun: `curl -fsSL https://bun.sh/install | bash`
+2. Remove `node_modules` and `package-lock.json`
+3. Run `bun install` to generate `bun.lockb`
+
 ## Contributing
 
 1. Create feature branches
 2. Write descriptive commit messages
-3. Test with `npm run lint` and `npm run build`
+3. Test with `bun run lint`, `bun run type-check`, and `bun run build`
 4. Update documentation as needed
 
 ## License
