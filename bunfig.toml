@@ -29,5 +29,5 @@ preload = []
 # Automatically install dependencies when running scripts
 autoInstall = true
 
-# Shell to use for running scripts
-shell = "/bin/bash"
+# Shell to use for running scripts (use "system" for system default or "bun" for Bun's shell)
+shell = "system"
