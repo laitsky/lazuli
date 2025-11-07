@@ -124,33 +124,6 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     return Array.from(quotes).sort()
   }, [tickers])
 
-  // Debug: Log contract type distribution
-  useMemo(() => {
-    const perpCount = tickers.filter(t => t.type === 'perp').length
-    const futuresCount = tickers.filter(t => {
-      const parsed = parseFuturesSymbol(t.symbol)
-      return t.type === 'perp' && (parsed.isFutures || parsed.expiry !== null)
-    }).length
-    const perpetualCount = tickers.filter(t => {
-      const parsed = parseFuturesSymbol(t.symbol)
-      return t.type === 'perp' && !parsed.expiry && !parsed.isFutures
-    }).length
-
-    console.log('[Tickers Debug]', {
-      total: tickers.length,
-      perp: perpCount,
-      futures: futuresCount,
-      perpetual: perpetualCount,
-      sampleFutures: tickers
-        .filter(t => {
-          const parsed = parseFuturesSymbol(t.symbol)
-          return t.type === 'perp' && parsed.isFutures
-        })
-        .slice(0, 3)
-        .map(t => ({ symbol: t.symbol, parsed: parseFuturesSymbol(t.symbol) }))
-    })
-  }, [tickers])
-
   // Filter and sort tickers
   const filteredTickers = useMemo(() => {
     let filtered = tickers.filter((ticker) => {
