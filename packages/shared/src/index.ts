@@ -64,12 +64,31 @@ export interface ExchangeInfo {
 export type SupportedExchange = 'binance' | 'bybit' | 'okx' | 'hyperliquid'
 
 /**
+ * Pagination metadata
+ */
+export interface PaginationMeta {
+  page: number          // Current page number (1-indexed)
+  limit: number         // Items per page
+  total: number         // Total number of items
+  totalPages: number    // Total number of pages
+  hasNext: boolean      // Has next page
+  hasPrev: boolean      // Has previous page
+}
+
+/**
  * Tickers response from /tickers/:exchange
  */
 export interface TickersResponse {
   exchange: string
   tickers: Ticker[]
   count: number
+  pagination?: PaginationMeta  // Optional pagination metadata
+  filters?: {                   // Applied filters
+    type?: 'spot' | 'perp'
+    search?: string
+    sortBy?: string
+    sortOrder?: 'asc' | 'desc'
+  }
 }
 
 /**
@@ -79,6 +98,12 @@ export interface MarketsResponse {
   exchange: string
   markets: Market[]
   count: number
+  pagination?: PaginationMeta  // Optional pagination metadata
+  filters?: {                   // Applied filters
+    type?: 'spot' | 'perp'
+    search?: string
+    active?: boolean
+  }
 }
 
 /**

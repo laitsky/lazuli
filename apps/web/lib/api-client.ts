@@ -19,11 +19,52 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 const API_VERSION = '/api/v1'
 
 /**
+ * Query parameters for tickers endpoint
+ */
+export interface TickersQueryParams {
+  page?: number
+  limit?: number
+  type?: 'spot' | 'perp'
+  search?: string
+  sortBy?: 'volume' | 'price' | 'change'
+  sortOrder?: 'asc' | 'desc'
+}
+
+/**
+ * Query parameters for markets endpoint
+ */
+export interface MarketsQueryParams {
+  page?: number
+  limit?: number
+  type?: 'spot' | 'perp'
+  search?: string
+  active?: boolean
+}
+
+/**
+ * Build query string from parameters
+ */
+function buildQueryString(params?: Record<string, any>): string {
+  if (!params) return ''
+
+  const queryParams = new URLSearchParams()
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      queryParams.append(key, String(value))
+    }
+  })
+
+  const queryString = queryParams.toString()
+  return queryString ? `?${queryString}` : ''
+}
+
+/**
  * Base fetch wrapper with error handling
  */
-async function apiFetch<T>(endpoint: string): Promise<ApiResponse<T>> {
+async function apiFetch<T>(endpoint: string, queryParams?: Record<string, any>): Promise<ApiResponse<T>> {
   try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const queryString = buildQueryString(queryParams)
+    const response = await fetch(`${API_BASE_URL}${endpoint}${queryString}`, {
       headers: {
         'Content-Type': 'application/json',
       },
@@ -60,12 +101,13 @@ export class LazuliAPI {
   }
 
   /**
-   * Get all tickers for a specific exchange
+   * Get all tickers for a specific exchange with optional filtering and pagination
    */
   static async getTickers(
-    exchange: SupportedExchange
+    exchange: SupportedExchange,
+    queryParams?: TickersQueryParams
   ): Promise<ApiResponse<TickersResponse>> {
-    return apiFetch<TickersResponse>(`${API_VERSION}/tickers/${exchange}`)
+    return apiFetch<TickersResponse>(`${API_VERSION}/tickers/${exchange}`, queryParams)
   }
 
   /**
@@ -81,12 +123,13 @@ export class LazuliAPI {
   }
 
   /**
-   * Get all markets for a specific exchange
+   * Get all markets for a specific exchange with optional filtering and pagination
    */
   static async getMarkets(
-    exchange: SupportedExchange
+    exchange: SupportedExchange,
+    queryParams?: MarketsQueryParams
   ): Promise<ApiResponse<MarketsResponse>> {
-    return apiFetch<MarketsResponse>(`${API_VERSION}/markets/${exchange}`)
+    return apiFetch<MarketsResponse>(`${API_VERSION}/markets/${exchange}`, queryParams)
   }
 
   /**
