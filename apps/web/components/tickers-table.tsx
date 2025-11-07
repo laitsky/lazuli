@@ -171,7 +171,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredTickers.slice(0, 100).map((ticker) => (
+                  filteredTickers.map((ticker) => (
                     <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
                       <TableCell className="font-medium">{ticker.symbol}</TableCell>
                       <TableCell>
@@ -209,11 +209,6 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
               </TableBody>
             </Table>
           </div>
-          {filteredTickers.length > 100 && (
-            <div className="p-4 text-center text-sm text-muted-foreground border-t">
-              Showing top 100 results. Use search to narrow down.
-            </div>
-          )}
         </CardContent>
       </Card>
     </div>

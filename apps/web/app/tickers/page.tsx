@@ -27,12 +27,12 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
     ? (selectedExchange as any)
     : 'binance'
 
-  // Fetch exchanges list and tickers with pagination (limit 50 for better performance)
+  // Fetch exchanges list and tickers with pagination (limit 500 to get all major tickers)
   const [exchangesResponse, tickersResponse] = await Promise.all([
     LazuliAPI.getExchanges(),
     LazuliAPI.getTickers(exchange, {
       page: 1,
-      limit: 50,
+      limit: 500,
       sortBy: 'volume',
       sortOrder: 'desc',
     }),
