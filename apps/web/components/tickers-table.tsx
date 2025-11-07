@@ -2,10 +2,12 @@
 
 /**
  * Tickers Table Component - Interactive table for displaying ticker data
- * Includes search, filtering, and sorting capabilities
+ * Includes search, filtering, sorting, and virtual scrolling for performance
+ * Uses @tanstack/react-virtual for efficient rendering of large datasets
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -80,6 +82,16 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     }
   }
 
+  // Virtual scrolling setup for efficient rendering of large lists
+  const parentRef = useRef<HTMLDivElement>(null)
+
+  const rowVirtualizer = useVirtualizer({
+    count: filteredTickers.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 57, // Approximate row height in pixels
+    overscan: 10, // Number of items to render outside visible area for smooth scrolling
+  })
+
   return (
     <div className="space-y-4">
       {/* Filters */}
@@ -131,84 +143,109 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
         </CardContent>
       </Card>
 
-      {/* Tickers Table */}
+      {/* Tickers Table with Virtual Scrolling */}
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <Button variant="ghost" size="sm" onClick={() => toggleSort('symbol')}>
-                      Symbol {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </Button>
-                  </TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => toggleSort('price')}>
-                      Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => toggleSort('change')}>
-                      24h Change {sortBy === 'change' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => toggleSort('volume')}>
-                      24h Volume {sortBy === 'volume' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-right">High / Low</TableHead>
-                  {typeFilter === 'perp' && <TableHead className="text-right">Funding Rate</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTickers.length === 0 ? (
+          {filteredTickers.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">
+              No tickers found matching your filters
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader className="sticky top-0 bg-background z-10">
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                      No tickers found matching your filters
-                    </TableCell>
+                    <TableHead>
+                      <Button variant="ghost" size="sm" onClick={() => toggleSort('symbol')}>
+                        Symbol {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      </Button>
+                    </TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => toggleSort('price')}>
+                        Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      </Button>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => toggleSort('change')}>
+                        24h Change {sortBy === 'change' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      </Button>
+                    </TableHead>
+                    <TableHead className="text-right">
+                      <Button variant="ghost" size="sm" onClick={() => toggleSort('volume')}>
+                        24h Volume {sortBy === 'volume' && (sortOrder === 'asc' ? '↑' : '↓')}
+                      </Button>
+                    </TableHead>
+                    <TableHead className="text-right">High / Low</TableHead>
+                    {typeFilter === 'perp' && <TableHead className="text-right">Funding Rate</TableHead>}
                   </TableRow>
-                ) : (
-                  filteredTickers.map((ticker) => (
-                    <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
-                      <TableCell className="font-medium">{ticker.symbol}</TableCell>
-                      <TableCell>
-                        <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
-                          {ticker.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatCurrency(ticker.last)}
-                      </TableCell>
-                      <TableCell className={`text-right font-mono ${getChangeColor(ticker.percentage24h)}`}>
-                        {formatPercentage(ticker.percentage24h)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        ${formatVolume(ticker.quoteVolume24h)}
-                      </TableCell>
-                      <TableCell className="text-right text-sm">
-                        <div className="text-green-600 dark:text-green-400">
-                          {formatCurrency(ticker.high24h)}
-                        </div>
-                        <div className="text-red-600 dark:text-red-400">
-                          {formatCurrency(ticker.low24h)}
-                        </div>
-                      </TableCell>
-                      {typeFilter === 'perp' && (
-                        <TableCell className="text-right font-mono text-sm">
-                          {ticker.fundingRate !== null && ticker.fundingRate !== undefined
-                            ? `${(ticker.fundingRate * 100).toFixed(4)}%`
-                            : 'N/A'}
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                </TableHeader>
+              </Table>
+
+              {/* Virtual scrolling container - max height for performance */}
+              <div
+                ref={parentRef}
+                className="overflow-auto"
+                style={{ maxHeight: '800px' }}
+              >
+                <Table>
+                  <TableBody
+                    style={{
+                      height: `${rowVirtualizer.getTotalSize()}px`,
+                      position: 'relative',
+                    }}
+                  >
+                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                      const ticker = filteredTickers[virtualRow.index]
+                      return (
+                        <TableRow
+                          key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            transform: `translateY(${virtualRow.start}px)`,
+                          }}
+                        >
+                          <TableCell className="font-medium">{ticker.symbol}</TableCell>
+                          <TableCell>
+                            <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
+                              {ticker.type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {formatCurrency(ticker.last)}
+                          </TableCell>
+                          <TableCell className={`text-right font-mono ${getChangeColor(ticker.percentage24h)}`}>
+                            {formatPercentage(ticker.percentage24h)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            ${formatVolume(ticker.quoteVolume24h)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm">
+                            <div className="text-green-600 dark:text-green-400">
+                              {formatCurrency(ticker.high24h)}
+                            </div>
+                            <div className="text-red-600 dark:text-red-400">
+                              {formatCurrency(ticker.low24h)}
+                            </div>
+                          </TableCell>
+                          {typeFilter === 'perp' && (
+                            <TableCell className="text-right font-mono text-sm">
+                              {ticker.fundingRate !== null && ticker.fundingRate !== undefined
+                                ? `${(ticker.fundingRate * 100).toFixed(4)}%`
+                                : 'N/A'}
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
