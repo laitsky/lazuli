@@ -2,12 +2,11 @@
 
 /**
  * Tickers Table Component - Interactive table for displaying ticker data
- * Includes search, filtering, sorting, and virtual scrolling for performance
- * Uses @tanstack/react-virtual for efficient rendering of large datasets
+ * Includes search, filtering, sorting, and client-side pagination for performance
+ * Uses pagination to efficiently display large datasets without rendering issues
  */
 
-import { useState, useMemo, useRef } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { useState, useMemo } from 'react'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Ticker } from '@lazuli/shared'
 import { formatCurrency, formatPercentage, formatVolume, getChangeColor } from '@/lib/api-client'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 
 interface TickersTableProps {
   tickers: Ticker[]
@@ -26,6 +26,8 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [typeFilter, setTypeFilter] = useState<'all' | 'spot' | 'perp'>('all')
   const [sortBy, setSortBy] = useState<'symbol' | 'price' | 'change' | 'volume'>('volume')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 50 // Show 50 tickers per page
 
   // Filter and sort tickers
   const filteredTickers = useMemo(() => {
@@ -80,17 +82,64 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
       setSortBy(column)
       setSortOrder('desc')
     }
+    setCurrentPage(1) // Reset to first page when sorting changes
   }
 
-  // Virtual scrolling setup for efficient rendering of large lists
-  const parentRef = useRef<HTMLDivElement>(null)
+  // Reset to page 1 when filters change
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    setCurrentPage(1)
+  }
 
-  const rowVirtualizer = useVirtualizer({
-    count: filteredTickers.length,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 57, // Approximate row height in pixels
-    overscan: 10, // Number of items to render outside visible area for smooth scrolling
-  })
+  const handleTypeFilterChange = (type: 'all' | 'spot' | 'perp') => {
+    setTypeFilter(type)
+    setCurrentPage(1)
+  }
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredTickers.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedTickers = filteredTickers.slice(startIndex, endIndex)
+
+  // Pagination controls
+  const goToFirstPage = () => setCurrentPage(1)
+  const goToLastPage = () => setCurrentPage(totalPages)
+  const goToPreviousPage = () => setCurrentPage(Math.max(1, currentPage - 1))
+  const goToNextPage = () => setCurrentPage(Math.min(totalPages, currentPage + 1))
+
+  // Generate page numbers to display (show current page and 2 pages on each side)
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = []
+    const maxPagesToShow = 5
+
+    if (totalPages <= maxPagesToShow) {
+      // Show all pages if total is small
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i)
+      }
+    } else {
+      // Show first page
+      pages.push(1)
+
+      // Show pages around current page
+      const start = Math.max(2, currentPage - 1)
+      const end = Math.min(totalPages - 1, currentPage + 1)
+
+      if (start > 2) pages.push('...')
+
+      for (let i = start; i <= end; i++) {
+        pages.push(i)
+      }
+
+      if (end < totalPages - 1) pages.push('...')
+
+      // Show last page
+      pages.push(totalPages)
+    }
+
+    return pages
+  }
 
   return (
     <div className="space-y-4">
@@ -106,7 +155,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
             <Input
               placeholder="Search symbols (e.g., BTC, ETH, USDT)..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="max-w-md"
             />
           </div>
@@ -116,21 +165,21 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
             <Button
               variant={typeFilter === 'all' ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setTypeFilter('all')}
+              onClick={() => handleTypeFilterChange('all')}
             >
               All ({tickers.length})
             </Button>
             <Button
               variant={typeFilter === 'spot' ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setTypeFilter('spot')}
+              onClick={() => handleTypeFilterChange('spot')}
             >
               Spot ({tickers.filter(t => t.type === 'spot').length})
             </Button>
             <Button
               variant={typeFilter === 'perp' ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setTypeFilter('perp')}
+              onClick={() => handleTypeFilterChange('perp')}
             >
               Perpetual ({tickers.filter(t => t.type === 'perp').length})
             </Button>
@@ -138,12 +187,13 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
 
           {/* Results Count */}
           <p className="text-sm text-muted-foreground">
-            Showing {filteredTickers.length} of {tickers.length} tickers
+            Showing {startIndex + 1}-{Math.min(endIndex, filteredTickers.length)} of {filteredTickers.length} tickers
+            {filteredTickers.length !== tickers.length && ` (filtered from ${tickers.length} total)`}
           </p>
         </CardContent>
       </Card>
 
-      {/* Tickers Table with Virtual Scrolling */}
+      {/* Tickers Table with Pagination */}
       <Card>
         <CardContent className="p-0">
           {filteredTickers.length === 0 ? (
@@ -151,100 +201,150 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
               No tickers found matching your filters
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader className="sticky top-0 bg-background z-10">
-                  <TableRow>
-                    <TableHead>
-                      <Button variant="ghost" size="sm" onClick={() => toggleSort('symbol')}>
-                        Symbol {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
-                      </Button>
-                    </TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => toggleSort('price')}>
-                        Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
-                      </Button>
-                    </TableHead>
-                    <TableHead className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => toggleSort('change')}>
-                        24h Change {sortBy === 'change' && (sortOrder === 'asc' ? '↑' : '↓')}
-                      </Button>
-                    </TableHead>
-                    <TableHead className="text-right">
-                      <Button variant="ghost" size="sm" onClick={() => toggleSort('volume')}>
-                        24h Volume {sortBy === 'volume' && (sortOrder === 'asc' ? '↑' : '↓')}
-                      </Button>
-                    </TableHead>
-                    <TableHead className="text-right">High / Low</TableHead>
-                    {typeFilter === 'perp' && <TableHead className="text-right">Funding Rate</TableHead>}
-                  </TableRow>
-                </TableHeader>
-              </Table>
-
-              {/* Virtual scrolling container - max height for performance */}
-              <div
-                ref={parentRef}
-                className="overflow-auto"
-                style={{ maxHeight: '800px' }}
-              >
+            <>
+              <div className="overflow-x-auto">
                 <Table>
-                  <TableBody
-                    style={{
-                      height: `${rowVirtualizer.getTotalSize()}px`,
-                      position: 'relative',
-                    }}
-                  >
-                    {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                      const ticker = filteredTickers[virtualRow.index]
-                      return (
-                        <TableRow
-                          key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}
-                          style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            width: '100%',
-                            transform: `translateY(${virtualRow.start}px)`,
-                          }}
-                        >
-                          <TableCell className="font-medium">{ticker.symbol}</TableCell>
-                          <TableCell>
-                            <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
-                              {ticker.type}
-                            </Badge>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>
+                        <Button variant="ghost" size="sm" onClick={() => toggleSort('symbol')}>
+                          Symbol {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </Button>
+                      </TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => toggleSort('price')}>
+                          Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </Button>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => toggleSort('change')}>
+                          24h Change {sortBy === 'change' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </Button>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => toggleSort('volume')}>
+                          24h Volume {sortBy === 'volume' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </Button>
+                      </TableHead>
+                      <TableHead className="text-right">High / Low</TableHead>
+                      {typeFilter === 'perp' && <TableHead className="text-right">Funding Rate</TableHead>}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedTickers.map((ticker) => (
+                      <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
+                        <TableCell className="font-medium">{ticker.symbol}</TableCell>
+                        <TableCell>
+                          <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
+                            {ticker.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {formatCurrency(ticker.last)}
+                        </TableCell>
+                        <TableCell className={`text-right font-mono ${getChangeColor(ticker.percentage24h)}`}>
+                          {formatPercentage(ticker.percentage24h)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          ${formatVolume(ticker.quoteVolume24h)}
+                        </TableCell>
+                        <TableCell className="text-right text-sm">
+                          <div className="text-green-600 dark:text-green-400">
+                            {formatCurrency(ticker.high24h)}
+                          </div>
+                          <div className="text-red-600 dark:text-red-400">
+                            {formatCurrency(ticker.low24h)}
+                          </div>
+                        </TableCell>
+                        {typeFilter === 'perp' && (
+                          <TableCell className="text-right font-mono text-sm">
+                            {ticker.fundingRate !== null && ticker.fundingRate !== undefined
+                              ? `${(ticker.fundingRate * 100).toFixed(4)}%`
+                              : 'N/A'}
                           </TableCell>
-                          <TableCell className="text-right font-mono">
-                            {formatCurrency(ticker.last)}
-                          </TableCell>
-                          <TableCell className={`text-right font-mono ${getChangeColor(ticker.percentage24h)}`}>
-                            {formatPercentage(ticker.percentage24h)}
-                          </TableCell>
-                          <TableCell className="text-right font-mono">
-                            ${formatVolume(ticker.quoteVolume24h)}
-                          </TableCell>
-                          <TableCell className="text-right text-sm">
-                            <div className="text-green-600 dark:text-green-400">
-                              {formatCurrency(ticker.high24h)}
-                            </div>
-                            <div className="text-red-600 dark:text-red-400">
-                              {formatCurrency(ticker.low24h)}
-                            </div>
-                          </TableCell>
-                          {typeFilter === 'perp' && (
-                            <TableCell className="text-right font-mono text-sm">
-                              {ticker.fundingRate !== null && ticker.fundingRate !== undefined
-                                ? `${(ticker.fundingRate * 100).toFixed(4)}%`
-                                : 'N/A'}
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      )
-                    })}
+                        )}
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </div>
-            </div>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-4 border-t">
+                  <div className="text-sm text-muted-foreground">
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {/* First Page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={goToFirstPage}
+                      disabled={currentPage === 1}
+                      aria-label="Go to first page"
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+
+                    {/* Previous Page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={goToPreviousPage}
+                      disabled={currentPage === 1}
+                      aria-label="Go to previous page"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+
+                    {/* Page Numbers */}
+                    <div className="flex items-center space-x-1">
+                      {getPageNumbers().map((page, index) => (
+                        page === '...' ? (
+                          <span key={`ellipsis-${index}`} className="px-2 text-muted-foreground">
+                            ...
+                          </span>
+                        ) : (
+                          <Button
+                            key={page}
+                            variant={currentPage === page ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setCurrentPage(page as number)}
+                            className="min-w-[40px]"
+                          >
+                            {page}
+                          </Button>
+                        )
+                      ))}
+                    </div>
+
+                    {/* Next Page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={goToNextPage}
+                      disabled={currentPage === totalPages}
+                      aria-label="Go to next page"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+
+                    {/* Last Page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={goToLastPage}
+                      disabled={currentPage === totalPages}
+                      aria-label="Go to last page"
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
