@@ -4,10 +4,10 @@
   "description": "Lazuli Web Frontend - Beautiful cryptocurrency trading interface",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
-    "build": "next build",
-    "start": "next start -p 3001",
-    "lint": "next lint --max-warnings 0",
+    "dev": "bun --bun next dev -p 3001",
+    "build": "bun --bun next build",
+    "start": "bun --bun next start -p 3001",
+    "lint": "bun --bun next lint --max-warnings 0",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf .next .turbo"
   },

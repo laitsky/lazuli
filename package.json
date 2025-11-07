@@ -37,10 +37,9 @@
   ],
   "author": "",
   "license": "ISC",
-  "packageManager": "npm@10.9.2",
+  "packageManager": "bun@1.1.38",
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
+    "bun": ">=1.0.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.6.1",
