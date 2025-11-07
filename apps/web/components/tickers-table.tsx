@@ -24,17 +24,56 @@ interface TickersTableProps {
 export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'spot' | 'perp'>('all')
+  const [quoteFilter, setQuoteFilter] = useState<string>('all')
   const [sortBy, setSortBy] = useState<'symbol' | 'price' | 'change' | 'volume'>('volume')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 50 // Show 50 tickers per page
+
+  // Extract quote currency from symbol (e.g., "BTC/USDT" -> "USDT")
+  const getQuoteCurrency = (symbol: string): string => {
+    const parts = symbol.split('/')
+    return parts.length > 1 ? parts[1] : ''
+  }
+
+  // Normalize quote currency to group stablecoins
+  const normalizeQuoteCurrency = (quote: string): string => {
+    const upperQuote = quote.toUpperCase()
+    // Group USD stablecoins
+    if (['USDT', 'USDC', 'BUSD', 'TUSD', 'USDP', 'USDD', 'DAI', 'FDUSD'].includes(upperQuote)) {
+      return 'USD'
+    }
+    return upperQuote
+  }
+
+  // Get all available quote currencies from tickers
+  const availableQuotes = useMemo(() => {
+    const quotes = new Set<string>()
+    tickers.forEach((ticker) => {
+      const quote = getQuoteCurrency(ticker.symbol)
+      if (quote) {
+        const normalized = normalizeQuoteCurrency(quote)
+        quotes.add(normalized)
+      }
+    })
+    return Array.from(quotes).sort()
+  }, [tickers])
 
   // Filter and sort tickers
   const filteredTickers = useMemo(() => {
     let filtered = tickers.filter((ticker) => {
       const matchesSearch = ticker.symbol.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesType = typeFilter === 'all' || ticker.type === typeFilter
-      return matchesSearch && matchesType
+
+      // Quote currency filter
+      let matchesQuote = true
+      if (quoteFilter !== 'all') {
+        const tickerQuote = getQuoteCurrency(ticker.symbol)
+        const normalizedTickerQuote = normalizeQuoteCurrency(tickerQuote)
+        matchesQuote = normalizedTickerQuote === quoteFilter
+      }
+
+      return matchesSearch && matchesType && matchesQuote
     })
 
     // Sort tickers
@@ -73,7 +112,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     })
 
     return filtered
-  }, [tickers, searchQuery, typeFilter, sortBy, sortOrder])
+  }, [tickers, searchQuery, typeFilter, quoteFilter, sortBy, sortOrder])
 
   const toggleSort = (column: typeof sortBy) => {
     if (sortBy === column) {
@@ -93,6 +132,11 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
 
   const handleTypeFilterChange = (type: 'all' | 'spot' | 'perp') => {
     setTypeFilter(type)
+    setCurrentPage(1)
+  }
+
+  const handleQuoteFilterChange = (quote: string) => {
+    setQuoteFilter(quote)
     setCurrentPage(1)
   }
 
@@ -161,28 +205,61 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           </div>
 
           {/* Type Filter */}
-          <div className="flex space-x-2">
-            <Button
-              variant={typeFilter === 'all' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => handleTypeFilterChange('all')}
-            >
-              All ({tickers.length})
-            </Button>
-            <Button
-              variant={typeFilter === 'spot' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => handleTypeFilterChange('spot')}
-            >
-              Spot ({tickers.filter(t => t.type === 'spot').length})
-            </Button>
-            <Button
-              variant={typeFilter === 'perp' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => handleTypeFilterChange('perp')}
-            >
-              Perpetual ({tickers.filter(t => t.type === 'perp').length})
-            </Button>
+          <div>
+            <p className="text-sm font-medium mb-2">Market Type</p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={typeFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleTypeFilterChange('all')}
+              >
+                All ({tickers.length})
+              </Button>
+              <Button
+                variant={typeFilter === 'spot' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleTypeFilterChange('spot')}
+              >
+                Spot ({tickers.filter(t => t.type === 'spot').length})
+              </Button>
+              <Button
+                variant={typeFilter === 'perp' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleTypeFilterChange('perp')}
+              >
+                Perpetual ({tickers.filter(t => t.type === 'perp').length})
+              </Button>
+            </div>
+          </div>
+
+          {/* Quote Currency Filter */}
+          <div>
+            <p className="text-sm font-medium mb-2">Quote Currency</p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={quoteFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleQuoteFilterChange('all')}
+              >
+                All
+              </Button>
+              {availableQuotes.map((quote) => {
+                const count = tickers.filter((t) => {
+                  const tickerQuote = getQuoteCurrency(t.symbol)
+                  return normalizeQuoteCurrency(tickerQuote) === quote
+                }).length
+                return (
+                  <Button
+                    key={quote}
+                    variant={quoteFilter === quote ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleQuoteFilterChange(quote)}
+                  >
+                    {quote === 'USD' ? 'USD (Stablecoins)' : quote} ({count})
+                  </Button>
+                )
+              })}
+            </div>
           </div>
 
           {/* Results Count */}
