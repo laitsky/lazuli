@@ -450,32 +450,33 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                               )}
                             </div>
                           </TableCell>
-                        <TableCell className="text-right font-mono">
-                          {formatCurrency(ticker.last)}
-                        </TableCell>
-                        <TableCell className={`text-right font-mono ${getChangeColor(ticker.percentage24h)}`}>
-                          {formatPercentage(ticker.percentage24h)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono">
-                          ${formatVolume(ticker.quoteVolume24h)}
-                        </TableCell>
-                        <TableCell className="text-right text-sm">
-                          <div className="text-green-600 dark:text-green-400">
-                            {formatCurrency(ticker.high24h)}
-                          </div>
-                          <div className="text-red-600 dark:text-red-400">
-                            {formatCurrency(ticker.low24h)}
-                          </div>
-                        </TableCell>
-                        {typeFilter === 'perp' && (
-                          <TableCell className="text-right font-mono text-sm">
-                            {ticker.fundingRate !== null && ticker.fundingRate !== undefined
-                              ? `${(ticker.fundingRate * 100).toFixed(4)}%`
-                              : 'N/A'}
+                          <TableCell className="text-right font-mono">
+                            {formatCurrency(ticker.last)}
                           </TableCell>
-                        )}
-                      </TableRow>
-                    ))}
+                          <TableCell className={`text-right font-mono ${getChangeColor(ticker.percentage24h)}`}>
+                            {formatPercentage(ticker.percentage24h)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            ${formatVolume(ticker.quoteVolume24h)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm">
+                            <div className="text-green-600 dark:text-green-400">
+                              {formatCurrency(ticker.high24h)}
+                            </div>
+                            <div className="text-red-600 dark:text-red-400">
+                              {formatCurrency(ticker.low24h)}
+                            </div>
+                          </TableCell>
+                          {typeFilter === 'perp' && (
+                            <TableCell className="text-right font-mono text-sm">
+                              {ticker.fundingRate !== null && ticker.fundingRate !== undefined
+                                ? `${(ticker.fundingRate * 100).toFixed(4)}%`
+                                : 'N/A'}
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
