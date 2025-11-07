@@ -1,0 +1,16 @@
+{
+  "name": "@lazuli/eslint-config",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Shared ESLint configuration for Lazuli monorepo",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "react.js"
+  ],
+  "dependencies": {
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.1.0",
+    "typescript-eslint": "^8.0.0"
+  }
+}

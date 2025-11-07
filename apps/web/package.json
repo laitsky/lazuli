@@ -7,7 +7,9 @@
     "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start -p 3001",
-    "lint": "next lint"
+    "lint": "next lint --max-warnings 0",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf .next .turbo"
   },
   "dependencies": {
     "@lazuli/shared": "*",
@@ -20,6 +22,8 @@
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
+    "@lazuli/eslint-config": "*",
+    "@lazuli/typescript-config": "*",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^18",

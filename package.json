@@ -5,18 +5,23 @@
   "private": true,
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "packages/config/*"
   ],
   "scripts": {
-    "dev": "npm run dev --workspace=@lazuli/api",
-    "dev:api": "npm run dev --workspace=@lazuli/api",
-    "dev:web": "npm run dev --workspace=@lazuli/web",
-    "dev:all": "npm run dev:api & npm run dev:web",
-    "build": "npm run build --workspaces --if-present",
-    "build:api": "npm run build --workspace=@lazuli/api",
-    "build:web": "npm run build --workspace=@lazuli/web",
-    "lint": "npm run lint --workspaces --if-present",
-    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/.next apps/*/dist"
+    "dev": "turbo run dev",
+    "dev:api": "turbo run dev --filter=@lazuli/api",
+    "dev:web": "turbo run dev --filter=@lazuli/web",
+    "build": "turbo run build",
+    "build:api": "turbo run build --filter=@lazuli/api",
+    "build:web": "turbo run build --filter=@lazuli/web",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint -- --fix",
+    "type-check": "turbo run type-check",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "clean": "turbo run clean && rm -rf node_modules .turbo",
+    "prepare": "husky"
   },
   "keywords": [
     "cryptocurrency",
@@ -24,6 +29,7 @@
     "api",
     "nextjs",
     "monorepo",
+    "turborepo",
     "binance",
     "bybit",
     "okx",
@@ -31,8 +37,27 @@
   ],
   "author": "",
   "license": "ISC",
+  "packageManager": "npm@10.9.2",
   "engines": {
     "node": ">=18.0.0",
     "npm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.6.1",
+    "@commitlint/config-conventional": "^19.6.0",
+    "eslint-config-prettier": "^9.1.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.11",
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md}": [
+      "prettier --write"
+    ]
   }
 }
