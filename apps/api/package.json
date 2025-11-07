@@ -7,15 +7,20 @@
     "dev": "nodemon --exec tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "lint": "tsc --noEmit"
+    "lint": "eslint src --max-warnings 0",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo"
   },
   "keywords": ["cryptocurrency", "trading", "api", "binance", "bybit", "okx", "hyperliquid"],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@lazuli/eslint-config": "*",
+    "@lazuli/typescript-config": "*",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/node": "^24.0.4",
+    "eslint": "^9.0.0",
     "nodemon": "^3.1.10",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
