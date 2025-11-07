@@ -4,6 +4,15 @@ import { hyperliquidService } from '../services/hyperliquidService';
 import { cacheService } from '../services/cacheService';
 import { successResponse, errorResponse } from '../utils/response';
 import { SupportedExchange, Ticker, PaginationMeta } from '@lazuli/shared';
+import {
+  validateInteger,
+  validateSearchQuery,
+  validateMarketType,
+  validateSortOrder,
+  validateTickerSortBy,
+  validateBoolean,
+  validateExchange,
+} from '../utils/validation';
 
 /**
  * Controller for ticker and market data endpoints
@@ -27,25 +36,24 @@ export class TickerController {
    */
   async getAllTickers(req: Request, res: Response): Promise<Response> {
     try {
-      // Extract and normalize exchange parameter
-      const { exchange } = req.params;
-      const exchangeId = exchange.toLowerCase() as SupportedExchange;
+      // Validate and normalize exchange parameter
+      const exchangeId = validateExchange(req.params.exchange);
 
-      // Validate exchange
-      if (!['binance', 'bybit', 'okx', 'hyperliquid'].includes(exchangeId)) {
-        return errorResponse(res, `Exchange ${exchange} not supported`, 400);
+      if (!exchangeId) {
+        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
       }
 
-      // Parse query parameters with defaults
-      const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 100));
-      const typeFilter = req.query.type as 'spot' | 'perp' | undefined;
-      const searchQuery = (req.query.search as string)?.toLowerCase().trim();
-      const sortBy = (req.query.sortBy as string) || 'volume';
-      const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
+      // Validate query parameters with proper bounds and sanitization
+      const page = validateInteger(req.query.page, 1, 1, 10000);
+      const limit = validateInteger(req.query.limit, 100, 1, 500);
+      const typeFilter = validateMarketType(req.query.type);
+      const searchQuery = validateSearchQuery(req.query.search, 50);
+      const sortBy = validateTickerSortBy(req.query.sortBy);
+      const sortOrder = validateSortOrder(req.query.sortOrder);
 
-      // Try to get tickers from cache first (30 second TTL)
-      const cacheKey = `tickers:${exchangeId}`;
+      // Cache key is exchange-specific only (not filter-specific)
+      // This ensures we cache raw data and apply filters after retrieval
+      const cacheKey = `tickers:${exchangeId}:raw`;
       let allTickers = cacheService.get<Ticker[]>(cacheKey);
 
       // If not cached, fetch from exchange
@@ -63,7 +71,7 @@ export class TickerController {
             break;
         }
 
-        // Cache the results for 30 seconds
+        // Cache the raw results for 30 seconds
         cacheService.set(cacheKey, allTickers, 30000);
       } else {
         console.log(`Cache hit for ${cacheKey}`);
@@ -223,24 +231,23 @@ export class TickerController {
    */
   async getMarkets(req: Request, res: Response): Promise<Response> {
     try {
-      // Extract and normalize exchange parameter
-      const { exchange } = req.params;
-      const exchangeId = exchange.toLowerCase() as SupportedExchange;
+      // Validate and normalize exchange parameter
+      const exchangeId = validateExchange(req.params.exchange);
 
-      // Validate exchange
-      if (!['binance', 'bybit', 'okx', 'hyperliquid'].includes(exchangeId)) {
-        return errorResponse(res, `Exchange ${exchange} not supported`, 400);
+      if (!exchangeId) {
+        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
       }
 
-      // Parse query parameters with defaults
-      const page = Math.max(1, parseInt(req.query.page as string) || 1);
-      const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 100));
-      const typeFilter = req.query.type as 'spot' | 'perp' | undefined;
-      const searchQuery = (req.query.search as string)?.toLowerCase().trim();
-      const activeFilter = req.query.active === 'true' ? true : req.query.active === 'false' ? false : undefined;
+      // Validate query parameters with proper bounds and sanitization
+      const page = validateInteger(req.query.page, 1, 1, 10000);
+      const limit = validateInteger(req.query.limit, 100, 1, 500);
+      const typeFilter = validateMarketType(req.query.type);
+      const searchQuery = validateSearchQuery(req.query.search, 50);
+      const activeFilter = validateBoolean(req.query.active);
 
-      // Try to get markets from cache first (5 minute TTL, markets don't change often)
-      const cacheKey = `markets:${exchangeId}`;
+      // Cache key is exchange-specific only (not filter-specific)
+      // This ensures we cache raw data and apply filters after retrieval
+      const cacheKey = `markets:${exchangeId}:raw`;
       let allMarkets = cacheService.get<any[]>(cacheKey);
 
       // If not cached, fetch from exchange
@@ -258,7 +265,7 @@ export class TickerController {
             break;
         }
 
-        // Cache the results for 5 minutes (markets don't change frequently)
+        // Cache the raw results for 5 minutes (markets don't change frequently)
         cacheService.set(cacheKey, allMarkets, 300000);
       } else {
         console.log(`Cache hit for ${cacheKey}`);
