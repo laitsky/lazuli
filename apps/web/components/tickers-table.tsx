@@ -2,7 +2,8 @@
 
 /**
  * Tickers Table Component - Interactive table for displaying ticker data
- * Includes search, filtering, and sorting capabilities
+ * Includes search, filtering, sorting, and client-side pagination for performance
+ * Uses pagination to efficiently display large datasets without rendering issues
  */
 
 import { useState, useMemo } from 'react'
@@ -13,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Ticker } from '@lazuli/shared'
 import { formatCurrency, formatPercentage, formatVolume, getChangeColor } from '@/lib/api-client'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 
 interface TickersTableProps {
   tickers: Ticker[]
@@ -22,15 +24,132 @@ interface TickersTableProps {
 export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState<'all' | 'spot' | 'perp'>('all')
+  const [quoteFilter, setQuoteFilter] = useState<string>('all')
+  const [contractFilter, setContractFilter] = useState<'all' | 'perpetual' | 'futures'>('all')
   const [sortBy, setSortBy] = useState<'symbol' | 'price' | 'change' | 'volume'>('volume')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 50 // Show 50 tickers per page
+
+  // Parse futures contract symbol (e.g., "BTC:USDT251226" -> {base: "BTC", quote: "USDT", expiry: "251226"})
+  const parseFuturesSymbol = (symbol: string) => {
+    // Check if it's a futures contract (contains :)
+    if (symbol.includes(':')) {
+      const [base, rest] = symbol.split(':')
+      // Check if there's an expiry date (YYMMDD format) - allow lowercase too
+      const expiryMatch = rest.match(/^([A-Za-z]+)(\d{6})$/)
+      if (expiryMatch) {
+        return {
+          base,
+          quote: expiryMatch[1],
+          expiry: expiryMatch[2],
+          isFutures: true,
+        }
+      }
+      // Also check for dash/underscore separators (e.g., "USDT-251226" or "USDT_251226")
+      const expiryMatchWithSep = rest.match(/^([A-Za-z]+)[-_](\d{6})$/)
+      if (expiryMatchWithSep) {
+        return {
+          base,
+          quote: expiryMatchWithSep[1],
+          expiry: expiryMatchWithSep[2],
+          isFutures: true,
+        }
+      }
+      // Perpetual contract (no date)
+      return {
+        base,
+        quote: rest,
+        expiry: null,
+        isFutures: false,
+      }
+    }
+    // Spot market
+    const parts = symbol.split('/')
+    return {
+      base: parts[0] || '',
+      quote: parts[1] || '',
+      expiry: null,
+      isFutures: false,
+    }
+  }
+
+  // Format expiry date (YYMMDD -> readable format)
+  const formatExpiryDate = (expiry: string): string => {
+    if (!expiry || expiry.length !== 6) return ''
+    const year = '20' + expiry.substring(0, 2)
+    const month = expiry.substring(2, 4)
+    const day = expiry.substring(4, 6)
+    const date = new Date(`${year}-${month}-${day}`)
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  // Get display symbol (clean format for UI)
+  const getDisplaySymbol = (symbol: string): string => {
+    const parsed = parseFuturesSymbol(symbol)
+    if (parsed.expiry) {
+      // Futures with expiry: "BTC/USDT (Dec 26, 2025)"
+      return `${parsed.base}/${parsed.quote}`
+    }
+    // Perpetual or Spot: show as-is (but replace : with /)
+    return symbol.replace(':', '/')
+  }
+
+  // Extract quote currency from symbol (e.g., "BTC/USDT" -> "USDT")
+  const getQuoteCurrency = (symbol: string): string => {
+    const parsed = parseFuturesSymbol(symbol)
+    return parsed.quote
+  }
+
+  // Normalize quote currency to group stablecoins
+  const normalizeQuoteCurrency = (quote: string): string => {
+    const upperQuote = quote.toUpperCase()
+    // Group USD stablecoins
+    if (['USDT', 'USDC', 'BUSD', 'TUSD', 'USDP', 'USDD', 'DAI', 'FDUSD'].includes(upperQuote)) {
+      return 'USD'
+    }
+    return upperQuote
+  }
+
+  // Get all available quote currencies from tickers
+  const availableQuotes = useMemo(() => {
+    const quotes = new Set<string>()
+    tickers.forEach((ticker) => {
+      const quote = getQuoteCurrency(ticker.symbol)
+      if (quote) {
+        const normalized = normalizeQuoteCurrency(quote)
+        quotes.add(normalized)
+      }
+    })
+    return Array.from(quotes).sort()
+  }, [tickers])
 
   // Filter and sort tickers
   const filteredTickers = useMemo(() => {
     let filtered = tickers.filter((ticker) => {
       const matchesSearch = ticker.symbol.toLowerCase().includes(searchQuery.toLowerCase())
       const matchesType = typeFilter === 'all' || ticker.type === typeFilter
-      return matchesSearch && matchesType
+
+      // Quote currency filter
+      let matchesQuote = true
+      if (quoteFilter !== 'all') {
+        const tickerQuote = getQuoteCurrency(ticker.symbol)
+        const normalizedTickerQuote = normalizeQuoteCurrency(tickerQuote)
+        matchesQuote = normalizedTickerQuote === quoteFilter
+      }
+
+      // Contract type filter (perpetual vs futures)
+      let matchesContract = true
+      if (contractFilter !== 'all') {
+        const parsed = parseFuturesSymbol(ticker.symbol)
+        if (contractFilter === 'perpetual') {
+          matchesContract = !parsed.expiry && !parsed.isFutures
+        } else if (contractFilter === 'futures') {
+          matchesContract = parsed.isFutures || parsed.expiry !== null
+        }
+      }
+
+      return matchesSearch && matchesType && matchesQuote && matchesContract
     })
 
     // Sort tickers
@@ -69,7 +188,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     })
 
     return filtered
-  }, [tickers, searchQuery, typeFilter, sortBy, sortOrder])
+  }, [tickers, searchQuery, typeFilter, quoteFilter, contractFilter, sortBy, sortOrder])
 
   const toggleSort = (column: typeof sortBy) => {
     if (sortBy === column) {
@@ -78,6 +197,73 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
       setSortBy(column)
       setSortOrder('desc')
     }
+    setCurrentPage(1) // Reset to first page when sorting changes
+  }
+
+  // Reset to page 1 when filters change
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    setCurrentPage(1)
+  }
+
+  const handleTypeFilterChange = (type: 'all' | 'spot' | 'perp') => {
+    setTypeFilter(type)
+    setCurrentPage(1)
+  }
+
+  const handleQuoteFilterChange = (quote: string) => {
+    setQuoteFilter(quote)
+    setCurrentPage(1)
+  }
+
+  const handleContractFilterChange = (contract: 'all' | 'perpetual' | 'futures') => {
+    setContractFilter(contract)
+    setCurrentPage(1)
+  }
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredTickers.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const paginatedTickers = filteredTickers.slice(startIndex, endIndex)
+
+  // Pagination controls
+  const goToFirstPage = () => setCurrentPage(1)
+  const goToLastPage = () => setCurrentPage(totalPages)
+  const goToPreviousPage = () => setCurrentPage(Math.max(1, currentPage - 1))
+  const goToNextPage = () => setCurrentPage(Math.min(totalPages, currentPage + 1))
+
+  // Generate page numbers to display (show current page and 2 pages on each side)
+  const getPageNumbers = () => {
+    const pages: (number | string)[] = []
+    const maxPagesToShow = 5
+
+    if (totalPages <= maxPagesToShow) {
+      // Show all pages if total is small
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i)
+      }
+    } else {
+      // Show first page
+      pages.push(1)
+
+      // Show pages around current page
+      const start = Math.max(2, currentPage - 1)
+      const end = Math.min(totalPages - 1, currentPage + 1)
+
+      if (start > 2) pages.push('...')
+
+      for (let i = start; i <= end; i++) {
+        pages.push(i)
+      }
+
+      if (end < totalPages - 1) pages.push('...')
+
+      // Show last page
+      pages.push(totalPages)
+    }
+
+    return pages
   }
 
   return (
@@ -94,125 +280,292 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
             <Input
               placeholder="Search symbols (e.g., BTC, ETH, USDT)..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchChange(e.target.value)}
               className="max-w-md"
             />
           </div>
 
           {/* Type Filter */}
-          <div className="flex space-x-2">
-            <Button
-              variant={typeFilter === 'all' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTypeFilter('all')}
-            >
-              All ({tickers.length})
-            </Button>
-            <Button
-              variant={typeFilter === 'spot' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTypeFilter('spot')}
-            >
-              Spot ({tickers.filter(t => t.type === 'spot').length})
-            </Button>
-            <Button
-              variant={typeFilter === 'perp' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTypeFilter('perp')}
-            >
-              Perpetual ({tickers.filter(t => t.type === 'perp').length})
-            </Button>
+          <div>
+            <p className="text-sm font-medium mb-2">Market Type</p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={typeFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleTypeFilterChange('all')}
+              >
+                All ({tickers.length})
+              </Button>
+              <Button
+                variant={typeFilter === 'spot' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleTypeFilterChange('spot')}
+              >
+                Spot ({tickers.filter(t => t.type === 'spot').length})
+              </Button>
+              <Button
+                variant={typeFilter === 'perp' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleTypeFilterChange('perp')}
+              >
+                Perpetual ({tickers.filter(t => t.type === 'perp').length})
+              </Button>
+            </div>
           </div>
+
+          {/* Quote Currency Filter */}
+          <div>
+            <p className="text-sm font-medium mb-2">Quote Currency</p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant={quoteFilter === 'all' ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => handleQuoteFilterChange('all')}
+              >
+                All
+              </Button>
+              {availableQuotes.map((quote) => {
+                const count = tickers.filter((t) => {
+                  const tickerQuote = getQuoteCurrency(t.symbol)
+                  return normalizeQuoteCurrency(tickerQuote) === quote
+                }).length
+                return (
+                  <Button
+                    key={quote}
+                    variant={quoteFilter === quote ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => handleQuoteFilterChange(quote)}
+                  >
+                    {quote === 'USD' ? 'USD (Stablecoins)' : quote} ({count})
+                  </Button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Contract Type Filter (for perpetual markets) */}
+          {typeFilter === 'perp' && (
+            <div>
+              <p className="text-sm font-medium mb-2">Contract Type</p>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant={contractFilter === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleContractFilterChange('all')}
+                >
+                  All
+                </Button>
+                <Button
+                  variant={contractFilter === 'perpetual' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleContractFilterChange('perpetual')}
+                >
+                  Perpetual ({tickers.filter(t => {
+                    const parsed = parseFuturesSymbol(t.symbol)
+                    return t.type === 'perp' && !parsed.expiry && !parsed.isFutures
+                  }).length})
+                </Button>
+                <Button
+                  variant={contractFilter === 'futures' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => handleContractFilterChange('futures')}
+                >
+                  Futures ({tickers.filter(t => {
+                    const parsed = parseFuturesSymbol(t.symbol)
+                    return t.type === 'perp' && (parsed.isFutures || parsed.expiry !== null)
+                  }).length})
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Results Count */}
           <p className="text-sm text-muted-foreground">
-            Showing {filteredTickers.length} of {tickers.length} tickers
+            Showing {startIndex + 1}-{Math.min(endIndex, filteredTickers.length)} of {filteredTickers.length} tickers
+            {filteredTickers.length !== tickers.length && ` (filtered from ${tickers.length} total)`}
           </p>
         </CardContent>
       </Card>
 
-      {/* Tickers Table */}
+      {/* Tickers Table with Pagination */}
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>
-                    <Button variant="ghost" size="sm" onClick={() => toggleSort('symbol')}>
-                      Symbol {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </Button>
-                  </TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => toggleSort('price')}>
-                      Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => toggleSort('change')}>
-                      24h Change {sortBy === 'change' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => toggleSort('volume')}>
-                      24h Volume {sortBy === 'volume' && (sortOrder === 'asc' ? '↑' : '↓')}
-                    </Button>
-                  </TableHead>
-                  <TableHead className="text-right">High / Low</TableHead>
-                  {typeFilter === 'perp' && <TableHead className="text-right">Funding Rate</TableHead>}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTickers.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                      No tickers found matching your filters
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredTickers.slice(0, 100).map((ticker) => (
-                    <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
-                      <TableCell className="font-medium">{ticker.symbol}</TableCell>
-                      <TableCell>
-                        <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
-                          {ticker.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatCurrency(ticker.last)}
-                      </TableCell>
-                      <TableCell className={`text-right font-mono ${getChangeColor(ticker.percentage24h)}`}>
-                        {formatPercentage(ticker.percentage24h)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        ${formatVolume(ticker.quoteVolume24h)}
-                      </TableCell>
-                      <TableCell className="text-right text-sm">
-                        <div className="text-green-600 dark:text-green-400">
-                          {formatCurrency(ticker.high24h)}
-                        </div>
-                        <div className="text-red-600 dark:text-red-400">
-                          {formatCurrency(ticker.low24h)}
-                        </div>
-                      </TableCell>
-                      {typeFilter === 'perp' && (
-                        <TableCell className="text-right font-mono text-sm">
-                          {ticker.fundingRate !== null && ticker.fundingRate !== undefined
-                            ? `${(ticker.fundingRate * 100).toFixed(4)}%`
-                            : 'N/A'}
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          {filteredTickers.length > 100 && (
-            <div className="p-4 text-center text-sm text-muted-foreground border-t">
-              Showing top 100 results. Use search to narrow down.
+          {filteredTickers.length === 0 ? (
+            <div className="text-center text-muted-foreground py-8">
+              No tickers found matching your filters
             </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>
+                        <Button variant="ghost" size="sm" onClick={() => toggleSort('symbol')}>
+                          Symbol {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </Button>
+                      </TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => toggleSort('price')}>
+                          Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </Button>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => toggleSort('change')}>
+                          24h Change {sortBy === 'change' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </Button>
+                      </TableHead>
+                      <TableHead className="text-right">
+                        <Button variant="ghost" size="sm" onClick={() => toggleSort('volume')}>
+                          24h Volume {sortBy === 'volume' && (sortOrder === 'asc' ? '↑' : '↓')}
+                        </Button>
+                      </TableHead>
+                      <TableHead className="text-right">High / Low</TableHead>
+                      {typeFilter === 'perp' && <TableHead className="text-right">Funding Rate</TableHead>}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedTickers.map((ticker) => {
+                      const parsed = parseFuturesSymbol(ticker.symbol)
+                      const displaySymbol = getDisplaySymbol(ticker.symbol)
+                      const expiryDate = parsed.expiry ? formatExpiryDate(parsed.expiry) : null
+
+                      return (
+                        <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
+                          <TableCell className="font-medium">
+                            <div className="flex flex-col">
+                              <span>{displaySymbol}</span>
+                              {expiryDate && (
+                                <span className="text-xs text-muted-foreground">
+                                  Exp: {expiryDate}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
+                                {ticker.type}
+                              </Badge>
+                              {ticker.type === 'perp' && parsed.isFutures && (
+                                <Badge variant="outline" className="text-xs">
+                                  Futures
+                                </Badge>
+                              )}
+                              {ticker.type === 'perp' && !parsed.isFutures && !parsed.expiry && (
+                                <Badge variant="outline" className="text-xs">
+                                  Perpetual
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            {formatCurrency(ticker.last)}
+                          </TableCell>
+                          <TableCell className={`text-right font-mono ${getChangeColor(ticker.percentage24h)}`}>
+                            {formatPercentage(ticker.percentage24h)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono">
+                            ${formatVolume(ticker.quoteVolume24h)}
+                          </TableCell>
+                          <TableCell className="text-right text-sm">
+                            <div className="text-green-600 dark:text-green-400">
+                              {formatCurrency(ticker.high24h)}
+                            </div>
+                            <div className="text-red-600 dark:text-red-400">
+                              {formatCurrency(ticker.low24h)}
+                            </div>
+                          </TableCell>
+                          {typeFilter === 'perp' && (
+                            <TableCell className="text-right font-mono text-sm">
+                              {ticker.fundingRate !== null && ticker.fundingRate !== undefined
+                                ? `${(ticker.fundingRate * 100).toFixed(4)}%`
+                                : 'N/A'}
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination Controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-4 border-t">
+                  <div className="text-sm text-muted-foreground">
+                    Page {currentPage} of {totalPages}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {/* First Page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={goToFirstPage}
+                      disabled={currentPage === 1}
+                      aria-label="Go to first page"
+                    >
+                      <ChevronsLeft className="h-4 w-4" />
+                    </Button>
+
+                    {/* Previous Page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={goToPreviousPage}
+                      disabled={currentPage === 1}
+                      aria-label="Go to previous page"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+
+                    {/* Page Numbers */}
+                    <div className="flex items-center space-x-1">
+                      {getPageNumbers().map((page, index) => (
+                        page === '...' ? (
+                          <span key={`ellipsis-${index}`} className="px-2 text-muted-foreground">
+                            ...
+                          </span>
+                        ) : (
+                          <Button
+                            key={page}
+                            variant={currentPage === page ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setCurrentPage(page as number)}
+                            className="min-w-[40px]"
+                          >
+                            {page}
+                          </Button>
+                        )
+                      ))}
+                    </div>
+
+                    {/* Next Page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={goToNextPage}
+                      disabled={currentPage === totalPages}
+                      aria-label="Go to next page"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+
+                    {/* Last Page */}
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={goToLastPage}
+                      disabled={currentPage === totalPages}
+                      aria-label="Go to last page"
+                    >
+                      <ChevronsRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
