@@ -116,3 +116,33 @@ export interface HealthResponse {
   exchanges: string[]
   timestamp: number
 }
+
+/**
+ * OHLCV candlestick data (Open, High, Low, Close, Volume)
+ * Standard format for chart data across all timeframes
+ */
+export interface OHLCV {
+  timestamp: number     // Candle start timestamp in milliseconds
+  open: number          // Opening price
+  high: number          // Highest price in the period
+  low: number           // Lowest price in the period
+  close: number         // Closing price
+  volume: number        // Trading volume in base currency
+}
+
+/**
+ * Supported timeframes for OHLCV data
+ * Maps to standard exchange timeframe formats
+ */
+export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '3d' | '1w'
+
+/**
+ * OHLCV response from /ohlcv/:exchange/:symbol
+ */
+export interface OHLCVResponse {
+  exchange: string        // Exchange identifier
+  symbol: string          // Trading pair symbol
+  timeframe: Timeframe    // Requested timeframe
+  candles: OHLCV[]       // Array of candlestick data
+  count: number          // Number of candles returned
+}
