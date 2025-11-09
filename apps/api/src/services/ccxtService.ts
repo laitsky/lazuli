@@ -1,5 +1,5 @@
 import ccxt from 'ccxt';
-import { Ticker, Market } from '../types';
+import { Ticker, Market, OHLCV, Timeframe } from '../types';
 
 export class CCXTService {
   private spotExchanges: Map<string, any>;
@@ -167,6 +167,50 @@ export class CCXTService {
       return allTickers.find(t => t.symbol === symbol) || null;
     } catch (error) {
       console.error(`Error fetching ticker ${symbol} for ${exchangeId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch OHLCV (candlestick) data for a specific symbol and timeframe
+   * @param exchangeId - Exchange identifier (binance, bybit, okx)
+   * @param symbol - Trading pair symbol (e.g., 'BTC/USDT')
+   * @param timeframe - Timeframe for candles (1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w)
+   * @param marketType - Market type (spot or perp)
+   * @param limit - Number of candles to fetch (default: 100)
+   * @returns Array of OHLCV candles
+   */
+  async fetchOHLCV(
+    exchangeId: string,
+    symbol: string,
+    timeframe: Timeframe,
+    marketType: 'spot' | 'perp' = 'spot',
+    limit: number = 100
+  ): Promise<OHLCV[]> {
+    try {
+      // Get the appropriate exchange instance
+      const exchange = this.getExchange(exchangeId, marketType);
+
+      // Load markets if not already loaded
+      if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
+        await exchange.loadMarkets();
+      }
+
+      // Fetch OHLCV data from the exchange
+      // CCXT returns array of [timestamp, open, high, low, close, volume]
+      const ohlcvData = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
+
+      // Transform CCXT format to our standardized OHLCV format
+      return ohlcvData.map((candle: number[]) => ({
+        timestamp: candle[0],     // Timestamp in milliseconds
+        open: candle[1],          // Opening price
+        high: candle[2],          // Highest price
+        low: candle[3],           // Lowest price
+        close: candle[4],         // Closing price
+        volume: candle[5],        // Volume in base currency
+      }));
+    } catch (error) {
+      console.error(`Error fetching OHLCV for ${symbol} on ${exchangeId}:`, error);
       throw error;
     }
   }
