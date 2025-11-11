@@ -172,6 +172,61 @@ export class CCXTService {
   }
 
   /**
+   * Check if a timeframe is supported by a specific exchange
+   * Different exchanges support different timeframes
+   * @param exchangeId - Exchange identifier
+   * @param timeframe - Timeframe to check
+   * @param marketType - Market type (spot or perp)
+   * @returns true if supported, false otherwise
+   */
+  isTimeframeSupported(
+    exchangeId: string,
+    timeframe: Timeframe,
+    marketType: 'spot' | 'perp' = 'spot'
+  ): boolean {
+    try {
+      const exchange = this.getExchange(exchangeId, marketType);
+
+      // CCXT exchanges have a timeframes property that lists supported timeframes
+      if (!exchange.timeframes) {
+        // If timeframes not available, assume all are supported
+        return true;
+      }
+
+      // Check if the timeframe exists in the exchange's supported timeframes
+      return timeframe in exchange.timeframes;
+    } catch (error) {
+      console.error(`Error checking timeframe support for ${exchangeId}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Get list of supported timeframes for an exchange
+   * @param exchangeId - Exchange identifier
+   * @param marketType - Market type (spot or perp)
+   * @returns Array of supported timeframes
+   */
+  getSupportedTimeframes(
+    exchangeId: string,
+    marketType: 'spot' | 'perp' = 'spot'
+  ): string[] {
+    try {
+      const exchange = this.getExchange(exchangeId, marketType);
+
+      if (!exchange.timeframes) {
+        // Return default set if not available
+        return ['1m', '5m', '15m', '1h', '4h', '1d', '1w'];
+      }
+
+      return Object.keys(exchange.timeframes);
+    } catch (error) {
+      console.error(`Error getting supported timeframes for ${exchangeId}:`, error);
+      return [];
+    }
+  }
+
+  /**
    * Fetch OHLCV (candlestick) data for a specific symbol and timeframe
    * @param exchangeId - Exchange identifier (binance, bybit, okx)
    * @param symbol - Trading pair symbol (e.g., 'BTC/USDT')
@@ -194,6 +249,15 @@ export class CCXTService {
       // Load markets if not already loaded
       if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
         await exchange.loadMarkets();
+      }
+
+      // Check if timeframe is supported by this exchange
+      if (!this.isTimeframeSupported(exchangeId, timeframe, marketType)) {
+        const supported = this.getSupportedTimeframes(exchangeId, marketType);
+        throw new Error(
+          `Timeframe ${timeframe} is not supported by ${exchangeId}. ` +
+          `Supported timeframes: ${supported.join(', ')}`
+        );
       }
 
       // Fetch OHLCV data from the exchange
