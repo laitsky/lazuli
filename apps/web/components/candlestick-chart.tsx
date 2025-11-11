@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { createChart, ColorType, IChartApi } from 'lightweight-charts';
+import { createChart, ColorType } from 'lightweight-charts';
 import { OHLCV, Timeframe } from '@lazuli/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -28,77 +28,78 @@ interface CandlestickChartProps {
  */
 export function CandlestickChart({ data, timeframe, symbol, height = 300 }: CandlestickChartProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  const chartRef = useRef<any>(null);
 
   useEffect(() => {
-    if (!chartContainerRef.current) return;
+    if (!chartContainerRef.current || data.length === 0) return;
 
-    // Create chart instance
-    const chart = createChart(chartContainerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: '#9ca3af',
-      },
-      grid: {
-        vertLines: { color: '#1f2937' },
-        horzLines: { color: '#1f2937' },
-      },
-      width: chartContainerRef.current.clientWidth,
-      height: height,
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: false,
-      },
-      crosshair: {
-        mode: 0 as any, // Normal crosshair mode
-      },
-    });
+    try {
+      // Create chart instance with v5 compatible options
+      const chart = createChart(chartContainerRef.current, {
+        layout: {
+          background: { type: ColorType.Solid, color: 'transparent' },
+          textColor: '#9ca3af',
+        },
+        grid: {
+          vertLines: { color: '#1f2937' },
+          horzLines: { color: '#1f2937' },
+        },
+        width: chartContainerRef.current.clientWidth,
+        height: height,
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+        },
+      });
 
-    chartRef.current = chart;
+      chartRef.current = chart;
 
-    // Add candlestick series using the correct method name
-    const candlestickSeries = (chart as any).addCandlestickSeries({
-      upColor: '#22c55e',
-      downColor: '#ef4444',
-      borderVisible: false,
-      wickUpColor: '#22c55e',
-      wickDownColor: '#ef4444',
-    });
+      // Transform OHLCV data to lightweight-charts format first
+      const candlestickData = data.map((candle) => ({
+        time: Math.floor(candle.timestamp / 1000), // Convert to seconds (Unix timestamp)
+        open: candle.open,
+        high: candle.high,
+        low: candle.low,
+        close: candle.close,
+      }));
 
-    // Transform OHLCV data to lightweight-charts format
-    const candlestickData = data.map((candle) => ({
-      time: Math.floor(candle.timestamp / 1000) as any, // Convert to seconds
-      open: candle.open,
-      high: candle.high,
-      low: candle.low,
-      close: candle.close,
-    }));
+      // Add candlestick series - v5 uses addCandlestickSeries
+      const candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#22c55e',
+        downColor: '#ef4444',
+        borderVisible: false,
+        wickUpColor: '#22c55e',
+        wickDownColor: '#ef4444',
+      });
 
-    // Set data
-    candlestickSeries.setData(candlestickData);
+      // Set data
+      candlestickSeries.setData(candlestickData);
 
-    // Fit content to visible range
-    chart.timeScale().fitContent();
+      // Fit content to visible range
+      chart.timeScale().fitContent();
 
-    // Handle window resize
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
-      }
-    };
+      // Handle window resize
+      const handleResize = () => {
+        if (chartContainerRef.current && chartRef.current) {
+          chartRef.current.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+          });
+        }
+      };
 
-    window.addEventListener('resize', handleResize);
+      window.addEventListener('resize', handleResize);
 
-    // Cleanup on unmount
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
-      }
-    };
+      // Cleanup on unmount
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        if (chartRef.current) {
+          chartRef.current.remove();
+          chartRef.current = null;
+        }
+      };
+    } catch (error) {
+      console.error('Error creating chart:', error);
+    }
   }, [data, height]);
 
   // Generate chart title
