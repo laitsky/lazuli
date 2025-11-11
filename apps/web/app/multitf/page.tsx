@@ -108,12 +108,25 @@ export default function MultiTFPage() {
       if (response.success && response.data) {
         // Transform the response into a map of timeframe -> candles
         const chartsMap: Record<Timeframe, OHLCV[]> = {} as Record<Timeframe, OHLCV[]>;
+        const failedTimeframes: string[] = [];
 
         response.data.timeframes.forEach((tf: any) => {
-          chartsMap[tf.timeframe as Timeframe] = tf.candles;
+          // Only include successful timeframes
+          if (tf.success && tf.candles && tf.candles.length > 0) {
+            chartsMap[tf.timeframe as Timeframe] = tf.candles;
+          } else if (!tf.success) {
+            failedTimeframes.push(`${tf.timeframe} (${tf.error || 'Unknown error'})`);
+          }
         });
 
         setChartsData(chartsMap);
+
+        // Show warning if some timeframes failed
+        if (failedTimeframes.length > 0 && Object.keys(chartsMap).length > 0) {
+          setError(`Some timeframes are not supported by this exchange: ${failedTimeframes.join(', ')}`);
+        } else if (Object.keys(chartsMap).length === 0) {
+          setError('No chart data available for any timeframe');
+        }
       } else {
         setError(response.error || 'Failed to load chart data');
       }
@@ -256,8 +269,8 @@ export default function MultiTFPage() {
             {loading ? 'Loading Charts...' : 'Load Charts'}
           </Button>
 
-          {/* Error Display */}
-          {error && (
+          {/* Error/Warning Display */}
+          {error && Object.keys(chartsData).length === 0 && (
             <div className="p-3 bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-md">
               <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
             </div>
@@ -271,6 +284,15 @@ export default function MultiTFPage() {
           <h2 className="text-2xl font-bold">
             {selectedSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
           </h2>
+
+          {/* Warning for partial failures */}
+          {error && (
+            <div className="p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-800 rounded-md">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                ⚠️ {error}
+              </p>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-4">
             {timeframes.map((tf) => {
