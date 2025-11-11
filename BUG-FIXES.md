@@ -70,49 +70,61 @@ npm run dev:api
 **Error Message**:
 ```
 TypeError: chart.addCandlestickSeries is not a function
-    at CandlestickChart.useEffect (components/candlestick-chart.tsx:60:46)
+    at CandlestickChart.useEffect (components/candlestick-chart.tsx:67:39)
 ```
 
 **Root Cause**:
-- `lightweight-charts` v5.0.9 was installed (latest version)
-- Component code was written for v4 API
-- Type assertions and imports were incompatible with v5
-- Chart object wasn't properly typed for v5 API
+- `lightweight-charts` v5.0.9 was automatically installed (latest version)
+- v5 is experimental/beta with breaking API changes
+- v5 has incomplete TypeScript types and unstable API
+- The `addCandlestickSeries` method has different behavior in v5
 
-**Solution Implemented** (Commit: `be6d0b4`):
+**Solution Implemented** (Commits: `be6d0b4`, `ba5eae3`):
 
-1. **Removed Problematic Type Assertions**:
-   - Removed `(chart as any)` cast that was masking the issue
-   - Changed chart ref type from `IChartApi | null` to `any`
-   - Removed `IChartApi` import (not needed for v5)
+1. **Downgraded to Stable v4.2.0**:
+   - Uninstalled `lightweight-charts` v5.0.9
+   - Installed stable `lightweight-charts@^4.2.0`
+   - v4 is production-ready with well-documented API
+   - v4 has complete TypeScript support
 
-2. **Simplified Chart Configuration**:
-   - Removed crosshair mode configuration that was causing type errors
-   - Kept essential options (layout, grid, timeScale)
-   - Used direct method call: `chart.addCandlestickSeries()`
+2. **Updated Component for v4 Compatibility**:
+   - Removed v5-specific type imports
+   - Simplified chart configuration
+   - Used v4 stable API: `chart.addCandlestickSeries()`
+   - Added proper error handling with try-catch
 
 3. **Improved Error Handling**:
-   - Added try-catch around chart creation
    - Added check for empty data before creating chart
    - Added error logging for debugging
+   - Graceful degradation if chart creation fails
 
 4. **Fixed Data Transformation**:
    - Ensured timestamps are properly converted to Unix seconds
-   - Removed unnecessary `as any` casts on time values
+   - Proper OHLCV data mapping
 
 **Files Changed**:
-- `apps/web/components/candlestick-chart.tsx` - Fixed v5 compatibility
+- `apps/web/components/candlestick-chart.tsx` - Updated for v4 API
+- `apps/web/package.json` - Downgraded to v4.2.0
 
 **Key Changes**:
-```typescript
-// Before (v4 style with type issues)
-const chart = createChart(container, { /* options */ });
-const series = (chart as any).addCandlestickSeries({ /* options */ });
+```bash
+# Before (unstable v5)
+npm install lightweight-charts
+# Installs v5.0.9 (experimental)
 
-// After (v5 compatible)
-const chart = createChart(container, { /* simplified options */ });
-const series = chart.addCandlestickSeries({ /* options */ });
+# After (stable v4)
+npm install lightweight-charts@^4.2.0
+# Installs v4.2.0 (production-ready)
 ```
+
+**Why v4 Instead of v5**:
+- ✅ v4.2.0 is stable and production-tested
+- ✅ Complete TypeScript definitions
+- ✅ Well-documented API
+- ✅ Used by thousands of production applications
+- ❌ v5 is experimental with breaking changes
+- ❌ v5 has incomplete types
+- ❌ v5 API still under active development
 
 **Testing**:
 ```bash
@@ -131,7 +143,8 @@ npm run dev:web
 ### Commits:
 1. `40e148c` - fix: Handle exchange-specific timeframe support and partial failures
 2. `305f32d` - docs: Add comprehensive documentation for timeframe support fix
-3. `be6d0b4` - fix: Update CandlestickChart to be compatible with lightweight-charts v5
+3. `be6d0b4` - fix: Update CandlestickChart to be compatible with lightweight-charts v5 (attempted)
+4. `ba5eae3` - fix: Downgrade lightweight-charts to stable v4.2.0 (final solution)
 
 ### Files Modified:
 - Backend (API):
