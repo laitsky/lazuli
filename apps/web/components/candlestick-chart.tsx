@@ -20,7 +20,7 @@ interface CandlestickChartProps {
 }
 
 /**
- * Candlestick chart component using TradingView Lightweight Charts
+ * Candlestick chart component using TradingView Lightweight Charts v4
  * Displays OHLCV (Open, High, Low, Close, Volume) data as a candlestick chart
  *
  * @param props - Component props
@@ -34,7 +34,7 @@ export function CandlestickChart({ data, timeframe, symbol, height = 300 }: Cand
     if (!chartContainerRef.current || data.length === 0) return;
 
     try {
-      // Create chart instance with v5 compatible options
+      // Create chart instance with v4 options
       const chart = createChart(chartContainerRef.current, {
         layout: {
           background: { type: ColorType.Solid, color: 'transparent' },
@@ -54,16 +54,16 @@ export function CandlestickChart({ data, timeframe, symbol, height = 300 }: Cand
 
       chartRef.current = chart;
 
-      // Transform OHLCV data to lightweight-charts format first
+      // Transform OHLCV data to lightweight-charts format
       const candlestickData = data.map((candle) => ({
-        time: Math.floor(candle.timestamp / 1000), // Convert to seconds (Unix timestamp)
+        time: Math.floor(candle.timestamp / 1000), // Convert to Unix timestamp (seconds)
         open: candle.open,
         high: candle.high,
         low: candle.low,
         close: candle.close,
       }));
 
-      // Add candlestick series - v5 uses addCandlestickSeries
+      // Add candlestick series with v4 API
       const candlestickSeries = chart.addCandlestickSeries({
         upColor: '#22c55e',
         downColor: '#ef4444',
