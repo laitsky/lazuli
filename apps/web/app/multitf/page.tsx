@@ -29,6 +29,30 @@ export default function MultiTFPage() {
   // Available timeframes to display
   const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
 
+  /**
+   * Get appropriate candle limit based on timeframe
+   * Longer timeframes need more candles to show meaningful historical data
+   *
+   * Examples of coverage:
+   * - 1m with 100 candles = ~1.6 hours
+   * - 1h with 500 candles = ~20 days (3 weeks)
+   * - 1d with 365 candles = ~1 year
+   * - 1w with 200 candles = ~4 years
+   */
+  const getCandleLimit = (timeframe: Timeframe): number => {
+    const limits: Record<Timeframe, number> = {
+      '1m': 100,   // ~1.6 hours
+      '5m': 150,   // ~12.5 hours
+      '15m': 200,  // ~2 days
+      '1h': 500,   // ~20 days (3 weeks)
+      '4h': 360,   // ~60 days (2 months)
+      '1d': 365,   // ~1 year
+      '3d': 240,   // ~2 years
+      '1w': 200,   // ~4 years
+    };
+    return limits[timeframe] || 100;
+  };
+
   // Load exchanges on mount
   useEffect(() => {
     async function loadExchanges() {
@@ -86,7 +110,8 @@ export default function MultiTFPage() {
   }, [tickers, searchQuery, marketType]);
 
   /**
-   * Load charts data for all timeframes
+   * Load charts data for all timeframes with dynamic limits
+   * Each timeframe fetches the optimal number of candles for best visualization
    */
   async function loadCharts() {
     if (!selectedSymbol) {
@@ -99,37 +124,64 @@ export default function MultiTFPage() {
     setChartsData({} as Record<Timeframe, OHLCV[]>);
 
     try {
-      // Fetch data for all timeframes using the multi-timeframe endpoint
-      const response = await LazuliAPI.getMultiTimeframeOHLCV(selectedExchange, selectedSymbol, {
-        timeframes,
-        type: marketType,
-        limit: 100,
+      // Fetch each timeframe individually with its own limit
+      // This allows longer timeframes to show more historical data
+      const promises = timeframes.map(async (timeframe) => {
+        try {
+          const limit = getCandleLimit(timeframe);
+          const response = await LazuliAPI.getOHLCV(selectedExchange, selectedSymbol, {
+            timeframe,
+            type: marketType,
+            limit,
+          });
+
+          if (response.success && response.data && response.data.candles.length > 0) {
+            return {
+              timeframe,
+              candles: response.data.candles,
+              success: true,
+              error: null,
+            };
+          } else {
+            return {
+              timeframe,
+              candles: [],
+              success: false,
+              error: response.error || 'No data available',
+            };
+          }
+        } catch (err) {
+          return {
+            timeframe,
+            candles: [],
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          };
+        }
       });
 
-      if (response.success && response.data) {
-        // Transform the response into a map of timeframe -> candles
-        const chartsMap: Record<Timeframe, OHLCV[]> = {} as Record<Timeframe, OHLCV[]>;
-        const failedTimeframes: string[] = [];
+      // Wait for all requests to complete
+      const results = await Promise.all(promises);
 
-        response.data.timeframes.forEach((tf: any) => {
-          // Only include successful timeframes
-          if (tf.success && tf.candles && tf.candles.length > 0) {
-            chartsMap[tf.timeframe as Timeframe] = tf.candles;
-          } else if (!tf.success) {
-            failedTimeframes.push(`${tf.timeframe} (${tf.error || 'Unknown error'})`);
-          }
-        });
+      // Transform results into chartsMap
+      const chartsMap: Record<Timeframe, OHLCV[]> = {} as Record<Timeframe, OHLCV[]>;
+      const failedTimeframes: string[] = [];
 
-        setChartsData(chartsMap);
-
-        // Show warning if some timeframes failed
-        if (failedTimeframes.length > 0 && Object.keys(chartsMap).length > 0) {
-          setError(`Some timeframes are not supported by this exchange: ${failedTimeframes.join(', ')}`);
-        } else if (Object.keys(chartsMap).length === 0) {
-          setError('No chart data available for any timeframe');
+      results.forEach((result) => {
+        if (result.success && result.candles.length > 0) {
+          chartsMap[result.timeframe] = result.candles;
+        } else if (!result.success) {
+          failedTimeframes.push(`${result.timeframe} (${result.error || 'Unknown error'})`);
         }
-      } else {
-        setError(response.error || 'Failed to load chart data');
+      });
+
+      setChartsData(chartsMap);
+
+      // Show warning if some timeframes failed
+      if (failedTimeframes.length > 0 && Object.keys(chartsMap).length > 0) {
+        setError(`Some timeframes are not supported by this exchange: ${failedTimeframes.join(', ')}`);
+      } else if (Object.keys(chartsMap).length === 0) {
+        setError('No chart data available for any timeframe');
       }
     } catch (err) {
       setError('Failed to load chart data');
