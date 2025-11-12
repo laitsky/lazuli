@@ -80,8 +80,9 @@ export default function MultiTFPage() {
       .filter((t) => {
         if (!searchQuery) return true;
         return t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
-      })
-      .slice(0, 50); // Limit to top 50 for performance
+      });
+      // No limit - show all fetched tickers (API already limits to 500 sorted by volume)
+      // Search functionality helps users find what they need quickly
   }, [tickers, searchQuery, marketType]);
 
   /**
