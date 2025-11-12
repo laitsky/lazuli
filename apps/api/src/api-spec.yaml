@@ -58,41 +58,50 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required:
-                  - status
-                  - api
-                  - database
-                  - exchanges
-                  - timestamp
-                properties:
-                  status:
-                    type: string
-                    enum: [ok]
-                    description: Overall API status
-                  api:
-                    type: string
-                    enum: [ready]
-                    description: API service status
-                  database:
-                    type: string
-                    enum: [connected, disconnected, not_required, error]
-                    description: Database connection status
-                  exchanges:
-                    type: array
-                    items:
-                      type: string
-                      enum: [binance, bybit, okx]
-                    description: List of supported exchanges
-                  timestamp:
-                    type: integer
-                    format: int64
-                    description: Unix timestamp in milliseconds
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        required:
+                          - status
+                          - api
+                          - database
+                          - exchanges
+                          - timestamp
+                        properties:
+                          status:
+                            type: string
+                            enum: [ok]
+                            description: Overall API status
+                          api:
+                            type: string
+                            enum: [ready]
+                            description: API service status
+                          database:
+                            type: string
+                            enum: [connected, disconnected, not_required, error]
+                            description: Database connection status
+                          exchanges:
+                            type: array
+                            items:
+                              type: string
+                              enum: [binance, bybit, okx]
+                            description: List of supported exchanges
+                          timestamp:
+                            type: integer
+                            format: int64
+                            description: Unix timestamp in milliseconds
               example:
-                status: "ok"
-                api: "ready"
-                database: "not_required"
-                exchanges: ["binance", "bybit", "okx"]
+                success: true
+                data:
+                  status: "ok"
+                  api: "ready"
+                  database: "not_required"
+                  exchanges: ["binance", "bybit", "okx"]
+                  timestamp: 1704067200000
+                error: null
                 timestamp: 1704067200000
 
   /exchanges:
