@@ -33,6 +33,20 @@ export default function CustomPairPage() {
   // Available timeframes
   const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
 
+  // Maximum pages to fetch to prevent excessive API calls
+  const MAX_PAGES = 20; // Limits to 10,000 tickers (500 per page * 20)
+
+  /**
+   * Extract base currency from symbol
+   * Handles both - and / separators
+   * @param symbol - Trading pair symbol (e.g., BTC-USDT or BTC/USDT)
+   * @returns Base currency (e.g., BTC)
+   */
+  const extractBaseCurrency = (symbol: string): string => {
+    const parts = symbol.split(/[-/]/);
+    return parts[0] || symbol;
+  };
+
   /**
    * Get appropriate candle limit based on timeframe
    * Same logic as multi-timeframe page for consistency
@@ -79,8 +93,8 @@ export default function CustomPairPage() {
         let hasMorePages = true;
         const pageLimit = 500; // Maximum allowed by backend
 
-        // Fetch all pages until no more data
-        while (hasMorePages) {
+        // Fetch pages with rate limiting (max 20 pages = 10,000 tickers)
+        while (hasMorePages && currentPage <= MAX_PAGES) {
           const response = await LazuliAPI.getTickers(selectedExchange, {
             page: currentPage,
             limit: pageLimit,
@@ -107,6 +121,11 @@ export default function CustomPairPage() {
         }
 
         setTickers(allTickers);
+
+        // Warn if we hit the page limit
+        if (currentPage > MAX_PAGES) {
+          console.warn(`Reached maximum page limit (${MAX_PAGES}). Some tickers may not be loaded.`);
+        }
       } catch (err) {
         setError('Failed to load tickers');
       } finally {
@@ -303,6 +322,9 @@ export default function CustomPairPage() {
                       className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors ${
                         symbol1 === ticker.symbol ? 'bg-accent font-medium' : ''
                       }`}
+                      role="option"
+                      aria-selected={symbol1 === ticker.symbol}
+                      aria-label={`Select ${ticker.symbol} as numerator`}
                     >
                       {ticker.symbol}
                     </button>
@@ -334,6 +356,9 @@ export default function CustomPairPage() {
                       className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors ${
                         symbol2 === ticker.symbol ? 'bg-accent font-medium' : ''
                       }`}
+                      role="option"
+                      aria-selected={symbol2 === ticker.symbol}
+                      aria-label={`Select ${ticker.symbol} as denominator`}
                     >
                       {ticker.symbol}
                     </button>
@@ -352,7 +377,7 @@ export default function CustomPairPage() {
           {symbol1 && symbol2 && (
             <div className="p-4 bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-800 rounded-md">
               <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                Custom Pair Preview: {symbol1.split('-')[0] || symbol1.split('/')[0]} / {symbol2.split('-')[0] || symbol2.split('/')[0]}
+                Custom Pair Preview: {extractBaseCurrency(symbol1)} / {extractBaseCurrency(symbol2)}
               </p>
               <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">
                 This will show {symbol1} ÷ {symbol2} on the {selectedTimeframe} timeframe
