@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CandlestickChart } from '@/components/candlestick-chart';
+import { VirtualizedTickerList } from '@/components/virtualized-ticker-list';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
 import { Search, TrendingUp, Divide } from 'lucide-react';
@@ -302,35 +303,20 @@ export default function CustomPairPage() {
             </div>
           </div>
 
-          {/* Two-column layout for symbol selection */}
+          {/* Two-column layout for symbol selection with virtual scrolling */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Symbol 1 (Numerator) */}
             <div className="space-y-2">
               <label className="text-sm font-medium">
                 Symbol 1 (Numerator)
               </label>
-              <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1">
-                {filteredTickers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    {loading ? 'Loading tickers...' : 'No tickers found'}
-                  </p>
-                ) : (
-                  filteredTickers.map((ticker) => (
-                    <button
-                      key={ticker.symbol}
-                      onClick={() => setSymbol1(ticker.symbol)}
-                      className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors ${
-                        symbol1 === ticker.symbol ? 'bg-accent font-medium' : ''
-                      }`}
-                      role="option"
-                      aria-selected={symbol1 === ticker.symbol}
-                      aria-label={`Select ${ticker.symbol} as numerator`}
-                    >
-                      {ticker.symbol}
-                    </button>
-                  ))
-                )}
-              </div>
+              <VirtualizedTickerList
+                tickers={filteredTickers}
+                selectedSymbol={symbol1}
+                onSelect={setSymbol1}
+                loading={loading}
+                ariaLabel="numerator"
+              />
               {symbol1 && (
                 <div className="p-2 bg-accent rounded-md">
                   <p className="text-xs font-medium">{symbol1}</p>
@@ -343,28 +329,13 @@ export default function CustomPairPage() {
               <label className="text-sm font-medium">
                 Symbol 2 (Denominator)
               </label>
-              <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1">
-                {filteredTickers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    {loading ? 'Loading tickers...' : 'No tickers found'}
-                  </p>
-                ) : (
-                  filteredTickers.map((ticker) => (
-                    <button
-                      key={ticker.symbol}
-                      onClick={() => setSymbol2(ticker.symbol)}
-                      className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors ${
-                        symbol2 === ticker.symbol ? 'bg-accent font-medium' : ''
-                      }`}
-                      role="option"
-                      aria-selected={symbol2 === ticker.symbol}
-                      aria-label={`Select ${ticker.symbol} as denominator`}
-                    >
-                      {ticker.symbol}
-                    </button>
-                  ))
-                )}
-              </div>
+              <VirtualizedTickerList
+                tickers={filteredTickers}
+                selectedSymbol={symbol2}
+                onSelect={setSymbol2}
+                loading={loading}
+                ariaLabel="denominator"
+              />
               {symbol2 && (
                 <div className="p-2 bg-accent rounded-md">
                   <p className="text-xs font-medium">{symbol2}</p>
