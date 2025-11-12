@@ -18,21 +18,17 @@ export function ApiStatusIndicator() {
   useEffect(() => {
     const fetchHealth = async () => {
       try {
-        console.log('Fetching health from:', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000')
         const response = await LazuliAPI.getHealth()
-        console.log('Health response:', response)
 
         if (response.success) {
           setHealth(response.data)
           setError(null)
         } else {
           setError(response.error || 'Unknown error')
-          console.error('Health check failed:', response.error)
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'Unknown error'
         setError(errorMsg)
-        console.error('Failed to fetch health status:', errorMsg)
       } finally {
         setLoading(false)
       }
