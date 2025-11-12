@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { backgroundJobService, OHLCVTarget, CustomPairTarget } from '../services/backgroundJobService';
+import { requestCoalescingService } from '../services/requestCoalescingService';
+import { rateLimitService } from '../services/rateLimitService';
 import { successResponse, errorResponse } from '../utils/response';
 import { SupportedExchange, Timeframe } from '@lazuli/shared';
 
@@ -20,10 +22,12 @@ export class JobsController {
    * @param res - Express response object
    * @returns Response with job statistics
    */
-  async getJobsStatus(req: Request, res: Response): Promise<Response> {
+  async getJobsStatus(_req: Request, res: Response): Promise<Response> {
     try {
       const stats = backgroundJobService.getStats();
       const config = backgroundJobService.getConfig();
+      const coalescingStats = requestCoalescingService.getStats();
+      const rateLimitStats = rateLimitService.getAllStats();
 
       const response = {
         stats,
@@ -45,6 +49,14 @@ export class JobsController {
             targetCount: config.customPairTargets.length,
             targets: config.customPairTargets,
           },
+        },
+        coalescing: {
+          ...coalescingStats,
+          description: 'Request coalescing deduplicates simultaneous requests to reduce load',
+        },
+        rateLimits: {
+          ...rateLimitStats,
+          description: 'App-level rate limiting per exchange to prevent API quota violations',
         },
       };
 

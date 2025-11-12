@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { cacheService } from '../services/cacheService';
+import { requestCoalescingService } from '../services/requestCoalescingService';
 import { successResponse, errorResponse } from '../utils/response';
 import { SupportedExchange, Ticker, PaginationMeta } from '@lazuli/shared';
 import {
@@ -55,20 +56,27 @@ export class TickerController {
       const cacheKey = `tickers:${exchangeId}:raw`;
       let allTickers = cacheService.get<Ticker[]>(cacheKey);
 
-      // If not cached, fetch from exchange
+      // If not cached, fetch from exchange with request coalescing
       if (!allTickers) {
         console.log(`Cache miss for ${cacheKey}, fetching from exchange...`);
 
-        switch (exchangeId) {
-          case 'binance':
-          case 'bybit':
-          case 'okx':
-            allTickers = await ccxtService.getAllTickers(exchangeId);
-            break;
-        }
+        // Use request coalescing to deduplicate simultaneous requests
+        allTickers = await requestCoalescingService.coalesce(
+          cacheKey,
+          async () => {
+            switch (exchangeId) {
+              case 'binance':
+              case 'bybit':
+              case 'okx':
+                return await ccxtService.getAllTickers(exchangeId);
+              default:
+                throw new Error(`Exchange ${exchangeId} not supported`);
+            }
+          }
+        );
 
-        // Cache the raw results for 30 seconds
-        cacheService.set(cacheKey, allTickers, 30000);
+        // Cache the raw results for 7 seconds (background jobs refresh proactively)
+        cacheService.set(cacheKey, allTickers, 7000);
       } else {
         console.log(`Cache hit for ${cacheKey}`);
       }
@@ -243,17 +251,24 @@ export class TickerController {
       const cacheKey = `markets:${exchangeId}:raw`;
       let allMarkets = cacheService.get<any[]>(cacheKey);
 
-      // If not cached, fetch from exchange
+      // If not cached, fetch from exchange with request coalescing
       if (!allMarkets) {
         console.log(`Cache miss for ${cacheKey}, fetching from exchange...`);
 
-        switch (exchangeId) {
-          case 'binance':
-          case 'bybit':
-          case 'okx':
-            allMarkets = await ccxtService.getMarkets(exchangeId);
-            break;
-        }
+        // Use request coalescing to deduplicate simultaneous requests
+        allMarkets = await requestCoalescingService.coalesce(
+          cacheKey,
+          async () => {
+            switch (exchangeId) {
+              case 'binance':
+              case 'bybit':
+              case 'okx':
+                return await ccxtService.getMarkets(exchangeId);
+              default:
+                throw new Error(`Exchange ${exchangeId} not supported`);
+            }
+          }
+        );
 
         // Cache the raw results for 5 minutes (markets don't change frequently)
         cacheService.set(cacheKey, allMarkets, 300000);

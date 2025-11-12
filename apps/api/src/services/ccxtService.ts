@@ -1,5 +1,6 @@
 import ccxt from 'ccxt';
 import { Ticker, Market, OHLCV, Timeframe } from '../types';
+import { rateLimitService } from './rateLimitService';
 
 export class CCXTService {
   private spotExchanges: Map<string, any>;
@@ -80,8 +81,13 @@ export class CCXTService {
 
   async getAllTickers(exchangeId: string): Promise<Ticker[]> {
     try {
+      // Check rate limits before making requests
+      if (!await rateLimitService.waitForAllowance(exchangeId as any, 5000)) {
+        throw new Error(`Rate limit exceeded for ${exchangeId}`);
+      }
+
       await this.loadMarkets(exchangeId);
-      
+
       const [spotTickers, perpTickers] = await Promise.all([
         this.getTickersByType(exchangeId, 'spot'),
         this.getTickersByType(exchangeId, 'perp'),
@@ -243,6 +249,11 @@ export class CCXTService {
     limit: number = 100
   ): Promise<OHLCV[]> {
     try {
+      // Check rate limits before making requests
+      if (!await rateLimitService.waitForAllowance(exchangeId as any, 5000)) {
+        throw new Error(`Rate limit exceeded for ${exchangeId}`);
+      }
+
       // Get the appropriate exchange instance
       const exchange = this.getExchange(exchangeId, marketType);
 

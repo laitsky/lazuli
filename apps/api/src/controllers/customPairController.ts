@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { cacheService } from '../services/cacheService';
+import { requestCoalescingService } from '../services/requestCoalescingService';
 import { successResponse, errorResponse } from '../utils/response';
 import { SupportedExchange, Timeframe, OHLCV } from '@lazuli/shared';
 import { validateExchange, validateInteger } from '../utils/validation';
@@ -106,8 +107,8 @@ export class CustomPairController {
         // Calculate custom pair by dividing symbol1 by symbol2
         customPairCandles = this.calculateCustomPair(candles1, candles2);
 
-        // Cache the results for 1 minute (OHLCV data changes frequently)
-        cacheService.set(cacheKey, customPairCandles, 60000);
+        // Cache the results for 7 seconds (background jobs refresh proactively)
+        cacheService.set(cacheKey, customPairCandles, 7000);
       } else {
         console.log(`Cache hit for ${cacheKey}`);
       }
@@ -162,23 +163,29 @@ export class CustomPairController {
     let candles = cacheService.get<OHLCV[]>(cacheKey);
 
     if (!candles) {
-      // Fetch from appropriate exchange service
-      switch (exchangeId) {
-        case 'binance':
-        case 'bybit':
-        case 'okx':
-          candles = await ccxtService.fetchOHLCV(
-            exchangeId,
-            symbol,
-            timeframe,
-            marketType,
-            limit
-          );
-          break;
-      }
+      // Fetch from appropriate exchange service with request coalescing
+      candles = await requestCoalescingService.coalesce(
+        cacheKey,
+        async () => {
+          switch (exchangeId) {
+            case 'binance':
+            case 'bybit':
+            case 'okx':
+              return await ccxtService.fetchOHLCV(
+                exchangeId,
+                symbol,
+                timeframe,
+                marketType,
+                limit
+              );
+            default:
+              throw new Error(`Exchange ${exchangeId} not supported`);
+          }
+        }
+      );
 
-      // Cache the results for 1 minute
-      cacheService.set(cacheKey, candles, 60000);
+      // Cache the results for 7 seconds (background jobs refresh proactively)
+      cacheService.set(cacheKey, candles, 7000);
     }
 
     return candles;

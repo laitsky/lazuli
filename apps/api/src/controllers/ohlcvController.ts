@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { cacheService } from '../services/cacheService';
+import { requestCoalescingService } from '../services/requestCoalescingService';
 import { successResponse, errorResponse } from '../utils/response';
 import { SupportedExchange, Timeframe, OHLCVResponse } from '@lazuli/shared';
 import { validateExchange, validateInteger } from '../utils/validation';
@@ -121,27 +122,34 @@ export class OHLCVController {
       const cacheKey = `ohlcv:${exchangeId}:${symbol}:${timeframe}:${marketType}:${limit}`;
       let candles = cacheService.get<any[]>(cacheKey);
 
-      // If not cached, fetch from exchange
+      // If not cached, fetch from exchange with request coalescing
       if (!candles) {
         console.log(`Cache miss for ${cacheKey}, fetching from exchange...`);
 
-        switch (exchangeId) {
-          case 'binance':
-          case 'bybit':
-          case 'okx':
-            // CCXT exchanges support both spot and perp
-            candles = await ccxtService.fetchOHLCV(
-              exchangeId,
-              symbol,
-              timeframe,
-              marketType,
-              limit
-            );
-            break;
-        }
+        // Use request coalescing to deduplicate simultaneous requests
+        candles = await requestCoalescingService.coalesce(
+          cacheKey,
+          async () => {
+            switch (exchangeId) {
+              case 'binance':
+              case 'bybit':
+              case 'okx':
+                // CCXT exchanges support both spot and perp
+                return await ccxtService.fetchOHLCV(
+                  exchangeId,
+                  symbol,
+                  timeframe,
+                  marketType,
+                  limit
+                );
+              default:
+                throw new Error(`Exchange ${exchangeId} not supported`);
+            }
+          }
+        );
 
-        // Cache the results for 1 minute (OHLCV data changes frequently)
-        cacheService.set(cacheKey, candles, 60000);
+        // Cache the results for 7 seconds (background jobs refresh proactively)
+        cacheService.set(cacheKey, candles, 7000);
       } else {
         console.log(`Cache hit for ${cacheKey}`);
       }
@@ -234,22 +242,29 @@ export class OHLCVController {
           if (!candles) {
             console.log(`Cache miss for ${cacheKey}, fetching from exchange...`);
 
-            switch (exchangeId) {
-              case 'binance':
-              case 'bybit':
-              case 'okx':
-                candles = await ccxtService.fetchOHLCV(
-                  exchangeId,
-                  symbol,
-                  timeframe,
-                  marketType,
-                  limit
-                );
-                break;
-            }
+            // Use request coalescing to deduplicate simultaneous requests
+            candles = await requestCoalescingService.coalesce(
+              cacheKey,
+              async () => {
+                switch (exchangeId) {
+                  case 'binance':
+                  case 'bybit':
+                  case 'okx':
+                    return await ccxtService.fetchOHLCV(
+                      exchangeId,
+                      symbol,
+                      timeframe,
+                      marketType,
+                      limit
+                    );
+                  default:
+                    throw new Error(`Exchange ${exchangeId} not supported`);
+                }
+              }
+            );
 
-            // Cache the results for 1 minute
-            cacheService.set(cacheKey, candles, 60000);
+            // Cache the results for 7 seconds (background jobs refresh proactively)
+            cacheService.set(cacheKey, candles, 7000);
           } else {
             console.log(`Cache hit for ${cacheKey}`);
           }
