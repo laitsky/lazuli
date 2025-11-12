@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes';
-import { errorResponse } from './utils/response';
+import { successResponse, errorResponse } from './utils/response';
 import { testDatabaseConnection } from './utils/supabase';
 
 // Load environment variables from .env file
@@ -43,8 +43,9 @@ app.get('/health', async (_req, res) => {
   } catch (error) {
     dbStatus = 'error';
   }
-  
-  res.json({
+
+  // Return health data in standard API response format
+  return successResponse(res, {
     status: 'ok',
     api: 'ready',
     database: dbStatus,
