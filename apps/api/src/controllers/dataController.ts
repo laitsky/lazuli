@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import { databaseService } from '../services/databaseService';
 import { ccxtService } from '../services/ccxtService';
-import { hyperliquidService } from '../services/hyperliquidService';
 import { successResponse, errorResponse } from '../utils/response';
 import { SupportedExchange } from '../types';
 
@@ -37,9 +36,6 @@ export class DataController {
         case 'bybit':
         case 'okx':
           tickers = await ccxtService.getAllTickers(exchangeId);
-          break;
-        case 'hyperliquid':
-          tickers = await hyperliquidService.getAllTickers();
           break;
         default:
           return errorResponse(res, `Exchange ${exchange} not supported`, 400);
@@ -142,9 +138,6 @@ export class DataController {
         case 'bybit':
         case 'okx':
           markets = await ccxtService.getMarkets(exchangeId);
-          break;
-        case 'hyperliquid':
-          markets = await hyperliquidService.getMarkets();
           break;
         default:
           return errorResponse(res, `Exchange ${exchange} not supported`, 400);

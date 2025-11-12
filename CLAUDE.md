@@ -11,9 +11,9 @@ Lazuli is a cryptocurrency trading tool that provides **real-time** data from mu
 - **Language**: TypeScript with strict type checking
 - **API Framework**: Express.js REST API
 - **Web Framework**: Next.js with React
-- **Primary Data**: Live exchange APIs (CCXT + Hyperliquid)
+- **Primary Data**: Live exchange APIs (CCXT)
 - **Database**: Supabase (PostgreSQL) - **OPTIONAL** for advanced features
-- **Exchanges**: CCXT (Binance, Bybit, OKX) + Hyperliquid
+- **Exchanges**: CCXT (Binance, Bybit, OKX)
 
 ## Development Workflow
 
@@ -145,11 +145,6 @@ bun run format:check
 - Supports multiple exchanges with unified API
 - Handle rate limits appropriately
 - Implement caching for frequent requests
-
-#### Hyperliquid
-- Uses custom REST API implementation
-- Endpoint: https://api.hyperliquid.xyz/info
-- Requires special handling for perp markets
 
 ### Security Best Practices
 1. Never commit sensitive credentials
