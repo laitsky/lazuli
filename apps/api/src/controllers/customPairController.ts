@@ -13,6 +13,16 @@ import { validateExchange, validateInteger } from '../utils/validation';
  */
 export class CustomPairController {
   /**
+   * Extract base currency from symbol
+   * Handles both - and / separators
+   * @param symbol - Trading pair symbol (e.g., BTC-USDT or BTC/USDT)
+   * @returns Base currency (e.g., BTC)
+   */
+  private extractBaseCurrency(symbol: string): string {
+    const parts = symbol.split(/[-/]/);
+    return parts[0] || symbol;
+  }
+  /**
    * Generate custom pair OHLCV data by dividing two ticker prices
    *
    * This endpoint fetches OHLCV data for two symbols and creates a custom pair
@@ -112,10 +122,10 @@ export class CustomPairController {
         console.log(`Cache hit for ${cacheKey}`);
       }
 
-      // Extract base and quote currencies for display
+      // Extract base currencies for display
       // For BTC-USDT / AVAX-USDT, result is BTC/AVAX
-      const base1 = symbol1.split('-')[0] || symbol1.split('/')[0];
-      const base2 = symbol2.split('-')[0] || symbol2.split('/')[0];
+      const base1 = this.extractBaseCurrency(symbol1);
+      const base2 = this.extractBaseCurrency(symbol2);
       const customPairSymbol = `${base1}/${base2}`;
 
       // Build response
@@ -133,7 +143,9 @@ export class CustomPairController {
       return successResponse(res, response);
     } catch (error) {
       console.error('Error in getCustomPair:', error);
-      return errorResponse(res, `Failed to generate custom pair data: ${error}`, 500);
+      // Don't expose raw error details to users for security
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      return errorResponse(res, `Failed to generate custom pair data: ${errorMessage}`, 500);
     }
   }
 
@@ -217,8 +229,9 @@ export class CustomPairController {
         continue;
       }
 
-      // Skip if any price in candle2 is zero or null (division by zero protection)
-      if (!candle2.open || !candle2.high || !candle2.low || !candle2.close) {
+      // Validate both candles for zero or null values (division by zero protection)
+      if (!candle1.open || !candle1.high || !candle1.low || !candle1.close ||
+          !candle2.open || !candle2.high || !candle2.low || !candle2.close) {
         continue;
       }
 
@@ -233,6 +246,11 @@ export class CustomPairController {
       };
 
       customPairCandles.push(customCandle);
+    }
+
+    // Log warning if no matching timestamps were found
+    if (customPairCandles.length === 0) {
+      console.warn('No matching timestamps found between the two symbols. This may indicate data misalignment.');
     }
 
     return customPairCandles;
