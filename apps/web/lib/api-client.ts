@@ -12,6 +12,8 @@ import {
   MarketsResponse,
   HealthResponse,
   SupportedExchange,
+  OHLCVResponse,
+  Timeframe,
 } from '@lazuli/shared'
 
 // API base URL - defaults to localhost in development
@@ -39,6 +41,24 @@ export interface MarketsQueryParams {
   type?: 'spot' | 'perp'
   search?: string
   active?: boolean
+}
+
+/**
+ * Query parameters for OHLCV endpoint
+ */
+export interface OHLCVQueryParams {
+  timeframe: Timeframe
+  type?: 'spot' | 'perp'
+  limit?: number
+}
+
+/**
+ * Query parameters for multi-timeframe OHLCV endpoint
+ */
+export interface MultiTimeframeOHLCVQueryParams {
+  timeframes: Timeframe[]
+  type?: 'spot' | 'perp'
+  limit?: number
 }
 
 /**
@@ -137,6 +157,35 @@ export class LazuliAPI {
    */
   static async getHealth(): Promise<ApiResponse<HealthResponse>> {
     return apiFetch<HealthResponse>('/health')
+  }
+
+  /**
+   * Get OHLCV (candlestick) data for a specific symbol and timeframe
+   */
+  static async getOHLCV(
+    exchange: SupportedExchange,
+    symbol: string,
+    queryParams: OHLCVQueryParams
+  ): Promise<ApiResponse<OHLCVResponse>> {
+    const encodedSymbol = encodeURIComponent(symbol)
+    return apiFetch<OHLCVResponse>(`${API_VERSION}/ohlcv/${exchange}/${encodedSymbol}`, queryParams)
+  }
+
+  /**
+   * Get OHLCV data for multiple timeframes at once
+   */
+  static async getMultiTimeframeOHLCV(
+    exchange: SupportedExchange,
+    symbol: string,
+    queryParams: MultiTimeframeOHLCVQueryParams
+  ): Promise<ApiResponse<any>> {
+    const encodedSymbol = encodeURIComponent(symbol)
+    // Convert timeframes array to comma-separated string
+    const params = {
+      ...queryParams,
+      timeframes: queryParams.timeframes.join(','),
+    }
+    return apiFetch<any>(`${API_VERSION}/ohlcv/multi/${exchange}/${encodedSymbol}`, params)
   }
 }
 
