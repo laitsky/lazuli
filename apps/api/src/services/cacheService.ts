@@ -8,6 +8,9 @@
  * - Minimizing network latency
  * - Lowering load on exchange APIs (avoiding rate limits)
  *
+ * Background refresh jobs proactively update cache before expiry (7s TTL)
+ * ensuring data is always fresh when clients request it
+ *
  * IMPORTANT: For production, consider using Redis for distributed caching
  */
 
@@ -27,7 +30,7 @@ interface CacheStats {
 
 export class CacheService {
   private cache: Map<string, CacheEntry<any>>
-  private readonly DEFAULT_TTL = 30000 // 30 seconds default for crypto data
+  private readonly DEFAULT_TTL = 7000 // 7 seconds default - optimized for background refresh jobs
   private readonly MAX_CACHE_SIZE = 1000 // Prevent unbounded memory growth
   private cleanupInterval?: NodeJS.Timeout
   private stats: CacheStats = {

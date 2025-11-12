@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import routes from './routes';
 import { successResponse, errorResponse } from './utils/response';
 import { testDatabaseConnection } from './utils/supabase';
+import { backgroundJobService } from './services/backgroundJobService';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -66,7 +67,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 // Start the server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Lazuli API server running on port ${PORT}`);
   console.log(`📊 Live data endpoints: http://localhost:${PORT}/api/v1`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api/v1/docs`);
@@ -76,4 +77,27 @@ app.listen(PORT, () => {
   console.log('📋 Available exchanges: Binance, Bybit, OKX');
   console.log('💡 Database features are optional - see /data/* endpoints');
   console.log('🔧 Interactive API testing available at /api/v1/docs');
+  console.log('');
+
+  // Start background refresh jobs after server is ready
+  backgroundJobService.startAllJobs();
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('⚠️  SIGTERM signal received: closing HTTP server and stopping background jobs');
+  backgroundJobService.stopAllJobs();
+  server.close(() => {
+    console.log('✅ HTTP server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('\n⚠️  SIGINT signal received: closing HTTP server and stopping background jobs');
+  backgroundJobService.stopAllJobs();
+  server.close(() => {
+    console.log('✅ HTTP server closed');
+    process.exit(0);
+  });
 });

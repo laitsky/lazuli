@@ -5,6 +5,7 @@ import { dataController } from '../controllers/dataController';
 import { docsController } from '../controllers/docsController';
 import { ohlcvController } from '../controllers/ohlcvController';
 import { customPairController } from '../controllers/customPairController';
+import { jobsController } from '../controllers/jobsController';
 
 // Create Express router for API v1 endpoints
 const router = Router();
@@ -72,6 +73,26 @@ router.post('/data/markets/:exchange', async (req, res) => {
 // DELETE /api/v1/data/cleanup - Clean up old ticker data
 router.delete('/data/cleanup', async (req, res) => {
   await dataController.cleanupOldData(req, res);
+});
+
+// GET /api/v1/jobs/status - Get background job statistics and status
+router.get('/jobs/status', async (req, res) => {
+  await jobsController.getJobsStatus(req, res);
+});
+
+// POST /api/v1/jobs/ohlcv-target - Add OHLCV target for background refresh
+router.post('/jobs/ohlcv-target', async (req, res) => {
+  await jobsController.addOhlcvTarget(req, res);
+});
+
+// POST /api/v1/jobs/custom-pair-target - Add custom pair target for background refresh
+router.post('/jobs/custom-pair-target', async (req, res) => {
+  await jobsController.addCustomPairTarget(req, res);
+});
+
+// PUT /api/v1/jobs/config - Update background job configuration
+router.put('/jobs/config', async (req, res) => {
+  await jobsController.updateJobConfig(req, res);
 });
 
 // GET /api/v1/docs - Serve interactive API documentation
