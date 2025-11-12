@@ -71,6 +71,7 @@ export default function MultiTFPage() {
   }, []);
 
   // Load tickers when exchange or market type changes
+  // Fetches ALL tickers using pagination (same approach as tickers page)
   useEffect(() => {
     async function loadTickers() {
       if (!selectedExchange) return;
@@ -79,18 +80,40 @@ export default function MultiTFPage() {
       setError(null);
 
       try {
-        const response = await LazuliAPI.getTickers(selectedExchange, {
-          limit: 500,
-          sortBy: 'volume',
-          sortOrder: 'desc',
-          type: marketType, // Filter by market type on the API side
-        });
+        const allTickers: Ticker[] = [];
+        let currentPage = 1;
+        let hasMorePages = true;
+        const pageLimit = 500; // Maximum allowed by backend
 
-        if (response.success && response.data) {
-          setTickers(response.data.tickers);
-        } else {
-          setError(response.error || 'Failed to load tickers');
+        // Fetch all pages until no more data
+        while (hasMorePages) {
+          const response = await LazuliAPI.getTickers(selectedExchange, {
+            page: currentPage,
+            limit: pageLimit,
+            sortBy: 'volume',
+            sortOrder: 'desc',
+            type: marketType, // Filter by market type on the API side
+          });
+
+          if (!response.success || !response.data) {
+            // If any page fails, stop and use what we have
+            if (currentPage === 1) {
+              setError(response.error || 'Failed to load tickers');
+            }
+            break;
+          }
+
+          allTickers.push(...response.data.tickers);
+
+          // Check if there are more pages
+          if (response.data.pagination && response.data.pagination.hasNext) {
+            currentPage++;
+          } else {
+            hasMorePages = false;
+          }
         }
+
+        setTickers(allTickers);
       } catch (err) {
         setError('Failed to load tickers');
       } finally {
@@ -99,7 +122,7 @@ export default function MultiTFPage() {
     }
 
     loadTickers();
-  }, [selectedExchange, marketType]); // Also re-fetch when marketType changes
+  }, [selectedExchange, marketType]); // Re-fetch when exchange or market type changes
 
   // Filter tickers based on search query only (type filtering is done by API)
   const filteredTickers = useMemo(() => {
@@ -108,7 +131,7 @@ export default function MultiTFPage() {
         if (!searchQuery) return true;
         return t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
       });
-      // No limit - show all fetched tickers (API already limits to 500 sorted by volume and filtered by type)
+      // Shows ALL available tickers for the selected market type (fetched via pagination)
       // Search functionality helps users find what they need quickly
   }, [tickers, searchQuery]);
 
