@@ -1,6 +1,6 @@
 # Lazuli - Cryptocurrency Trading Tool
 
-A modern full-stack monorepo application that provides **real-time** cryptocurrency data from multiple exchanges including Binance, Bybit, OKX, and Hyperliquid.
+A modern full-stack monorepo application that provides **real-time** cryptocurrency data from multiple exchanges including Binance, Bybit, and OKX.
 
 **🚀 Ready to use immediately** - no database setup required for live trading data!
 
@@ -8,7 +8,7 @@ A modern full-stack monorepo application that provides **real-time** cryptocurre
 
 - 📊 **Beautiful Web Interface** - Modern Next.js frontend with real-time data
 - 🔌 **REST API** - Powerful TypeScript backend with Express.js
-- 💱 **Multi-Exchange Support** - Binance, Bybit, OKX, and Hyperliquid
+- 💱 **Multi-Exchange Support** - Binance, Bybit, and OKX
 - 🎯 **Live Trading Data** - Real-time prices, volumes, and market statistics
 - 📈 **Spot & Perpetual Markets** - Support for both market types
 - 🎨 **Modern UI** - Built with Shadcn UI and Tailwind CSS
@@ -166,7 +166,7 @@ Lazuli uses **Turborepo** with **Bun workspaces** for monorepo management:
 ### Backend (apps/api)
 - **Runtime**: Bun with native TypeScript support
 - **Framework**: Express.js
-- **Exchange APIs**: CCXT (Binance, Bybit, OKX) + Hyperliquid REST API
+- **Exchange APIs**: CCXT (Binance, Bybit, OKX)
 - **Database**: Supabase (PostgreSQL) - Optional
 - **Documentation**: OpenAPI 3.0 with Stoplight Elements
 - **Dev Mode**: Built-in watch mode with `bun --watch`

@@ -5,21 +5,18 @@
 
 import Link from 'next/link'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { LazuliAPI } from '@/lib/api-client'
+import { ApiStatusIndicator } from '@/components/api-status-indicator'
 
 export const dynamic = 'force-dynamic'
 
 export default async function HomePage() {
-  // Fetch exchanges and health status
-  const [exchangesResponse, healthResponse] = await Promise.all([
-    LazuliAPI.getExchanges(),
-    LazuliAPI.getHealth(),
-  ])
+  // Fetch exchanges on server-side
+  // Health status is fetched client-side to avoid SSR networking issues
+  const exchangesResponse = await LazuliAPI.getExchanges()
 
   const exchanges = exchangesResponse.success ? exchangesResponse.data : []
-  const health = healthResponse.success ? healthResponse.data : null
 
   return (
     <div className="space-y-8">
@@ -40,34 +37,14 @@ export default async function HomePage() {
           <CardDescription>Current API and service status</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">API Status</p>
-              <div className="flex items-center space-x-2">
-                <div className={`h-3 w-3 rounded-full ${health?.status === 'ok' ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-lg font-semibold">
-                  {health?.status === 'ok' ? 'Online' : 'Offline'}
-                </span>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">Exchanges</p>
-              <p className="text-lg font-semibold">{exchanges.length} Supported</p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-medium text-muted-foreground">Database</p>
-              <Badge variant={health?.database === 'connected' ? 'success' : 'secondary'}>
-                {health?.database || 'Not Required'}
-              </Badge>
-            </div>
-          </div>
+          <ApiStatusIndicator />
         </CardContent>
       </Card>
 
       {/* Exchanges Overview */}
       <div className="space-y-4">
         <h2 className="text-2xl font-bold">Supported Exchanges</h2>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {exchanges.map((exchange) => (
             <Card key={exchange.id}>
               <CardHeader>
@@ -158,7 +135,7 @@ export default async function HomePage() {
           <ul className="space-y-2 text-sm">
             <li className="flex items-center space-x-2">
               <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-              <span>Real-time cryptocurrency price data from 4 major exchanges</span>
+              <span>Real-time cryptocurrency price data from 3 major exchanges</span>
             </li>
             <li className="flex items-center space-x-2">
               <div className="h-1.5 w-1.5 rounded-full bg-primary" />

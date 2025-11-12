@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
-import { hyperliquidService } from '../services/hyperliquidService';
 import { cacheService } from '../services/cacheService';
 import { successResponse, errorResponse } from '../utils/response';
 import { SupportedExchange, Ticker, PaginationMeta } from '@lazuli/shared';
@@ -65,9 +64,6 @@ export class TickerController {
           case 'bybit':
           case 'okx':
             allTickers = await ccxtService.getAllTickers(exchangeId);
-            break;
-          case 'hyperliquid':
-            allTickers = await hyperliquidService.getAllTickers();
             break;
         }
 
@@ -197,9 +193,6 @@ export class TickerController {
         case 'okx':
           ticker = await ccxtService.getTicker(exchangeId, symbol);
           break;
-        case 'hyperliquid':
-          ticker = await hyperliquidService.getTicker(symbol);
-          break;
         default:
           return errorResponse(res, `Exchange ${exchange} not supported`, 400);
       }
@@ -259,9 +252,6 @@ export class TickerController {
           case 'bybit':
           case 'okx':
             allMarkets = await ccxtService.getMarkets(exchangeId);
-            break;
-          case 'hyperliquid':
-            allMarkets = await hyperliquidService.getMarkets();
             break;
         }
 

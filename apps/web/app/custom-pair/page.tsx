@@ -247,7 +247,6 @@ export default function CustomPairPage() {
                   setSymbol2('');
                   setChartData([]);
                 }}
-                disabled={selectedExchange === 'hyperliquid'}
               >
                 Spot
               </Button>
@@ -264,11 +263,6 @@ export default function CustomPairPage() {
                 Perpetual
               </Button>
             </div>
-            {selectedExchange === 'hyperliquid' && marketType === 'spot' && (
-              <p className="text-sm text-yellow-600 dark:text-yellow-400">
-                Hyperliquid only supports perpetual markets
-              </p>
-            )}
           </div>
 
           {/* Timeframe Selector */}

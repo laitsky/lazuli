@@ -11,7 +11,7 @@
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist .turbo"
   },
-  "keywords": ["cryptocurrency", "trading", "api", "binance", "bybit", "okx", "hyperliquid"],
+  "keywords": ["cryptocurrency", "trading", "api", "binance", "bybit", "okx"],
   "author": "",
   "license": "ISC",
   "devDependencies": {

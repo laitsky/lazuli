@@ -46,10 +46,10 @@ Error fetching OHLCV for BABYDOGE/USDT on bybit
 - `apps/web/app/multitf/page.tsx` - Added partial failure handling
 
 **Exchange Support Matrix**:
-| Timeframe | Binance | Bybit | OKX | Hyperliquid |
-|-----------|---------|-------|-----|-------------|
-| 1m, 5m, 15m, 1h, 4h, 1d, 1w | ✅ | ✅ | ✅ | ✅ |
-| 3d | ✅ | ❌ | ❌ | ❌ |
+| Timeframe | Binance | Bybit | OKX |
+|-----------|---------|-------|-----|
+| 1m, 5m, 15m, 1h, 4h, 1d, 1w | ✅ | ✅ | ✅ |
+| 3d | ✅ | ❌ | ❌ |
 
 **Testing**:
 ```bash
