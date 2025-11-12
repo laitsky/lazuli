@@ -36,19 +36,22 @@ export default function MultiTFPage() {
    * Examples of coverage:
    * - 1m with 100 candles = ~1.6 hours
    * - 1h with 500 candles = ~20 days (3 weeks)
-   * - 1d with 365 candles = ~1 year
-   * - 1w with 200 candles = ~4 years
+   * - 4h with 1000 candles = ~166 days (5.5 months)
+   * - 1d with 1000 candles = ~2.7 years
+   * - 1w with 1000 candles = ~19 years
+   *
+   * Maximum limit per API: 1000 candles
    */
   const getCandleLimit = (timeframe: Timeframe): number => {
     const limits: Record<Timeframe, number> = {
-      '1m': 100,   // ~1.6 hours
-      '5m': 150,   // ~12.5 hours
-      '15m': 200,  // ~2 days
-      '1h': 500,   // ~20 days (3 weeks)
-      '4h': 360,   // ~60 days (2 months)
-      '1d': 365,   // ~1 year
-      '3d': 240,   // ~2 years
-      '1w': 200,   // ~4 years
+      '1m': 100,    // ~1.6 hours
+      '5m': 150,    // ~12.5 hours
+      '15m': 200,   // ~2 days
+      '1h': 500,    // ~20 days (3 weeks)
+      '4h': 1000,   // ~166 days (5.5 months / half a year)
+      '1d': 1000,   // ~2.7 years
+      '3d': 1000,   // ~8 years
+      '1w': 1000,   // ~19 years (almost 2 decades!)
     };
     return limits[timeframe] || 100;
   };
