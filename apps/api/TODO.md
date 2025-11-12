@@ -3,7 +3,7 @@
 ## ✅ Completed Features
 - [x] **Basic REST API structure** - Express.js with TypeScript
 - [x] **CCXT integration** - Binance, Bybit, OKX (spot + perpetual markets)
-- [x] **Hyperliquid integration** - Perpetual futures API integration
+- [x] **Exchange integrations** - CCXT library for multiple exchanges
 - [x] **API Endpoints**:
   - [x] `GET /api/v1/exchanges` - List supported exchanges
   - [x] `GET /api/v1/tickers/:exchange` - Get all tickers for exchange
@@ -17,7 +17,7 @@
 
 ### Architecture Overview
 - **Backend**: Node.js + Express + TypeScript
-- **Exchange Integration**: CCXT (Binance, Bybit, OKX) + Hyperliquid API
+- **Exchange Integration**: CCXT (Binance, Bybit, OKX)
 - **Data Types**: Spot + Perpetual futures markets
 - **Response Format**: Standardized JSON with success/error handling
 - **Development**: Hot reload, TypeScript strict mode, comprehensive logging
@@ -94,7 +94,6 @@
 - [ ] **Binance**: Savings rates, staking yields
 - [ ] **Bybit**: Copy trading stats
 - [ ] **OKX**: Options data integration
-- [ ] **Hyperliquid**: Vault performance tracking
 
 ### Compliance & Security
 - [ ] **API Key Management**: Secure storage system

@@ -44,12 +44,12 @@ app.get('/health', async (_req, res) => {
     dbStatus = 'error';
   }
   
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     api: 'ready',
     database: dbStatus,
-    exchanges: ['binance', 'bybit', 'okx', 'hyperliquid'],
-    timestamp: Date.now() 
+    exchanges: ['binance', 'bybit', 'okx'],
+    timestamp: Date.now()
   });
 });
 
@@ -72,7 +72,7 @@ app.listen(PORT, () => {
   console.log(`💚 Health check: http://localhost:${PORT}/health`);
   console.log(`📈 Ready to serve real-time cryptocurrency data!`);
   console.log('');
-  console.log('📋 Available exchanges: Binance, Bybit, OKX, Hyperliquid');
+  console.log('📋 Available exchanges: Binance, Bybit, OKX');
   console.log('💡 Database features are optional - see /data/* endpoints');
   console.log('🔧 Interactive API testing available at /api/v1/docs');
 });

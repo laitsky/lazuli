@@ -43,10 +43,10 @@ paths:
         - name: exchange
           in: path
           required: true
-          description: Exchange name (binance, bybit, okx, hyperliquid)
+          description: Exchange name (binance, bybit, okx)
           schema:
             type: string
-            enum: [binance, bybit, okx, hyperliquid]
+            enum: [binance, bybit, okx]
       responses:
         '200':
           description: Successfully retrieved tickers
@@ -81,7 +81,7 @@ paths:
           description: Exchange name
           schema:
             type: string
-            enum: [binance, bybit, okx, hyperliquid]
+            enum: [binance, bybit, okx]
         - name: symbol
           in: path
           required: true
@@ -128,7 +128,7 @@ paths:
           description: Exchange name
           schema:
             type: string
-            enum: [binance, bybit, okx, hyperliquid]
+            enum: [binance, bybit, okx]
       responses:
         '200':
           description: Successfully retrieved markets
@@ -163,7 +163,7 @@ paths:
           description: Exchange name
           schema:
             type: string
-            enum: [binance, bybit, okx, hyperliquid]
+            enum: [binance, bybit, okx]
       responses:
         '200':
           description: Successfully stored ticker data
@@ -211,7 +211,7 @@ paths:
           description: Filter by specific exchange
           schema:
             type: string
-            enum: [binance, bybit, okx, hyperliquid]
+            enum: [binance, bybit, okx]
       responses:
         '200':
           description: Successfully retrieved historical data
@@ -246,7 +246,7 @@ paths:
           description: Exchange name
           schema:
             type: string
-            enum: [binance, bybit, okx, hyperliquid]
+            enum: [binance, bybit, okx]
         - name: symbol
           in: path
           required: true
@@ -293,7 +293,7 @@ paths:
           description: Exchange name
           schema:
             type: string
-            enum: [binance, bybit, okx, hyperliquid]
+            enum: [binance, bybit, okx]
       responses:
         '200':
           description: Successfully stored market data
