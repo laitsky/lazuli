@@ -15,6 +15,7 @@ const navItems = [
   { href: '/tickers', label: 'Tickers' },
   { href: '/markets', label: 'Markets' },
   { href: '/multitf', label: 'MultiTF' },
+  { href: '/custom-pair', label: 'Custom Pair' },
 ]
 
 export function Navigation() {

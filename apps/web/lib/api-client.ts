@@ -13,12 +13,16 @@ import {
   HealthResponse,
   SupportedExchange,
   OHLCVResponse,
+  CustomPairResponse,
   Timeframe,
 } from '@lazuli/shared'
 
 // API base URL - defaults to localhost in development
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
 const API_VERSION = '/api/v1'
+
+// Default timeout for API requests (30 seconds)
+const DEFAULT_TIMEOUT = 30000
 
 /**
  * Query parameters for tickers endpoint
@@ -62,6 +66,15 @@ export interface MultiTimeframeOHLCVQueryParams {
 }
 
 /**
+ * Query parameters for custom pair endpoint
+ */
+export interface CustomPairQueryParams {
+  timeframe: Timeframe
+  type?: 'spot' | 'perp'
+  limit?: number
+}
+
+/**
  * Build query string from parameters
  */
 function buildQueryString(params?: Record<string, any>): string {
@@ -79,18 +92,53 @@ function buildQueryString(params?: Record<string, any>): string {
 }
 
 /**
- * Base fetch wrapper with error handling
+ * Fetch with timeout support
+ * @param url - URL to fetch
+ * @param options - Fetch options
+ * @param timeout - Timeout in milliseconds (default: 30000)
+ * @returns Promise that resolves to Response or rejects on timeout
  */
-async function apiFetch<T>(endpoint: string, queryParams?: Record<string, any>): Promise<ApiResponse<T>> {
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeout: number = DEFAULT_TIMEOUT
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeout)
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error) {
+    clearTimeout(timeoutId)
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeout}ms`)
+    }
+    throw error
+  }
+}
+
+/**
+ * Base fetch wrapper with error handling and timeout support
+ */
+async function apiFetch<T>(endpoint: string, queryParams?: Record<string, any>, timeout?: number): Promise<ApiResponse<T>> {
   try {
     const queryString = buildQueryString(queryParams)
-    const response = await fetch(`${API_BASE_URL}${endpoint}${queryString}`, {
-      headers: {
-        'Content-Type': 'application/json',
+    const response = await fetchWithTimeout(
+      `${API_BASE_URL}${endpoint}${queryString}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        // Disable caching for real-time data
+        cache: 'no-store',
       },
-      // Disable caching for real-time data
-      cache: 'no-store',
-    })
+      timeout
+    )
 
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`)
@@ -186,6 +234,27 @@ export class LazuliAPI {
       timeframes: queryParams.timeframes.join(','),
     }
     return apiFetch<any>(`${API_VERSION}/ohlcv/multi/${exchange}/${encodedSymbol}`, params)
+  }
+
+  /**
+   * Generate custom pair OHLCV data by dividing two ticker prices
+   * Example: BTC-USDT / AVAX-USDT = BTC/AVAX custom pair
+   * Uses extended timeout (60s) as it fetches data for two symbols
+   */
+  static async getCustomPair(
+    exchange: SupportedExchange,
+    symbol1: string,
+    symbol2: string,
+    queryParams: CustomPairQueryParams
+  ): Promise<ApiResponse<CustomPairResponse>> {
+    const encodedSymbol1 = encodeURIComponent(symbol1)
+    const encodedSymbol2 = encodeURIComponent(symbol2)
+    // Use 60s timeout for custom pair (fetches 2 symbols + calculation)
+    return apiFetch<CustomPairResponse>(
+      `${API_VERSION}/custom-pair/${exchange}/${encodedSymbol1}/${encodedSymbol2}`,
+      queryParams,
+      60000
+    )
   }
 }
 
