@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
-import { hyperliquidService } from '../services/hyperliquidService';
 import { cacheService } from '../services/cacheService';
 import { successResponse, errorResponse } from '../utils/response';
 import { SupportedExchange, Timeframe, OHLCV } from '@lazuli/shared';
@@ -76,15 +75,6 @@ export class CustomPairController {
       const marketType = (req.query.type as 'spot' | 'perp') || 'spot';
       if (marketType !== 'spot' && marketType !== 'perp') {
         return errorResponse(res, 'Market type must be "spot" or "perp"', 400);
-      }
-
-      // Check if Hyperliquid with spot market (not supported)
-      if (exchangeId === 'hyperliquid' && marketType === 'spot') {
-        return errorResponse(
-          res,
-          'Hyperliquid only supports perpetual markets (type=perp)',
-          400
-        );
       }
 
       // Validate limit parameter
@@ -184,9 +174,6 @@ export class CustomPairController {
             marketType,
             limit
           );
-          break;
-        case 'hyperliquid':
-          candles = await hyperliquidService.fetchOHLCV(symbol, timeframe, limit);
           break;
       }
 

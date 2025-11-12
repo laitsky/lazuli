@@ -106,7 +106,7 @@ export class DocsController {
           "Code generation examples",
           "Try It functionality"
         ],
-        exchanges_supported: ["binance", "bybit", "okx", "hyperliquid"],
+        exchanges_supported: ["binance", "bybit", "okx"],
         api_categories: [
           "Live ticker data (no database required)",
           "Market information",

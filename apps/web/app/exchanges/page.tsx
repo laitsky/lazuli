@@ -179,10 +179,6 @@ export default function ExchangesPage() {
                 </li>
                 <li className="flex items-center space-x-2">
                   <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  <span><strong>Hyperliquid:</strong> Custom REST API integration</span>
-                </li>
-                <li className="flex items-center space-x-2">
-                  <div className="h-1.5 w-1.5 rounded-full bg-primary" />
                   <span><strong>Spot Markets:</strong> Traditional buy/sell trading pairs</span>
                 </li>
                 <li className="flex items-center space-x-2">

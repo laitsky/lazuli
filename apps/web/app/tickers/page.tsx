@@ -63,7 +63,7 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
   const selectedExchange = params.exchange || 'binance'
 
   // Validate exchange
-  const validExchanges = ['binance', 'bybit', 'okx', 'hyperliquid']
+  const validExchanges = ['binance', 'bybit', 'okx']
   const exchange = validExchanges.includes(selectedExchange)
     ? (selectedExchange as any)
     : 'binance'

@@ -1,6 +1,5 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
-import { hyperliquidService } from '../services/hyperliquidService';
 import { cacheService } from '../services/cacheService';
 import { successResponse, errorResponse } from '../utils/response';
 import { SupportedExchange, Timeframe, OHLCVResponse } from '@lazuli/shared';
@@ -44,10 +43,6 @@ export class OHLCVController {
         case 'bybit':
         case 'okx':
           supportedTimeframes = ccxtService.getSupportedTimeframes(exchangeId, marketType);
-          break;
-        case 'hyperliquid':
-          // Hyperliquid supports these timeframes
-          supportedTimeframes = ['1m', '5m', '15m', '1h', '4h', '1d', '1w'];
           break;
       }
 
@@ -143,17 +138,6 @@ export class OHLCVController {
               limit
             );
             break;
-          case 'hyperliquid':
-            // Hyperliquid only supports perpetual markets
-            if (marketType === 'spot') {
-              return errorResponse(
-                res,
-                'Hyperliquid only supports perpetual markets (type=perp)',
-                400
-              );
-            }
-            candles = await hyperliquidService.fetchOHLCV(symbol, timeframe, limit);
-            break;
         }
 
         // Cache the results for 1 minute (OHLCV data changes frequently)
@@ -240,15 +224,6 @@ export class OHLCVController {
       // Validate limit parameter
       const limit = validateInteger(req.query.limit, 100, 1, 1000);
 
-      // Check if Hyperliquid with spot market (not supported)
-      if (exchangeId === 'hyperliquid' && marketType === 'spot') {
-        return errorResponse(
-          res,
-          'Hyperliquid only supports perpetual markets (type=perp)',
-          400
-        );
-      }
-
       // Fetch OHLCV data for all timeframes in parallel
       // Use Promise.allSettled to handle partial failures gracefully
       const promises = timeframes.map(async (timeframe) => {
@@ -270,9 +245,6 @@ export class OHLCVController {
                   marketType,
                   limit
                 );
-                break;
-              case 'hyperliquid':
-                candles = await hyperliquidService.fetchOHLCV(symbol, timeframe, limit);
                 break;
             }
 

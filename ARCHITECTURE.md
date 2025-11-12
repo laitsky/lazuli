@@ -8,7 +8,7 @@
 
 ### Primary Path (Real-time)
 ```
-User Request → API Endpoint → Exchange Service (CCXT/Hyperliquid) → Live Data Response
+User Request → API Endpoint → Exchange Service (CCXT) → Live Data Response
 ```
 
 ### Optional Path (Database Features)

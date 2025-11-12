@@ -61,7 +61,7 @@ export interface ExchangeInfo {
  * Supported exchange identifiers
  * Add new exchanges here when implementing additional integrations
  */
-export type SupportedExchange = 'binance' | 'bybit' | 'okx' | 'hyperliquid';
+export type SupportedExchange = 'binance' | 'bybit' | 'okx';
 
 /**
  * OHLCV candlestick data (Open, High, Low, Close, Volume)
