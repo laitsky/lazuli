@@ -1,14 +1,18 @@
 name: Claude Code Review
 
+# TEMPORARILY DISABLED - Uncomment the 'on:' section below to re-enable
+# on:
+#   pull_request:
+#     types: [opened, synchronize]
+#     # Optional: Only run on specific file changes
+#     # paths:
+#     #   - "src/**/*.ts"
+#     #   - "src/**/*.tsx"
+#     #   - "src/**/*.js"
+#     #   - "src/**/*.jsx"
+
 on:
-  pull_request:
-    types: [opened, synchronize]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+  workflow_dispatch:  # Only runs when manually triggered
 
 jobs:
   claude-review:
