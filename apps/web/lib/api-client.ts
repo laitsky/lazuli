@@ -13,6 +13,7 @@ import {
   HealthResponse,
   SupportedExchange,
   OHLCVResponse,
+  CustomPairResponse,
   Timeframe,
 } from '@lazuli/shared'
 
@@ -57,6 +58,15 @@ export interface OHLCVQueryParams {
  */
 export interface MultiTimeframeOHLCVQueryParams {
   timeframes: Timeframe[]
+  type?: 'spot' | 'perp'
+  limit?: number
+}
+
+/**
+ * Query parameters for custom pair endpoint
+ */
+export interface CustomPairQueryParams {
+  timeframe: Timeframe
   type?: 'spot' | 'perp'
   limit?: number
 }
@@ -186,6 +196,24 @@ export class LazuliAPI {
       timeframes: queryParams.timeframes.join(','),
     }
     return apiFetch<any>(`${API_VERSION}/ohlcv/multi/${exchange}/${encodedSymbol}`, params)
+  }
+
+  /**
+   * Generate custom pair OHLCV data by dividing two ticker prices
+   * Example: BTC-USDT / AVAX-USDT = BTC/AVAX custom pair
+   */
+  static async getCustomPair(
+    exchange: SupportedExchange,
+    symbol1: string,
+    symbol2: string,
+    queryParams: CustomPairQueryParams
+  ): Promise<ApiResponse<CustomPairResponse>> {
+    const encodedSymbol1 = encodeURIComponent(symbol1)
+    const encodedSymbol2 = encodeURIComponent(symbol2)
+    return apiFetch<CustomPairResponse>(
+      `${API_VERSION}/custom-pair/${exchange}/${encodedSymbol1}/${encodedSymbol2}`,
+      queryParams
+    )
   }
 }
 
