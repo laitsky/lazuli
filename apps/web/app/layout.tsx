@@ -16,8 +16,12 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased font-sans">
         <Navigation />
-        <main className="container mx-auto px-4 py-8">
-          {children}
+        {/* Main content area with left margin to account for sidebar on desktop */}
+        {/* Mobile: full width, Desktop (lg): 256px left margin for sidebar */}
+        <main className="min-h-screen px-4 py-8 lg:ml-64 lg:px-8">
+          <div className="mx-auto max-w-7xl">
+            {children}
+          </div>
         </main>
       </body>
     </html>
