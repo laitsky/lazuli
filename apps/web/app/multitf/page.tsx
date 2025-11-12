@@ -83,6 +83,7 @@ export default function MultiTFPage() {
           limit: 500,
           sortBy: 'volume',
           sortOrder: 'desc',
+          type: marketType, // Filter by market type on the API side
         });
 
         if (response.success && response.data) {
@@ -98,19 +99,18 @@ export default function MultiTFPage() {
     }
 
     loadTickers();
-  }, [selectedExchange]);
+  }, [selectedExchange, marketType]); // Also re-fetch when marketType changes
 
-  // Filter tickers based on search query and market type
+  // Filter tickers based on search query only (type filtering is done by API)
   const filteredTickers = useMemo(() => {
     return tickers
-      .filter((t) => t.type === marketType)
       .filter((t) => {
         if (!searchQuery) return true;
         return t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
       });
-      // No limit - show all fetched tickers (API already limits to 500 sorted by volume)
+      // No limit - show all fetched tickers (API already limits to 500 sorted by volume and filtered by type)
       // Search functionality helps users find what they need quickly
-  }, [tickers, searchQuery, marketType]);
+  }, [tickers, searchQuery]);
 
   /**
    * Load charts data for all timeframes with dynamic limits
