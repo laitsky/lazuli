@@ -14,7 +14,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 
 const navItems = [
@@ -107,6 +107,26 @@ const logoVariants = {
 export function Navigation() {
   const pathname = usePathname()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(false)
+
+  // Detect desktop screen size on mount and window resize
+  // This runs only on client-side to avoid hydration mismatch
+  useEffect(() => {
+    const checkDesktop = () => {
+      setIsDesktop(window.innerWidth >= 1024)
+    }
+
+    // Set initial state
+    checkDesktop()
+
+    // Listen for resize events
+    window.addEventListener('resize', checkDesktop)
+
+    return () => window.removeEventListener('resize', checkDesktop)
+  }, [])
+
+  // Determine sidebar state
+  const sidebarState = isDesktop || isMobileMenuOpen ? 'open' : 'closed'
 
   return (
     <>
@@ -164,7 +184,7 @@ export function Navigation() {
       <motion.nav
         className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r bg-background lg:translate-x-0"
         initial={false}
-        animate={isMobileMenuOpen || typeof window !== 'undefined' && window.innerWidth >= 1024 ? 'open' : 'closed'}
+        animate={sidebarState}
         variants={sidebarVariants}
       >
         {/* Logo Section */}
