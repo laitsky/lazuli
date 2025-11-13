@@ -221,10 +221,10 @@ export default function MultiTFPage() {
       {/* Page Header */}
       <div className="flex items-center gap-2">
         <TrendingUp className="h-6 w-6" />
-        <h1 className="text-3xl font-bold">Multi-Timeframe Analysis</h1>
+        <h1 className="text-5xl font-display font-bold">Multi-Timeframe Analysis</h1>
       </div>
 
-      <p className="text-muted-foreground">
+      <p className="text-lg font-light text-muted-foreground">
         Analyze a single ticker across multiple timeframes: 1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w
       </p>
 
@@ -354,7 +354,7 @@ export default function MultiTFPage() {
       {/* Charts Grid */}
       {Object.keys(chartsData).length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-2xl font-bold">
+          <h2 className="text-3xl font-display font-bold">
             {selectedSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
           </h2>
 

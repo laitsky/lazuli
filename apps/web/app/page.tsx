@@ -22,10 +22,10 @@ export default async function HomePage() {
     <div className="space-y-8">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-4xl font-bold tracking-tight">
+        <h1 className="text-5xl font-display font-bold tracking-tight">
           Welcome to Lazuli
         </h1>
-        <p className="text-lg text-muted-foreground">
+        <p className="text-lg font-light text-muted-foreground">
           Real-time cryptocurrency trading data from multiple exchanges
         </p>
       </div>
@@ -43,7 +43,7 @@ export default async function HomePage() {
 
       {/* Exchanges Overview */}
       <div className="space-y-4">
-        <h2 className="text-2xl font-bold">Supported Exchanges</h2>
+        <h2 className="text-3xl font-display font-bold">Supported Exchanges</h2>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {exchanges.map((exchange) => (
             <Card key={exchange.id}>
@@ -76,7 +76,7 @@ export default async function HomePage() {
 
       {/* Quick Links */}
       <div className="space-y-4">
-        <h2 className="text-2xl font-bold">Quick Access</h2>
+        <h2 className="text-3xl font-display font-bold">Quick Access</h2>
         <div className="grid gap-4 md:grid-cols-3">
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
