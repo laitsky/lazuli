@@ -23,8 +23,8 @@ interface TickersTableProps {
 
 export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
-  const [typeFilter, setTypeFilter] = useState<'all' | 'spot' | 'perp'>('all')
-  const [quoteFilter, setQuoteFilter] = useState<string>('all')
+  const [typeFilter, setTypeFilter] = useState<'spot' | 'perp'>('spot')
+  const [quoteFilter, setQuoteFilter] = useState<string>('USDT')
   const [sortBy, setSortBy] = useState<'symbol' | 'price' | 'change' | 'volume'>('volume')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [currentPage, setCurrentPage] = useState(1)
@@ -105,42 +105,40 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     return parsed.quote
   }
 
-  // Normalize quote currency to group stablecoins
-  const normalizeQuoteCurrency = (quote: string): string => {
-    const upperQuote = quote.toUpperCase()
-    // Group USD stablecoins
-    if (['USDT', 'USDC', 'BUSD', 'TUSD', 'USDP', 'USDD', 'DAI', 'FDUSD'].includes(upperQuote)) {
-      return 'USD'
-    }
-    return upperQuote
-  }
-
-  // Get all available quote currencies from tickers
+  /**
+   * Get all available quote currencies from tickers
+   * Each stablecoin is shown individually (USDT, USDC, BUSD, etc.)
+   */
   const availableQuotes = useMemo(() => {
     const quotes = new Set<string>()
     tickers.forEach((ticker) => {
       const quote = getQuoteCurrency(ticker.symbol)
       if (quote) {
-        const normalized = normalizeQuoteCurrency(quote)
-        quotes.add(normalized)
+        quotes.add(quote.toUpperCase())
       }
     })
-    return Array.from(quotes).sort()
+    // Sort with USD stablecoins first, then alphabetically
+    const sortedQuotes = Array.from(quotes).sort((a, b) => {
+      const stablecoins = ['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'FDUSD']
+      const aIsStable = stablecoins.includes(a)
+      const bIsStable = stablecoins.includes(b)
+
+      if (aIsStable && !bIsStable) return -1
+      if (!aIsStable && bIsStable) return 1
+      return a.localeCompare(b)
+    })
+    return sortedQuotes
   }, [tickers])
 
   // Filter and sort tickers
   const filteredTickers = useMemo(() => {
     let filtered = tickers.filter((ticker) => {
       const matchesSearch = ticker.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-      const matchesType = typeFilter === 'all' || ticker.type === typeFilter
+      const matchesType = ticker.type === typeFilter
 
       // Quote currency filter
-      let matchesQuote = true
-      if (quoteFilter !== 'all') {
-        const tickerQuote = getQuoteCurrency(ticker.symbol)
-        const normalizedTickerQuote = normalizeQuoteCurrency(tickerQuote)
-        matchesQuote = normalizedTickerQuote === quoteFilter
-      }
+      const tickerQuote = getQuoteCurrency(ticker.symbol).toUpperCase()
+      const matchesQuote = tickerQuote === quoteFilter
 
       return matchesSearch && matchesType && matchesQuote
     })
@@ -199,7 +197,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     setCurrentPage(1)
   }
 
-  const handleTypeFilterChange = (type: 'all' | 'spot' | 'perp') => {
+  const handleTypeFilterChange = (type: 'spot' | 'perp') => {
     setTypeFilter(type)
     setCurrentPage(1)
   }
@@ -278,13 +276,6 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
             <p className="text-sm font-semibold mb-2">Market Type</p>
             <div className="flex flex-wrap gap-2">
               <Button
-                variant={typeFilter === 'all' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleTypeFilterChange('all')}
-              >
-                All ({tickers.length})
-              </Button>
-              <Button
                 variant={typeFilter === 'spot' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => handleTypeFilterChange('spot')}
@@ -305,17 +296,10 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           <div>
             <p className="text-sm font-semibold mb-2">Quote Currency</p>
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant={quoteFilter === 'all' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleQuoteFilterChange('all')}
-              >
-                All
-              </Button>
               {availableQuotes.map((quote) => {
                 const count = tickers.filter((t) => {
-                  const tickerQuote = getQuoteCurrency(t.symbol)
-                  return normalizeQuoteCurrency(tickerQuote) === quote
+                  const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase()
+                  return tickerQuote === quote
                 }).length
                 return (
                   <Button
@@ -324,7 +308,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                     size="sm"
                     onClick={() => handleQuoteFilterChange(quote)}
                   >
-                    {quote === 'USD' ? 'USD (Stablecoins)' : quote} ({count})
+                    {quote} ({count})
                   </Button>
                 )
               })}
