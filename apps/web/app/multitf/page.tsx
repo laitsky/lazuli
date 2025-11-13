@@ -21,6 +21,7 @@ export default function MultiTFPage() {
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [marketType, setMarketType] = useState<'spot' | 'perp'>('spot');
+  const [quoteFilter, setQuoteFilter] = useState<string>('USDT');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [chartsData, setChartsData] = useState<Record<Timeframe, OHLCV[]>>({} as Record<Timeframe, OHLCV[]>);
@@ -54,6 +55,57 @@ export default function MultiTFPage() {
       '1w': 1000,   // ~19 years (almost 2 decades!)
     };
     return limits[timeframe] || 100;
+  };
+
+  /**
+   * Parse symbol using standardized notation
+   * - Spot: BTC-USDT (hyphen separator)
+   * - Perpetual: BTCUSDT.P (.P suffix)
+   */
+  const parseSymbol = (symbol: string) => {
+    // Check if it's a perpetual contract (.P suffix)
+    if (symbol.endsWith('.P')) {
+      const baseQuote = symbol.slice(0, -2); // Remove .P
+      const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD'];
+
+      for (const quote of commonQuotes) {
+        if (baseQuote.endsWith(quote)) {
+          const base = baseQuote.slice(0, -quote.length);
+          return { base, quote, isPerpetual: true };
+        }
+      }
+      return { base: baseQuote, quote: '', isPerpetual: true };
+    }
+
+    // Spot market with hyphen separator (BTC-USDT)
+    if (symbol.includes('-')) {
+      const [base, quote] = symbol.split('-');
+      return { base: base || '', quote: quote || '', isPerpetual: false };
+    }
+
+    return { base: symbol, quote: '', isPerpetual: false };
+  };
+
+  /**
+   * Extract quote currency from symbol
+   * - BTC-USDT -> USDT
+   * - BTCUSDT.P -> USDT
+   */
+  const getQuoteCurrency = (symbol: string): string => {
+    const parsed = parseSymbol(symbol);
+    return parsed.quote;
+  };
+
+  /**
+   * Get icon/logo for currency
+   */
+  const getCurrencyIcon = (currency: string): string | null => {
+    const icons: Record<string, string> = {
+      'USDT': '₮',  // Tether symbol
+      'BTC': '₿',   // Bitcoin symbol
+      'ETH': 'Ξ',   // Ethereum symbol (Greek Xi)
+    };
+    return icons[currency] || null;
   };
 
   // Load exchanges on mount
@@ -124,16 +176,56 @@ export default function MultiTFPage() {
     loadTickers();
   }, [selectedExchange, marketType]); // Re-fetch when exchange or market type changes
 
-  // Filter tickers based on search query only (type filtering is done by API)
+  /**
+   * Get all available quote currencies from tickers
+   * Custom ordering: USDT, BTC, ETH, USDC, then other stablecoins, then others
+   */
+  const availableQuotes = useMemo(() => {
+    const quotes = new Set<string>();
+    tickers.forEach((ticker) => {
+      const quote = getQuoteCurrency(ticker.symbol);
+      if (quote) {
+        quotes.add(quote.toUpperCase());
+      }
+    });
+
+    // Custom sort order: USDT, BTC, ETH, USDC, then stablecoins alphabetically, then others alphabetically
+    const sortedQuotes = Array.from(quotes).sort((a, b) => {
+      const priorityOrder = ['USDT', 'BTC', 'ETH', 'USDC'];
+      const stablecoins = ['BUSD', 'DAI', 'FDUSD', 'TUSD'];
+
+      const aPriority = priorityOrder.indexOf(a);
+      const bPriority = priorityOrder.indexOf(b);
+
+      if (aPriority !== -1 && bPriority !== -1) return aPriority - bPriority;
+      if (aPriority !== -1) return -1;
+      if (bPriority !== -1) return 1;
+
+      const aIsStable = stablecoins.includes(a);
+      const bIsStable = stablecoins.includes(b);
+
+      if (aIsStable && bIsStable) return a.localeCompare(b);
+      if (aIsStable) return -1;
+      if (bIsStable) return 1;
+
+      return a.localeCompare(b);
+    });
+
+    return sortedQuotes;
+  }, [tickers]);
+
+  // Filter tickers based on search query and quote currency (type filtering is done by API)
   const filteredTickers = useMemo(() => {
     return tickers
       .filter((t) => {
-        if (!searchQuery) return true;
-        return t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesSearch = !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+        const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
+        const matchesQuote = tickerQuote === quoteFilter;
+        return matchesSearch && matchesQuote;
       });
       // Shows ALL available tickers for the selected market type (fetched via pagination)
-      // Search functionality helps users find what they need quickly
-  }, [tickers, searchQuery]);
+      // Search and quote currency filter help users find what they need quickly
+  }, [tickers, searchQuery, quoteFilter]);
 
   /**
    * Load charts data for all timeframes with dynamic limits
@@ -281,6 +373,33 @@ export default function MultiTFPage() {
               >
                 Perpetual
               </Button>
+            </div>
+          </div>
+
+          {/* Quote Currency Filter */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Quote Currency</label>
+            <div className="flex flex-wrap gap-2">
+              {availableQuotes.map((quote) => {
+                const count = tickers.filter((t) => {
+                  const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
+                  return tickerQuote === quote;
+                }).length;
+                const icon = getCurrencyIcon(quote);
+                return (
+                  <Button
+                    key={quote}
+                    variant={quoteFilter === quote ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setQuoteFilter(quote)}
+                    className="gap-1.5"
+                  >
+                    {icon && <span className="text-base">{icon}</span>}
+                    <span>{quote}</span>
+                    <span className="text-muted-foreground">({count})</span>
+                  </Button>
+                );
+              })}
             </div>
           </div>
 
