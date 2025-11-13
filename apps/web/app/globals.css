@@ -1,6 +1,35 @@
 @import "tailwindcss";
 
 @theme {
+  /* Typography - Distinctive font families with high contrast */
+  /* Display font: Space Grotesk - geometric, distinctive for headings */
+  --font-family-display: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  /* Body font: IBM Plex Sans - technical, professional for body text */
+  --font-family-sans: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  /* Mono font: JetBrains Mono - code aesthetic for financial data */
+  --font-family-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+
+  /* Extreme font weights for high contrast */
+  --font-weight-extralight: 200;
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  /* Dramatic size scale - 3x+ jumps for impact */
+  --font-size-xs: 0.75rem;      /* 12px */
+  --font-size-sm: 0.875rem;     /* 14px */
+  --font-size-base: 1rem;       /* 16px */
+  --font-size-lg: 1.125rem;     /* 18px */
+  --font-size-xl: 1.25rem;      /* 20px */
+  --font-size-2xl: 1.5rem;      /* 24px */
+  --font-size-3xl: 1.875rem;    /* 30px - 3x base */
+  --font-size-4xl: 2.25rem;     /* 36px */
+  --font-size-5xl: 3rem;        /* 48px - 3x base */
+  --font-size-6xl: 3.75rem;     /* 60px */
+  --font-size-7xl: 4.5rem;      /* 72px */
+
   /* Color Palette */
   --color-background: hsl(0 0% 100%);
   --color-foreground: hsl(222.2 84% 4.9%);
@@ -58,4 +87,18 @@
 body {
   background-color: var(--color-background);
   color: var(--color-foreground);
+}
+
+/* Custom typography utilities for high-impact display font */
+.font-display {
+  font-family: var(--font-family-display);
+}
+
+/* Extreme weight utilities for high contrast */
+.font-extralight {
+  font-weight: 200;
+}
+
+.font-extrabold {
+  font-weight: 800;
 }

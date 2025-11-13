@@ -69,8 +69,8 @@ export default function MarketsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-3xl font-bold tracking-tight">Markets</h1>
-        <p className="text-muted-foreground">
+        <h1 className="text-5xl font-display font-extrabold tracking-tight">Markets</h1>
+        <p className="text-lg font-light text-muted-foreground">
           Browse available trading pairs across all exchanges
         </p>
       </div>
@@ -137,18 +137,18 @@ export default function MarketsPage() {
             <CardContent>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <p className="text-sm font-medium text-muted-foreground">Total Markets</p>
-                  <p className="text-2xl font-bold">{markets.length}</p>
+                  <p className="text-sm font-extralight text-muted-foreground">Total Markets</p>
+                  <p className="text-3xl font-display font-extrabold">{markets.length}</p>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-sm font-medium text-muted-foreground">Spot Markets</p>
-                  <p className="text-2xl font-bold">
+                  <p className="text-sm font-extralight text-muted-foreground">Spot Markets</p>
+                  <p className="text-3xl font-display font-extrabold">
                     {markets.filter(m => m.type === 'spot' && m.active).length}
                   </p>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-sm font-medium text-muted-foreground">Perpetual Markets</p>
-                  <p className="text-2xl font-bold">
+                  <p className="text-sm font-extralight text-muted-foreground">Perpetual Markets</p>
+                  <p className="text-3xl font-display font-extrabold">
                     {markets.filter(m => m.type === 'perp' && m.active).length}
                   </p>
                 </div>
