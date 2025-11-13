@@ -222,9 +222,36 @@ export default function MultiTFPage() {
         const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
         const matchesQuote = tickerQuote === quoteFilter;
         return matchesSearch && matchesQuote;
+      })
+      .sort((a, b) => {
+        // Priority symbols order: BTC, ETH, SOL, XRP, BNB, DOGE
+        const prioritySymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE'];
+
+        // Extract base currencies from symbols
+        const aBase = parseSymbol(a.symbol).base.toUpperCase();
+        const bBase = parseSymbol(b.symbol).base.toUpperCase();
+
+        // Get priority indices (-1 if not in priority list)
+        const aPriority = prioritySymbols.indexOf(aBase);
+        const bPriority = prioritySymbols.indexOf(bBase);
+
+        // Both are priority symbols - sort by priority order
+        if (aPriority !== -1 && bPriority !== -1) {
+          return aPriority - bPriority;
+        }
+
+        // Only a is priority - a comes first
+        if (aPriority !== -1) return -1;
+
+        // Only b is priority - b comes first
+        if (bPriority !== -1) return 1;
+
+        // Neither is priority - sort alphabetically by symbol
+        return a.symbol.localeCompare(b.symbol);
       });
       // Shows ALL available tickers for the selected market type (fetched via pagination)
       // Search and quote currency filter help users find what they need quickly
+      // Sorted with priority symbols first (BTC, ETH, SOL, XRP, BNB, DOGE), then alphabetically
   }, [tickers, searchQuery, quoteFilter]);
 
   /**
