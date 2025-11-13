@@ -389,7 +389,6 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                           Symbol {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
                         </Button>
                       </TableHead>
-                      <TableHead>Type</TableHead>
                       <TableHead className="text-right">
                         <Button variant="ghost" size="sm" onClick={() => toggleSort('price')}>
                           Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
@@ -417,12 +416,15 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                       return (
                         <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
                           <TableCell className="font-medium">
-                            {displaySymbol}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
-                              {ticker.type}
-                            </Badge>
+                            <div className="flex items-center gap-2">
+                              <span>{displaySymbol}</span>
+                              <Badge
+                                variant={ticker.type === 'spot' ? 'default' : 'secondary'}
+                                className="text-xs"
+                              >
+                                {ticker.type}
+                              </Badge>
+                            </div>
                           </TableCell>
                           <TableCell className="text-right font-mono">
                             {formatCurrency(ticker.last)}
