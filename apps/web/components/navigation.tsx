@@ -5,8 +5,9 @@
  * Features:
  * - Fixed sidebar on desktop (left side, always visible)
  * - Collapsible sidebar on mobile with hamburger menu
- * - Smooth transitions and animations
- * - Active link highlighting
+ * - Beautiful framer-motion animations throughout
+ * - Staggered nav item animations
+ * - Active link highlighting with smooth transitions
  * - Logo at top, Live status at bottom
  */
 
@@ -14,15 +15,94 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 
 const navItems = [
-  { href: '/', label: 'Dashboard', icon: '📊' },
-  { href: '/exchanges', label: 'Exchanges', icon: '🏦' },
-  { href: '/tickers', label: 'Tickers', icon: '📈' },
-  { href: '/markets', label: 'Markets', icon: '💹' },
-  { href: '/multitf', label: 'MultiTF', icon: '⏱️' },
-  { href: '/custom-pair', label: 'Custom Pair', icon: '🔍' },
+  { href: '/', label: 'Dashboard' },
+  { href: '/exchanges', label: 'Exchanges' },
+  { href: '/tickers', label: 'Tickers' },
+  { href: '/markets', label: 'Markets' },
+  { href: '/multitf', label: 'MultiTF' },
+  { href: '/custom-pair', label: 'Custom Pair' },
 ]
+
+/**
+ * Animation variants for sidebar
+ */
+const sidebarVariants = {
+  open: {
+    x: 0,
+    transition: {
+      type: 'spring',
+      stiffness: 300,
+      damping: 30,
+    },
+  },
+  closed: {
+    x: '-100%',
+    transition: {
+      type: 'spring',
+      stiffness: 300,
+      damping: 30,
+    },
+  },
+}
+
+/**
+ * Animation variants for navigation items
+ * Stagger effect makes items appear one by one
+ */
+const navItemsContainerVariants = {
+  open: {
+    transition: {
+      staggerChildren: 0.07,
+      delayChildren: 0.1,
+    },
+  },
+  closed: {
+    transition: {
+      staggerChildren: 0.05,
+      staggerDirection: -1,
+    },
+  },
+}
+
+const navItemVariants = {
+  open: {
+    x: 0,
+    opacity: 1,
+    transition: {
+      type: 'spring',
+      stiffness: 300,
+      damping: 24,
+    },
+  },
+  closed: {
+    x: -20,
+    opacity: 0,
+    transition: {
+      type: 'spring',
+      stiffness: 300,
+      damping: 24,
+    },
+  },
+}
+
+/**
+ * Animation variants for logo
+ */
+const logoVariants = {
+  initial: { scale: 0.8, opacity: 0 },
+  animate: {
+    scale: 1,
+    opacity: 1,
+    transition: {
+      type: 'spring',
+      stiffness: 260,
+      damping: 20,
+    },
+  },
+}
 
 export function Navigation() {
   const pathname = usePathname()
@@ -31,100 +111,153 @@ export function Navigation() {
   return (
     <>
       {/* Mobile Menu Button - Only visible on mobile */}
-      <button
+      <motion.button
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         className="fixed left-4 top-4 z-50 flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground lg:hidden"
         aria-label="Toggle navigation menu"
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
       >
-        {/* Hamburger Icon */}
+        {/* Animated Hamburger Icon */}
         <div className="flex flex-col space-y-1.5">
-          <span
-            className={cn(
-              'block h-0.5 w-5 bg-current transition-transform',
-              isMobileMenuOpen && 'translate-y-2 rotate-45'
-            )}
+          <motion.span
+            className="block h-0.5 w-5 bg-current"
+            animate={
+              isMobileMenuOpen
+                ? { rotate: 45, y: 8 }
+                : { rotate: 0, y: 0 }
+            }
+            transition={{ duration: 0.3 }}
           />
-          <span
-            className={cn(
-              'block h-0.5 w-5 bg-current transition-opacity',
-              isMobileMenuOpen && 'opacity-0'
-            )}
+          <motion.span
+            className="block h-0.5 w-5 bg-current"
+            animate={isMobileMenuOpen ? { opacity: 0 } : { opacity: 1 }}
+            transition={{ duration: 0.3 }}
           />
-          <span
-            className={cn(
-              'block h-0.5 w-5 bg-current transition-transform',
-              isMobileMenuOpen && '-translate-y-2 -rotate-45'
-            )}
+          <motion.span
+            className="block h-0.5 w-5 bg-current"
+            animate={
+              isMobileMenuOpen
+                ? { rotate: -45, y: -8 }
+                : { rotate: 0, y: 0 }
+            }
+            transition={{ duration: 0.3 }}
           />
         </div>
-      </button>
+      </motion.button>
 
       {/* Overlay for mobile - darkens background when menu is open */}
-      {isMobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {isMobileMenuOpen && (
+          <motion.div
+            className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+            onClick={() => setIsMobileMenuOpen(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Sidebar Navigation */}
-      <nav
-        className={cn(
-          'fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r bg-background transition-transform duration-300',
-          // Mobile: slide in from left when open, hide when closed
-          'lg:translate-x-0', // Always visible on desktop
-          !isMobileMenuOpen && '-translate-x-full lg:translate-x-0' // Hidden on mobile by default
-        )}
+      <motion.nav
+        className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r bg-background lg:translate-x-0"
+        initial={false}
+        animate={isMobileMenuOpen || typeof window !== 'undefined' && window.innerWidth >= 1024 ? 'open' : 'closed'}
+        variants={sidebarVariants}
       >
         {/* Logo Section */}
-        <div className="flex h-16 items-center space-x-3 border-b px-6">
+        <motion.div
+          className="flex h-16 items-center space-x-3 border-b px-6"
+          variants={logoVariants}
+          initial="initial"
+          animate="animate"
+        >
           <Link
             href="/"
             className="flex items-center space-x-3"
             onClick={() => setIsMobileMenuOpen(false)}
           >
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+            <motion.div
+              className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground"
+              whileHover={{ rotate: 360 }}
+              transition={{ duration: 0.6 }}
+            >
               <span className="text-xl font-bold">L</span>
-            </div>
+            </motion.div>
             <span className="text-xl font-bold">Lazuli</span>
           </Link>
-        </div>
+        </motion.div>
 
         {/* Navigation Links */}
         <div className="flex-1 overflow-y-auto px-3 py-4">
-          <div className="space-y-1">
+          <motion.div
+            className="space-y-1"
+            variants={navItemsContainerVariants}
+            initial="closed"
+            animate="open"
+          >
             {navItems.map((item) => {
               const isActive = pathname === item.href
               return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setIsMobileMenuOpen(false)}
-                  className={cn(
-                    'flex items-center space-x-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors',
-                    isActive
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
-                  )}
-                >
-                  <span className="text-xl">{item.icon}</span>
-                  <span>{item.label}</span>
-                </Link>
+                <motion.div key={item.href} variants={navItemVariants}>
+                  <Link
+                    href={item.href}
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="block"
+                  >
+                    <motion.div
+                      className={cn(
+                        'rounded-lg px-4 py-3 text-sm font-medium',
+                        isActive
+                          ? 'bg-primary text-primary-foreground'
+                          : 'text-muted-foreground'
+                      )}
+                      whileHover={{
+                        scale: 1.02,
+                        backgroundColor: isActive
+                          ? undefined
+                          : 'hsl(210 40% 96.1%)',
+                        transition: { duration: 0.2 },
+                      }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      {item.label}
+                    </motion.div>
+                  </Link>
+                </motion.div>
               )
             })}
-          </div>
+          </motion.div>
         </div>
 
         {/* Status Indicator - Fixed at bottom */}
-        <div className="border-t px-6 py-4">
+        <motion.div
+          className="border-t px-6 py-4"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.5, duration: 0.5 }}
+        >
           <div className="flex items-center space-x-2">
-            <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+            <motion.div
+              className="h-2 w-2 rounded-full bg-green-500"
+              animate={{
+                scale: [1, 1.2, 1],
+                opacity: [1, 0.8, 1],
+              }}
+              transition={{
+                duration: 2,
+                repeat: Infinity,
+                ease: 'easeInOut',
+              }}
+            />
             <span className="text-sm font-medium text-muted-foreground">
               Live
             </span>
           </div>
-        </div>
-      </nav>
+        </motion.div>
+      </motion.nav>
     </>
   )
 }
