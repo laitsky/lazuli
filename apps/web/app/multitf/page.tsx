@@ -25,9 +25,15 @@ export default function MultiTFPage() {
   const [loading, setLoading] = useState(false);
   const [chartsData, setChartsData] = useState<Record<Timeframe, OHLCV[]>>({} as Record<Timeframe, OHLCV[]>);
   const [error, setError] = useState<string | null>(null);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Available timeframes to display
   const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
+
+  // Auto-refresh interval (7 seconds to match backend)
+  const REFRESH_INTERVAL = 7000;
 
   /**
    * Get appropriate candle limit based on timeframe
@@ -139,15 +145,21 @@ export default function MultiTFPage() {
    * Load charts data for all timeframes with dynamic limits
    * Each timeframe fetches the optimal number of candles for best visualization
    */
-  async function loadCharts() {
+  async function loadCharts(isAutoRefresh: boolean = false) {
     if (!selectedSymbol) {
       setError('Please select a symbol');
       return;
     }
 
-    setLoading(true);
+    if (isAutoRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
-    setChartsData({} as Record<Timeframe, OHLCV[]>);
+    if (!isAutoRefresh) {
+      setChartsData({} as Record<Timeframe, OHLCV[]>);
+    }
 
     try {
       // Fetch each timeframe individually with its own limit
@@ -202,6 +214,7 @@ export default function MultiTFPage() {
       });
 
       setChartsData(chartsMap);
+      setLastUpdate(new Date());
 
       // Show warning if some timeframes failed
       if (failedTimeframes.length > 0 && Object.keys(chartsMap).length > 0) {
@@ -213,20 +226,61 @@ export default function MultiTFPage() {
       setError('Failed to load chart data');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   }
+
+  /**
+   * Auto-refresh effect
+   * Automatically refreshes charts when enabled and charts are loaded
+   */
+  useEffect(() => {
+    if (!autoRefreshEnabled || !selectedSymbol || Object.keys(chartsData).length === 0) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      loadCharts(true);
+    }, REFRESH_INTERVAL);
+
+    return () => clearInterval(intervalId);
+  }, [autoRefreshEnabled, selectedSymbol, chartsData, selectedExchange, marketType, REFRESH_INTERVAL]);
 
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex items-center gap-2">
-        <TrendingUp className="h-6 w-6" />
-        <h1 className="text-3xl font-bold">Multi-Timeframe Analysis</h1>
-      </div>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-6 w-6" />
+            <h1 className="text-3xl font-bold">Multi-Timeframe Analysis</h1>
+          </div>
+          <p className="text-muted-foreground mt-2">
+            Analyze a single ticker across multiple timeframes: 1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w
+          </p>
+        </div>
 
-      <p className="text-muted-foreground">
-        Analyze a single ticker across multiple timeframes: 1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w
-      </p>
+        {/* Auto-refresh controls (shown only when charts are loaded) */}
+        {Object.keys(chartsData).length > 0 && (
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+            >
+              {autoRefreshEnabled ? '⏸ Pause' : '▶ Resume'} Auto-Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadCharts(false)}
+              disabled={loading}
+            >
+              {loading ? '🔄 Refreshing...' : '🔄 Refresh Now'}
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* Controls Card */}
       <Card>
@@ -334,12 +388,12 @@ export default function MultiTFPage() {
 
           {/* Load Charts Button */}
           <Button
-            onClick={loadCharts}
+            onClick={() => loadCharts(false)}
             disabled={!selectedSymbol || loading}
             className="w-full"
             size="lg"
           >
-            {loading ? 'Loading Charts...' : 'Load Charts'}
+            {loading ? 'Loading Charts...' : Object.keys(chartsData).length > 0 ? 'Reload Charts' : 'Load Charts'}
           </Button>
 
           {/* Error/Warning Display */}
@@ -354,9 +408,24 @@ export default function MultiTFPage() {
       {/* Charts Grid */}
       {Object.keys(chartsData).length > 0 && (
         <div className="space-y-4">
-          <h2 className="text-2xl font-bold">
-            {selectedSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold">
+              {selectedSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
+            </h2>
+            <div className="text-sm text-muted-foreground">
+              {lastUpdate && (
+                <>
+                  Last updated: {lastUpdate.toLocaleTimeString()}
+                  {autoRefreshEnabled && (
+                    <>
+                      {' • '}Auto-refreshing every {REFRESH_INTERVAL / 1000}s
+                      {isRefreshing && <span className="animate-pulse"> 🔄</span>}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
 
           {/* Warning for partial failures */}
           {error && (

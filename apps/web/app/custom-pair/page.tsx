@@ -30,9 +30,15 @@ export default function CustomPairPage() {
   const [chartData, setChartData] = useState<OHLCV[]>([]);
   const [customPairSymbol, setCustomPairSymbol] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Available timeframes
   const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
+
+  // Auto-refresh interval (7 seconds to match backend)
+  const REFRESH_INTERVAL = 7000;
 
   // Maximum pages to fetch to prevent excessive API calls
   const MAX_PAGES = 20; // Limits to 10,000 tickers (500 per page * 20)
@@ -149,7 +155,7 @@ export default function CustomPairPage() {
    * Load custom pair chart data
    * Fetches data for both symbols and generates the custom pair
    */
-  async function loadCustomPairChart() {
+  async function loadCustomPairChart(isAutoRefresh: boolean = false) {
     if (!symbol1 || !symbol2) {
       setError('Please select both symbols');
       return;
@@ -160,9 +166,15 @@ export default function CustomPairPage() {
       return;
     }
 
-    setLoading(true);
+    if (isAutoRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     setError(null);
-    setChartData([]);
+    if (!isAutoRefresh) {
+      setChartData([]);
+    }
 
     try {
       const limit = getCandleLimit(selectedTimeframe);
@@ -180,6 +192,7 @@ export default function CustomPairPage() {
       if (response.success && response.data) {
         setChartData(response.data.candles);
         setCustomPairSymbol(response.data.customPairSymbol);
+        setLastUpdate(new Date());
 
         if (response.data.candles.length === 0) {
           setError('No data available for the selected pair and timeframe');
@@ -191,20 +204,61 @@ export default function CustomPairPage() {
       setError(err instanceof Error ? err.message : 'Failed to load custom pair data');
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   }
+
+  /**
+   * Auto-refresh effect
+   * Automatically refreshes chart when enabled and chart is loaded
+   */
+  useEffect(() => {
+    if (!autoRefreshEnabled || !symbol1 || !symbol2 || chartData.length === 0) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      loadCustomPairChart(true);
+    }, REFRESH_INTERVAL);
+
+    return () => clearInterval(intervalId);
+  }, [autoRefreshEnabled, symbol1, symbol2, chartData, selectedExchange, selectedTimeframe, marketType, REFRESH_INTERVAL]);
 
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex items-center gap-2">
-        <Divide className="h-6 w-6" />
-        <h1 className="text-3xl font-bold">Custom Pair Generator</h1>
-      </div>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Divide className="h-6 w-6" />
+            <h1 className="text-3xl font-bold">Custom Pair Generator</h1>
+          </div>
+          <p className="text-muted-foreground mt-2">
+            Create custom trading pairs by dividing two ticker prices. Example: BTC-USDT / AVAX-USDT = BTC/AVAX
+          </p>
+        </div>
 
-      <p className="text-muted-foreground">
-        Create custom trading pairs by dividing two ticker prices. Example: BTC-USDT / AVAX-USDT = BTC/AVAX
-      </p>
+        {/* Auto-refresh controls (shown only when chart is loaded) */}
+        {chartData.length > 0 && (
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+            >
+              {autoRefreshEnabled ? '⏸ Pause' : '▶ Resume'} Auto-Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => loadCustomPairChart(false)}
+              disabled={loading}
+            >
+              {loading ? '🔄 Refreshing...' : '🔄 Refresh Now'}
+            </Button>
+          </div>
+        )}
+      </div>
 
       {/* Controls Card */}
       <Card>
@@ -352,12 +406,12 @@ export default function CustomPairPage() {
 
           {/* Generate Chart Button */}
           <Button
-            onClick={loadCustomPairChart}
+            onClick={() => loadCustomPairChart(false)}
             disabled={!symbol1 || !symbol2 || loading}
             className="w-full"
             size="lg"
           >
-            {loading ? 'Generating Chart...' : 'Generate Custom Pair Chart'}
+            {loading ? 'Generating Chart...' : chartData.length > 0 ? 'Regenerate Chart' : 'Generate Custom Pair Chart'}
           </Button>
 
           {/* Error Display */}
@@ -372,9 +426,24 @@ export default function CustomPairPage() {
       {/* Chart Display */}
       {chartData.length > 0 && customPairSymbol && (
         <div className="space-y-4">
-          <h2 className="text-2xl font-bold">
-            {customPairSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold">
+              {customPairSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
+            </h2>
+            <div className="text-sm text-muted-foreground">
+              {lastUpdate && (
+                <>
+                  Last updated: {lastUpdate.toLocaleTimeString()}
+                  {autoRefreshEnabled && (
+                    <>
+                      {' • '}Auto-refreshing every {REFRESH_INTERVAL / 1000}s
+                      {isRefreshing && <span className="animate-pulse"> 🔄</span>}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
           <p className="text-muted-foreground">
             Generated from {symbol1} / {symbol2} • {selectedTimeframe} timeframe • {chartData.length} candles
           </p>
