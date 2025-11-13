@@ -229,16 +229,13 @@ export function Navigation() {
                   >
                     <motion.div
                       className={cn(
-                        'rounded-lg px-4 py-3 text-sm font-medium',
+                        'rounded-lg px-4 py-3 text-sm font-medium transition-colors',
                         isActive
                           ? 'bg-primary text-primary-foreground'
-                          : 'text-muted-foreground'
+                          : 'text-foreground hover:bg-accent hover:text-accent-foreground'
                       )}
                       whileHover={{
-                        scale: 1.02,
-                        backgroundColor: isActive
-                          ? undefined
-                          : 'hsl(210 40% 96.1%)',
+                        scale: isActive ? 1 : 1.02,
                         transition: { duration: 0.2 },
                       }}
                       whileTap={{ scale: 0.98 }}
