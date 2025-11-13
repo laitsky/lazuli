@@ -11,12 +11,12 @@ import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
 import { Search, TrendingUp, Divide } from 'lucide-react';
 
 /**
- * Custom Pair Generator Page
- * Creates a custom trading pair by dividing two ticker prices
- * Example: BTC-USDT / AVAX-USDT = BTC/AVAX custom pair
+ * Synthetic Pair Generator Page
+ * Creates a synthetic trading pair by dividing two ticker prices
+ * Example: BTC-USDT / AVAX-USDT = BTC/AVAX synthetic pair
  * Allows traders to analyze cross-pair relationships that may not exist on exchanges
  */
-export default function CustomPairPage() {
+export default function SyntheticPairPage() {
   // State management
   const [exchanges, setExchanges] = useState<{ id: SupportedExchange; name: string }[]>([]);
   const [selectedExchange, setSelectedExchange] = useState<SupportedExchange>('binance');
@@ -29,7 +29,7 @@ export default function CustomPairPage() {
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1h');
   const [loading, setLoading] = useState(false);
   const [chartData, setChartData] = useState<OHLCV[]>([]);
-  const [customPairSymbol, setCustomPairSymbol] = useState<string>('');
+  const [syntheticPairSymbol, setSyntheticPairSymbol] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
   // Available timeframes
@@ -282,10 +282,10 @@ export default function CustomPairPage() {
   }, [tickers, searchQuery, quoteFilter]);
 
   /**
-   * Load custom pair chart data
-   * Fetches data for both symbols and generates the custom pair
+   * Load synthetic pair chart data
+   * Fetches data for both symbols and generates the synthetic pair
    */
-  async function loadCustomPairChart() {
+  async function loadSyntheticPairChart() {
     if (!symbol1 || !symbol2) {
       setError('Please select both symbols');
       return;
@@ -315,16 +315,16 @@ export default function CustomPairPage() {
 
       if (response.success && response.data) {
         setChartData(response.data.candles);
-        setCustomPairSymbol(response.data.customPairSymbol);
+        setSyntheticPairSymbol(response.data.customPairSymbol);
 
         if (response.data.candles.length === 0) {
           setError('No data available for the selected pair and timeframe');
         }
       } else {
-        setError(response.error || 'Failed to generate custom pair');
+        setError(response.error || 'Failed to generate synthetic pair');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load custom pair data');
+      setError(err instanceof Error ? err.message : 'Failed to load synthetic pair data');
     } finally {
       setLoading(false);
     }
@@ -335,17 +335,17 @@ export default function CustomPairPage() {
       {/* Page Header */}
       <div className="flex items-center gap-2">
         <Divide className="h-6 w-6" />
-        <h1 className="text-5xl font-display font-bold">Custom Pair Generator</h1>
+        <h1 className="text-5xl font-display font-bold">Synthetic Pair Generator</h1>
       </div>
 
       <p className="text-lg font-light text-muted-foreground">
-        Create custom trading pairs by dividing two ticker prices. Example: BTC-USDT / AVAX-USDT = BTC/AVAX
+        Create synthetic trading pairs by dividing two ticker prices. Example: BTC-USDT / AVAX-USDT = BTC/AVAX
       </p>
 
       {/* Controls Card */}
       <Card>
         <CardHeader>
-          <CardTitle>Configure Custom Pair</CardTitle>
+          <CardTitle>Configure Synthetic Pair</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Exchange Selector */}
@@ -501,11 +501,11 @@ export default function CustomPairPage() {
             </div>
           </div>
 
-          {/* Custom Pair Preview */}
+          {/* Synthetic Pair Preview */}
           {symbol1 && symbol2 && (
             <div className="p-4 bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-800 rounded-md">
               <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                Custom Pair Preview: {extractBaseCurrency(symbol1)} / {extractBaseCurrency(symbol2)}
+                Synthetic Pair Preview: {extractBaseCurrency(symbol1)} / {extractBaseCurrency(symbol2)}
               </p>
               <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">
                 This will show {symbol1} ÷ {symbol2} on the {selectedTimeframe} timeframe
@@ -515,12 +515,12 @@ export default function CustomPairPage() {
 
           {/* Generate Chart Button */}
           <Button
-            onClick={loadCustomPairChart}
+            onClick={loadSyntheticPairChart}
             disabled={!symbol1 || !symbol2 || loading}
             className="w-full"
             size="lg"
           >
-            {loading ? 'Generating Chart...' : 'Generate Custom Pair Chart'}
+            {loading ? 'Generating Chart...' : 'Generate Synthetic Pair Chart'}
           </Button>
 
           {/* Error Display */}
@@ -533,10 +533,10 @@ export default function CustomPairPage() {
       </Card>
 
       {/* Chart Display */}
-      {chartData.length > 0 && customPairSymbol && (
+      {chartData.length > 0 && syntheticPairSymbol && (
         <div className="space-y-4">
           <h2 className="text-3xl font-display font-bold">
-            {customPairSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
+            {syntheticPairSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
           </h2>
           <p className="text-muted-foreground">
             Generated from {symbol1} / {symbol2} • {selectedTimeframe} timeframe • {chartData.length} candles
@@ -545,7 +545,7 @@ export default function CustomPairPage() {
           <CandlestickChart
             data={chartData}
             timeframe={selectedTimeframe}
-            symbol={customPairSymbol}
+            symbol={syntheticPairSymbol}
             height={500}
           />
         </div>
@@ -558,7 +558,7 @@ export default function CustomPairPage() {
             <TrendingUp className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="text-lg font-medium mb-2">No Chart Generated</h3>
             <p className="text-muted-foreground mb-4">
-              Select an exchange, market type, two symbols, and a timeframe, then click "Generate Custom Pair Chart"
+              Select an exchange, market type, two symbols, and a timeframe, then click "Generate Synthetic Pair Chart"
             </p>
             <div className="bg-muted p-4 rounded-md max-w-md mx-auto text-left">
               <p className="text-sm font-medium mb-2">Example Use Case:</p>
