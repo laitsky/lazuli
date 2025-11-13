@@ -22,7 +22,7 @@ const navItems = [
   { href: '/exchanges', label: 'Exchanges' },
   { href: '/markets', label: 'Markets' },
   { href: '/multitf', label: 'MultiTF' },
-  { href: '/custom-pair', label: 'Custom Pair' },
+  { href: '/synthetic-pair', label: 'Synthetic Pair' },
 ]
 
 /**

@@ -66,7 +66,7 @@ export interface MultiTimeframeOHLCVQueryParams {
 }
 
 /**
- * Query parameters for custom pair endpoint
+ * Query parameters for synthetic pair endpoint
  */
 export interface CustomPairQueryParams {
   timeframe: Timeframe
@@ -237,8 +237,8 @@ export class LazuliAPI {
   }
 
   /**
-   * Generate custom pair OHLCV data by dividing two ticker prices
-   * Example: BTC-USDT / AVAX-USDT = BTC/AVAX custom pair
+   * Generate synthetic pair OHLCV data by dividing two ticker prices
+   * Example: BTC-USDT / AVAX-USDT = BTC/AVAX synthetic pair
    * Uses extended timeout (60s) as it fetches data for two symbols
    */
   static async getCustomPair(
@@ -249,7 +249,7 @@ export class LazuliAPI {
   ): Promise<ApiResponse<CustomPairResponse>> {
     const encodedSymbol1 = encodeURIComponent(symbol1)
     const encodedSymbol2 = encodeURIComponent(symbol2)
-    // Use 60s timeout for custom pair (fetches 2 symbols + calculation)
+    // Use 60s timeout for synthetic pair (fetches 2 symbols + calculation)
     return apiFetch<CustomPairResponse>(
       `${API_VERSION}/custom-pair/${exchange}/${encodedSymbol1}/${encodedSymbol2}`,
       queryParams,
