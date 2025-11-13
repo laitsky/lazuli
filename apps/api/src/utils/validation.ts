@@ -54,9 +54,9 @@ export function validateSearchQuery(value: any, maxLength: number = 50): string 
     return undefined
   }
 
-  // Allow only alphanumeric characters, spaces, hyphens, and forward slashes
-  // This is safe for crypto trading pairs like BTC/USDT, BTC-USDT
-  const validPattern = /^[a-z0-9\s\-\/]+$/i
+  // Allow only alphanumeric characters, spaces, hyphens, forward slashes, and periods
+  // This is safe for crypto trading pairs like BTC/USDT, BTC-USDT, BTCUSDT.P
+  const validPattern = /^[a-z0-9\s\-\/.]+$/i
   if (!validPattern.test(str)) {
     return undefined
   }
@@ -132,4 +132,121 @@ export function validateExchange(value: any): 'binance' | 'bybit' | 'okx' | null
   }
 
   return null
+}
+
+/**
+ * Convert CCXT symbol notation to our standardized notation
+ *
+ * CCXT uses:
+ * - Spot: BTC/USDT
+ * - Perpetual: BTC/USDT:USDT (redundant settlement currency)
+ *
+ * We standardize to:
+ * - Spot: BTC-USDT (hyphen separator)
+ * - Perpetual: BTCUSDT.P (combined with .P suffix)
+ *
+ * @param ccxtSymbol - Symbol in CCXT format (e.g., "BTC/USDT" or "BTC/USDT:USDT")
+ * @param marketType - Market type ('spot' or 'perp')
+ * @returns Standardized symbol notation
+ *
+ * @example
+ * convertFromCCXTNotation('BTC/USDT', 'spot') // Returns: 'BTC-USDT'
+ * convertFromCCXTNotation('BTC/USDT:USDT', 'perp') // Returns: 'BTCUSDT.P'
+ * convertFromCCXTNotation('ETH/BTC', 'spot') // Returns: 'ETH-BTC'
+ */
+export function convertFromCCXTNotation(ccxtSymbol: string, marketType: 'spot' | 'perp'): string {
+  if (marketType === 'spot') {
+    // Spot: Convert BTC/USDT to BTC-USDT
+    return ccxtSymbol.replace('/', '-')
+  } else {
+    // Perpetual: Convert BTC/USDT:USDT to BTCUSDT.P
+    // Remove the settlement currency (after colon) and the separators
+    const baseQuote = ccxtSymbol.split(':')[0] // Get "BTC/USDT" from "BTC/USDT:USDT"
+    const combined = baseQuote.replace('/', '') // Combine to "BTCUSDT"
+    return `${combined}.P` // Add .P suffix for perpetual
+  }
+}
+
+/**
+ * Convert our standardized notation back to CCXT symbol format
+ * This is needed when making API calls to exchanges via CCXT
+ *
+ * Our notation:
+ * - Spot: BTC-USDT
+ * - Perpetual: BTCUSDT.P
+ *
+ * CCXT expects:
+ * - Spot: BTC/USDT
+ * - Perpetual: BTC/USDT:USDT
+ *
+ * @param standardSymbol - Symbol in our standard notation
+ * @param marketType - Market type ('spot' or 'perp')
+ * @returns CCXT-compatible symbol
+ *
+ * @example
+ * convertToCCXTNotation('BTC-USDT', 'spot') // Returns: 'BTC/USDT'
+ * convertToCCXTNotation('BTCUSDT.P', 'perp') // Returns: 'BTC/USDT:USDT'
+ */
+export function convertToCCXTNotation(standardSymbol: string, marketType: 'spot' | 'perp'): string {
+  if (marketType === 'spot') {
+    // Spot: Convert BTC-USDT to BTC/USDT
+    return standardSymbol.replace('-', '/')
+  } else {
+    // Perpetual: Convert BTCUSDT.P to BTC/USDT:USDT
+    const baseQuote = standardSymbol.replace('.P', '') // Remove .P suffix
+
+    // Need to split the combined symbol (BTCUSDT) into base and quote
+    // Common quote currencies to check (in order of likelihood)
+    const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD']
+
+    for (const quote of commonQuotes) {
+      if (baseQuote.endsWith(quote)) {
+        const base = baseQuote.slice(0, -quote.length)
+        return `${base}/${quote}:${quote}`
+      }
+    }
+
+    // Fallback: If we can't parse it, return as-is with warning
+    console.warn(`Unable to parse perpetual symbol: ${standardSymbol}`)
+    return standardSymbol.replace('.P', '')
+  }
+}
+
+/**
+ * Parse a symbol to extract base and quote currencies
+ * Works with both our standardized notation and CCXT notation
+ *
+ * @param symbol - Symbol in any supported format
+ * @returns Object with base and quote currencies
+ *
+ * @example
+ * parseSymbol('BTC-USDT') // Returns: { base: 'BTC', quote: 'USDT' }
+ * parseSymbol('BTCUSDT.P') // Returns: { base: 'BTC', quote: 'USDT' }
+ * parseSymbol('BTC/USDT') // Returns: { base: 'BTC', quote: 'USDT' }
+ */
+export function parseSymbol(symbol: string): { base: string; quote: string } {
+  // Handle our perpetual notation (BTCUSDT.P)
+  if (symbol.endsWith('.P')) {
+    const baseQuote = symbol.replace('.P', '')
+    const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD']
+
+    for (const quote of commonQuotes) {
+      if (baseQuote.endsWith(quote)) {
+        const base = baseQuote.slice(0, -quote.length)
+        return { base, quote }
+      }
+    }
+  }
+
+  // Handle standard separators (-, /, :)
+  const parts = symbol.split(/[-/:]/)[0]
+  const separator = symbol.match(/[-/:]/)?.[0]
+
+  if (separator) {
+    const [base, quote] = symbol.split(separator)
+    return { base: base || '', quote: quote?.split(':')[0] || '' }
+  }
+
+  // Fallback: return the whole symbol as base
+  return { base: symbol, quote: '' }
 }
