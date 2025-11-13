@@ -380,6 +380,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                   <TableBody>
                     {paginatedTickers.map((ticker) => {
                       const displaySymbol = getDisplaySymbol(ticker.symbol)
+                      const quoteCurrency = getQuoteCurrency(ticker.symbol)
 
                       return (
                         <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
@@ -398,7 +399,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                             {formatPercentage(ticker.percentage24h)}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            ${formatVolume(ticker.quoteVolume24h)}
+                            {formatVolume(ticker.quoteVolume24h, quoteCurrency)}
                           </TableCell>
                           <TableCell className="text-right text-sm">
                             <div className="text-green-600 dark:text-green-400">
