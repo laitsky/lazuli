@@ -107,7 +107,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
 
   /**
    * Get all available quote currencies from tickers
-   * Each stablecoin is shown individually (USDT, USDC, BUSD, etc.)
+   * Custom ordering: USDT, BTC, ETH, USDC, then other stablecoins (BUSD, DAI, FDUSD, TUSD), then others
    */
   const availableQuotes = useMemo(() => {
     const quotes = new Set<string>()
@@ -117,16 +117,47 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
         quotes.add(quote.toUpperCase())
       }
     })
-    // Sort with USD stablecoins first, then alphabetically
+
+    // Custom sort order: USDT, BTC, ETH, USDC, then stablecoins alphabetically, then others alphabetically
     const sortedQuotes = Array.from(quotes).sort((a, b) => {
-      const stablecoins = ['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'FDUSD']
+      // Define priority order
+      const priorityOrder = ['USDT', 'BTC', 'ETH', 'USDC']
+      const stablecoins = ['BUSD', 'DAI', 'FDUSD', 'TUSD']
+
+      // Get priority index (-1 if not in priority list)
+      const aPriority = priorityOrder.indexOf(a)
+      const bPriority = priorityOrder.indexOf(b)
+
+      // Both are in priority list - sort by priority
+      if (aPriority !== -1 && bPriority !== -1) {
+        return aPriority - bPriority
+      }
+
+      // Only a is priority - a comes first
+      if (aPriority !== -1) return -1
+
+      // Only b is priority - b comes first
+      if (bPriority !== -1) return 1
+
+      // Neither is priority - check if they're stablecoins
       const aIsStable = stablecoins.includes(a)
       const bIsStable = stablecoins.includes(b)
 
-      if (aIsStable && !bIsStable) return -1
-      if (!aIsStable && bIsStable) return 1
+      // Both are stablecoins - sort alphabetically
+      if (aIsStable && bIsStable) {
+        return a.localeCompare(b)
+      }
+
+      // Only a is stablecoin - a comes first
+      if (aIsStable) return -1
+
+      // Only b is stablecoin - b comes first
+      if (bIsStable) return 1
+
+      // Neither is priority nor stablecoin - sort alphabetically
       return a.localeCompare(b)
     })
+
     return sortedQuotes
   }, [tickers])
 
