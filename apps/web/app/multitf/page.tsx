@@ -71,7 +71,7 @@ export default function MultiTFPage() {
   }, []);
 
   // Load tickers when exchange or market type changes
-  // Fetches ALL tickers using pagination (same approach as tickers page)
+  // Fetches ALL tickers using pagination (same approach as markets page)
   useEffect(() => {
     async function loadTickers() {
       if (!selectedExchange) return;
