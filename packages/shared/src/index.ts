@@ -15,9 +15,13 @@ export interface ApiResponse<T = any> {
 
 /**
  * Ticker data structure (cryptocurrency market data)
+ *
+ * Symbol Notation:
+ * - Spot markets: BTC-USDT, SOL-USDT (hyphen separator)
+ * - Perpetual markets: BTCUSDT.P, SOLUSDT.P (.P suffix)
  */
 export interface Ticker {
-  symbol: string                    // Trading pair symbol (e.g., BTC/USDT)
+  symbol: string                    // Trading pair symbol (e.g., BTC-USDT for spot, BTCUSDT.P for perp)
   exchange: string                  // Exchange identifier
   type: 'spot' | 'perp'            // Market type
   bid: number | null                // Highest bid price
@@ -36,10 +40,14 @@ export interface Ticker {
 
 /**
  * Market information structure
+ *
+ * Symbol Notation:
+ * - Spot markets: BTC-USDT, SOL-USDT (hyphen separator)
+ * - Perpetual markets: BTCUSDT.P, SOLUSDT.P (.P suffix)
  */
 export interface Market {
   id: string                        // Market identifier
-  symbol: string                    // Trading pair symbol
+  symbol: string                    // Trading pair symbol (e.g., BTC-USDT for spot, BTCUSDT.P for perp)
   base: string                      // Base currency
   quote: string                     // Quote currency
   type: 'spot' | 'perp'            // Market type
@@ -138,10 +146,14 @@ export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '3d' | '1w'
 
 /**
  * OHLCV response from /ohlcv/:exchange/:symbol
+ *
+ * Symbol uses standardized notation:
+ * - Spot: BTC-USDT
+ * - Perpetual: BTCUSDT.P
  */
 export interface OHLCVResponse {
   exchange: string        // Exchange identifier
-  symbol: string          // Trading pair symbol
+  symbol: string          // Trading pair symbol (BTC-USDT or BTCUSDT.P)
   timeframe: Timeframe    // Requested timeframe
   candles: OHLCV[]       // Array of candlestick data
   count: number          // Number of candles returned
