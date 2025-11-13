@@ -199,10 +199,10 @@ export default function CustomPairPage() {
       {/* Page Header */}
       <div className="flex items-center gap-2">
         <Divide className="h-6 w-6" />
-        <h1 className="text-3xl font-bold">Custom Pair Generator</h1>
+        <h1 className="text-5xl font-display font-bold">Custom Pair Generator</h1>
       </div>
 
-      <p className="text-muted-foreground">
+      <p className="text-lg font-light text-muted-foreground">
         Create custom trading pairs by dividing two ticker prices. Example: BTC-USDT / AVAX-USDT = BTC/AVAX
       </p>
 
@@ -372,7 +372,7 @@ export default function CustomPairPage() {
       {/* Chart Display */}
       {chartData.length > 0 && customPairSymbol && (
         <div className="space-y-4">
-          <h2 className="text-2xl font-bold">
+          <h2 className="text-3xl font-display font-bold">
             {customPairSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
           </h2>
           <p className="text-muted-foreground">
