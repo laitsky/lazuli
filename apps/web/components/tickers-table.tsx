@@ -287,7 +287,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
 
           {/* Type Filter */}
           <div>
-            <p className="text-sm font-medium mb-2">Market Type</p>
+            <p className="text-sm font-semibold mb-2">Market Type</p>
             <div className="flex flex-wrap gap-2">
               <Button
                 variant={typeFilter === 'all' ? 'default' : 'outline'}
@@ -315,7 +315,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
 
           {/* Quote Currency Filter */}
           <div>
-            <p className="text-sm font-medium mb-2">Quote Currency</p>
+            <p className="text-sm font-semibold mb-2">Quote Currency</p>
             <div className="flex flex-wrap gap-2">
               <Button
                 variant={quoteFilter === 'all' ? 'default' : 'outline'}
@@ -346,7 +346,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           {/* Contract Type Filter (for perpetual markets) */}
           {typeFilter === 'perp' && (
             <div>
-              <p className="text-sm font-medium mb-2">Contract Type</p>
+              <p className="text-sm font-semibold mb-2">Contract Type</p>
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant={contractFilter === 'all' ? 'default' : 'outline'}
@@ -421,7 +421,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                           24h Volume {sortBy === 'volume' && (sortOrder === 'asc' ? '↑' : '↓')}
                         </Button>
                       </TableHead>
-                      <TableHead className="text-right">High / Low</TableHead>
+                      <TableHead className="text-right font-extralight">High / Low</TableHead>
                       {typeFilter === 'perp' && <TableHead className="text-right">Funding Rate</TableHead>}
                     </TableRow>
                   </TableHeader>
