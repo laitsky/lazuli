@@ -98,7 +98,7 @@ export default function ExchangesPage() {
                   <div className="flex space-x-2">
                     <Link
                       href={`/markets?exchange=${exchange.id}`}
-                      className="flex-1 inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+                      className="flex-1 inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors cursor-pointer"
                     >
                       View Markets
                     </Link>
