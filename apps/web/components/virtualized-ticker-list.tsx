@@ -75,7 +75,7 @@ export function VirtualizedTickerList({
               <button
                 key={ticker.symbol}
                 onClick={() => onSelect(ticker.symbol)}
-                className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors ${
+                className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors cursor-pointer ${
                   isSelected ? 'bg-accent font-medium' : ''
                 }`}
                 style={{
