@@ -182,7 +182,7 @@ export function Navigation() {
 
       {/* Sidebar Navigation */}
       <motion.nav
-        className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r bg-background lg:translate-x-0"
+        className="fixed left-0 top-0 z-40 flex h-screen w-64 flex-col border-r bg-card shadow-lg lg:translate-x-0"
         initial={false}
         animate={sidebarState}
         variants={sidebarVariants}
@@ -229,13 +229,13 @@ export function Navigation() {
                   >
                     <motion.div
                       className={cn(
-                        'rounded-lg px-4 py-3 text-sm font-medium transition-colors',
+                        'rounded-lg px-4 py-2.5 text-sm font-medium transition-all duration-200',
                         isActive
-                          ? 'bg-primary text-primary-foreground'
-                          : 'text-foreground hover:bg-accent hover:text-accent-foreground'
+                          ? 'bg-primary text-primary-foreground shadow-sm'
+                          : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground hover:shadow-sm'
                       )}
                       whileHover={{
-                        scale: isActive ? 1 : 1.02,
+                        scale: isActive ? 1 : 1.01,
                         transition: { duration: 0.2 },
                       }}
                       whileTap={{ scale: 0.98 }}
