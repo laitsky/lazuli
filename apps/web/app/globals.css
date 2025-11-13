@@ -15,7 +15,6 @@
   --font-weight-normal: 400;
   --font-weight-semibold: 600;
   --font-weight-bold: 700;
-  --font-weight-extrabold: 800;
 
   /* Dramatic size scale - 3x+ jumps for impact */
   --font-size-xs: 0.75rem;      /* 12px */
@@ -97,8 +96,4 @@ body {
 /* Extreme weight utilities for high contrast */
 .font-extralight {
   font-weight: 200;
-}
-
-.font-extrabold {
-  font-weight: 800;
 }
