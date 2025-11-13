@@ -170,7 +170,6 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
       'USDT': '₮',  // Tether symbol
       'BTC': '₿',   // Bitcoin symbol
       'ETH': 'Ξ',   // Ethereum symbol (Greek Xi)
-      'USDC': 'Ⓤ',  // Circled U for USD Coin
     }
     return icons[currency] || null
   }
