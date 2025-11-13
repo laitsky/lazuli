@@ -21,27 +21,25 @@ interface PageTransitionProps {
  * - initial: State when page first loads (before animation)
  * - animate: Target state (fully visible)
  * - exit: State when leaving page (if using AnimatePresence)
+ * Optimized for speed to reduce perceived navigation delay
  */
 const pageVariants = {
   initial: {
     opacity: 0,
-    y: 20,
+    y: 8,
   },
   animate: {
     opacity: 1,
     y: 0,
     transition: {
-      duration: 0.5,
-      ease: [0.6, 0.05, 0.01, 0.9], // Custom easing for smooth motion
-      staggerChildren: 0.1,
+      duration: 0.2,
+      ease: [0.4, 0, 0.2, 1], // Tailwind's ease-out curve
     },
   },
   exit: {
     opacity: 0,
-    y: -20,
     transition: {
-      duration: 0.3,
-      ease: [0.6, 0.05, 0.01, 0.9],
+      duration: 0.15,
     },
   },
 }
