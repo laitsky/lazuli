@@ -204,9 +204,9 @@ export function Navigation() {
               whileHover={{ rotate: 360 }}
               transition={{ duration: 0.6 }}
             >
-              <span className="text-xl font-bold">L</span>
+              <span className="text-xl font-display font-bold">L</span>
             </motion.div>
-            <span className="text-xl font-bold">Lazuli</span>
+            <span className="text-xl font-display font-bold">Lazuli</span>
           </Link>
         </motion.div>
 
