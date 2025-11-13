@@ -36,7 +36,7 @@ export default function ExchangesPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-5xl font-display font-extrabold tracking-tight">Exchanges</h1>
+        <h1 className="text-5xl font-display font-bold tracking-tight">Exchanges</h1>
         <p className="text-lg font-light text-muted-foreground">
           All supported cryptocurrency exchanges and their capabilities
         </p>

@@ -6,7 +6,7 @@ import { Space_Grotesk, IBM_Plex_Sans, JetBrains_Mono } from "next/font/google";
 // Distinctive geometric sans for headings - extreme weights for high contrast
 const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
-  weight: ["300", "700", "800"],
+  weight: ["300", "400", "700"],
   variable: "--font-space-grotesk",
   display: "swap",
 });

@@ -80,7 +80,7 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
     <div className="space-y-6">
       {/* Header */}
       <div className="space-y-2">
-        <h1 className="text-5xl font-display font-extrabold tracking-tight">Live Tickers</h1>
+        <h1 className="text-5xl font-display font-bold tracking-tight">Live Tickers</h1>
         <p className="text-lg font-light text-muted-foreground">
           Real-time cryptocurrency price data and market statistics
         </p>
@@ -130,17 +130,17 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <p className="text-sm font-extralight text-muted-foreground">Total Tickers</p>
-                  <p className="text-3xl font-display font-extrabold">{tickersData.count}</p>
+                  <p className="text-3xl font-display font-bold">{tickersData.count}</p>
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm font-extralight text-muted-foreground">Spot Markets</p>
-                  <p className="text-3xl font-display font-extrabold">
+                  <p className="text-3xl font-display font-bold">
                     {tickersData.tickers.filter(t => t.type === 'spot').length}
                   </p>
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm font-extralight text-muted-foreground">Perpetual Markets</p>
-                  <p className="text-3xl font-display font-extrabold">
+                  <p className="text-3xl font-display font-bold">
                     {tickersData.tickers.filter(t => t.type === 'perp').length}
                   </p>
                 </div>
