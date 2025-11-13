@@ -6,7 +6,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Badge } from '@/components/ui/badge'
 import { LazuliAPI } from '@/lib/api-client'
 import type { HealthResponse } from '@lazuli/shared'
 
@@ -49,7 +48,7 @@ export function ApiStatusIndicator() {
           <p>{error}</p>
         </div>
       )}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
           <p className="text-sm font-medium text-muted-foreground">API Status</p>
           <div className="flex items-center space-x-2">
@@ -67,17 +66,11 @@ export function ApiStatusIndicator() {
             </span>
           </div>
         </div>
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-muted-foreground">Exchanges</p>
-        <p className="text-lg font-semibold">
-          {health?.exchanges?.length || 3} Supported
-        </p>
-      </div>
         <div className="space-y-2">
-          <p className="text-sm font-medium text-muted-foreground">Database</p>
-          <Badge variant={health?.database === 'connected' ? 'success' : 'secondary'}>
-            {loading ? 'Checking...' : health?.database || 'Not Required'}
-          </Badge>
+          <p className="text-sm font-medium text-muted-foreground">Exchanges</p>
+          <p className="text-lg font-semibold">
+            {health?.exchanges?.length || 3} Supported
+          </p>
         </div>
       </div>
     </div>
