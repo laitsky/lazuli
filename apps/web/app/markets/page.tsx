@@ -1,69 +1,80 @@
 /**
- * Markets Page - Browse all available trading pairs
- * Shows market information grouped by exchange
+ * Markets Page - Display real-time ticker data from exchanges
+ * Supports filtering by exchange and searching symbols
  */
 
-'use client'
-
-import { useState, useEffect, useMemo } from 'react'
+import { Suspense } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TickersTable } from '@/components/tickers-table'
 import { LazuliAPI } from '@/lib/api-client'
-import { Market, ExchangeInfo, SupportedExchange } from '@lazuli/shared'
+import { Ticker, SupportedExchange } from '@lazuli/shared'
+import Link from 'next/link'
 
-export default function MarketsPage() {
-  const [exchanges, setExchanges] = useState<ExchangeInfo[]>([])
-  const [selectedExchange, setSelectedExchange] = useState<SupportedExchange>('binance')
-  const [markets, setMarkets] = useState<Market[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [typeFilter, setTypeFilter] = useState<'all' | 'spot' | 'perp'>('all')
+export const dynamic = 'force-dynamic'
 
-  // Load exchanges on mount
-  useEffect(() => {
-    async function loadExchanges() {
-      const response = await LazuliAPI.getExchanges()
-      if (response.success) {
-        setExchanges(response.data)
-      }
-    }
-    loadExchanges()
-  }, [])
+interface TickersPageProps {
+  searchParams: Promise<{ exchange?: string }>
+}
 
-  // Load markets when exchange changes
-  useEffect(() => {
-    async function loadMarkets() {
-      setLoading(true)
-      setError(null)
-      const response = await LazuliAPI.getMarkets(selectedExchange, {
-        page: 1,
-        limit: 100,
-      })
-      if (response.success) {
-        setMarkets(response.data.markets)
-      } else {
-        setError(response.error)
-      }
-      setLoading(false)
-    }
-    loadMarkets()
-  }, [selectedExchange])
+/**
+ * Fetch all tickers from all pages without any limit
+ * Continues fetching until all pages are retrieved
+ */
+async function fetchAllTickers(exchange: SupportedExchange) {
+  const allTickers: Ticker[] = []
+  let currentPage = 1
+  let hasMorePages = true
+  const pageLimit = 500 // Maximum allowed by backend
 
-  // Filter markets
-  const filteredMarkets = useMemo(() => {
-    return markets.filter((market) => {
-      const matchesSearch =
-        market.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        market.base.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        market.quote.toLowerCase().includes(searchQuery.toLowerCase())
-      const matchesType = typeFilter === 'all' || market.type === typeFilter
-      return matchesSearch && matchesType && market.active
+  while (hasMorePages) {
+    const response = await LazuliAPI.getTickers(exchange, {
+      page: currentPage,
+      limit: pageLimit,
+      sortBy: 'volume',
+      sortOrder: 'desc',
     })
-  }, [markets, searchQuery, typeFilter])
+
+    if (!response.success || !response.data) {
+      // If any page fails, return what we have so far
+      break
+    }
+
+    allTickers.push(...response.data.tickers)
+
+    // Check if there are more pages
+    if (response.data.pagination && response.data.pagination.hasNext) {
+      currentPage++
+    } else {
+      hasMorePages = false
+    }
+  }
+
+  return {
+    exchange,
+    tickers: allTickers,
+    count: allTickers.length,
+  }
+}
+
+export default async function TickersPage({ searchParams }: TickersPageProps) {
+  const params = await searchParams
+  const selectedExchange = params.exchange || 'binance'
+
+  // Validate exchange
+  const validExchanges = ['binance', 'bybit', 'okx']
+  const exchange = validExchanges.includes(selectedExchange)
+    ? (selectedExchange as any)
+    : 'binance'
+
+  // Fetch exchanges list and ALL tickers (no limit)
+  const [exchangesResponse, tickersData] = await Promise.all([
+    LazuliAPI.getExchanges(),
+    fetchAllTickers(exchange),
+  ])
+
+  const exchanges = exchangesResponse.success ? exchangesResponse.data : []
 
   return (
     <div className="space-y-6">
@@ -71,7 +82,7 @@ export default function MarketsPage() {
       <div className="space-y-2">
         <h1 className="text-5xl font-display font-bold tracking-tight">Markets</h1>
         <p className="text-lg font-light text-muted-foreground">
-          Browse available trading pairs across all exchanges
+          Real-time cryptocurrency price data and market statistics
         </p>
       </div>
 
@@ -79,185 +90,77 @@ export default function MarketsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Select Exchange</CardTitle>
-          <CardDescription>Choose an exchange to view available markets</CardDescription>
+          <CardDescription>Choose an exchange to view tickers</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
             {exchanges.map((ex) => (
-              <Button
-                key={ex.id}
-                variant={selectedExchange === ex.id ? 'default' : 'outline'}
-                size="lg"
-                onClick={() => setSelectedExchange(ex.id as SupportedExchange)}
-              >
-                {ex.name}
-                {selectedExchange === ex.id && (
-                  <Badge variant="secondary" className="ml-2">
-                    Active
-                  </Badge>
-                )}
-              </Button>
+              <Link key={ex.id} href={`/markets?exchange=${ex.id}`}>
+                <Button
+                  variant={exchange === ex.id ? 'default' : 'outline'}
+                  size="lg"
+                >
+                  {ex.name}
+                  {exchange === ex.id && (
+                    <Badge variant="secondary" className="ml-2">
+                      Active
+                    </Badge>
+                  )}
+                </Button>
+              </Link>
             ))}
           </div>
         </CardContent>
       </Card>
 
-      {/* Error State */}
-      {error && (
-        <Card className="border-destructive">
-          <CardHeader>
-            <CardTitle className="text-destructive">Error Loading Markets</CardTitle>
-            <CardDescription>{error}</CardDescription>
-          </CardHeader>
-        </Card>
-      )}
-
-      {/* Loading State */}
-      {loading && (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground">Loading markets...</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Markets Content */}
-      {!loading && !error && (
+      {/* Tickers Data */}
+      {tickersData && tickersData.tickers.length > 0 && (
         <>
           {/* Stats */}
           <Card>
             <CardHeader>
               <CardTitle>
-                {selectedExchange.charAt(0).toUpperCase() + selectedExchange.slice(1)} Markets
+                {tickersData.exchange.charAt(0).toUpperCase() + tickersData.exchange.slice(1)} Market Overview
               </CardTitle>
               <CardDescription>
-                Total: {markets.length} markets
+                Last updated: {new Date().toLocaleTimeString()} • Showing all {tickersData.count} tickers (sorted by volume)
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <p className="text-sm font-extralight text-muted-foreground">Total Markets</p>
-                  <p className="text-3xl font-display font-bold">{markets.length}</p>
+                  <p className="text-sm font-extralight text-muted-foreground">Total Tickers</p>
+                  <p className="text-3xl font-display font-bold">{tickersData.count}</p>
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm font-extralight text-muted-foreground">Spot Markets</p>
                   <p className="text-3xl font-display font-bold">
-                    {markets.filter(m => m.type === 'spot' && m.active).length}
+                    {tickersData.tickers.filter(t => t.type === 'spot').length}
                   </p>
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm font-extralight text-muted-foreground">Perpetual Markets</p>
                   <p className="text-3xl font-display font-bold">
-                    {markets.filter(m => m.type === 'perp' && m.active).length}
+                    {tickersData.tickers.filter(t => t.type === 'perp').length}
                   </p>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          {/* Filters */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Filters</CardTitle>
-              <CardDescription>Search and filter markets</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Search */}
-              <div>
-                <Input
-                  placeholder="Search markets (e.g., BTC, ETH, USDT)..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="max-w-md"
-                />
-              </div>
-
-              {/* Type Filter */}
-              <div className="flex space-x-2">
-                <Button
-                  variant={typeFilter === 'all' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setTypeFilter('all')}
-                >
-                  All ({markets.filter(m => m.active).length})
-                </Button>
-                <Button
-                  variant={typeFilter === 'spot' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setTypeFilter('spot')}
-                >
-                  Spot ({markets.filter(m => m.type === 'spot' && m.active).length})
-                </Button>
-                <Button
-                  variant={typeFilter === 'perp' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setTypeFilter('perp')}
-                >
-                  Perpetual ({markets.filter(m => m.type === 'perp' && m.active).length})
-                </Button>
-              </div>
-
-              {/* Results Count */}
-              <p className="text-sm text-muted-foreground">
-                Showing {filteredMarkets.length} of {markets.filter(m => m.active).length} active markets
-              </p>
-            </CardContent>
-          </Card>
-
-          {/* Markets Table */}
-          <Card>
-            <CardContent className="p-0">
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Symbol</TableHead>
-                      <TableHead>Base Currency</TableHead>
-                      <TableHead>Quote Currency</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Market ID</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredMarkets.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                          No markets found matching your filters
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredMarkets.slice(0, 200).map((market) => (
-                        <TableRow key={`${market.exchange}-${market.id}`}>
-                          <TableCell className="font-medium">{market.symbol}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{market.base}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{market.quote}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={market.type === 'spot' ? 'default' : 'secondary'}>
-                              {market.type}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="font-mono text-sm text-muted-foreground">
-                            {market.id}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </div>
-              {filteredMarkets.length > 200 && (
-                <div className="p-4 text-center text-sm text-muted-foreground border-t">
-                  Showing top 200 results. Use search to narrow down.
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          {/* Tickers Table */}
+          <TickersTable tickers={tickersData.tickers} exchange={tickersData.exchange} />
         </>
+      )}
+
+      {/* No Data State */}
+      {tickersData && tickersData.tickers.length === 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>No Tickers Available</CardTitle>
+            <CardDescription>No ticker data found for this exchange.</CardDescription>
+          </CardHeader>
+        </Card>
       )}
     </div>
   )

@@ -97,14 +97,8 @@ export default function ExchangesPage() {
                   {/* Actions */}
                   <div className="flex space-x-2">
                     <Link
-                      href={`/tickers?exchange=${exchange.id}`}
-                      className="flex-1 inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
-                    >
-                      View Tickers
-                    </Link>
-                    <Link
                       href={`/markets?exchange=${exchange.id}`}
-                      className="flex-1 inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                      className="flex-1 inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
                     >
                       View Markets
                     </Link>
