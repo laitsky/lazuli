@@ -277,13 +277,26 @@ export function formatCurrency(value: number | null): string {
 
 /**
  * Format a large number with K/M/B suffixes
+ * @param value - The numeric value to format
+ * @param currency - Optional currency code to display (e.g., 'USDT', 'BTC', 'IDRT')
+ * @returns Formatted string with K/M/B suffix and optional currency
  */
-export function formatVolume(value: number | null): string {
+export function formatVolume(value: number | null, currency?: string): string {
   if (value === null) return 'N/A'
-  if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`
-  if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`
-  if (value >= 1e3) return `${(value / 1e3).toFixed(2)}K`
-  return value.toFixed(2)
+
+  let formatted: string
+  if (value >= 1e9) {
+    formatted = `${(value / 1e9).toFixed(2)}B`
+  } else if (value >= 1e6) {
+    formatted = `${(value / 1e6).toFixed(2)}M`
+  } else if (value >= 1e3) {
+    formatted = `${(value / 1e3).toFixed(2)}K`
+  } else {
+    formatted = value.toFixed(2)
+  }
+
+  // If currency is provided, append it; otherwise return just the number
+  return currency ? `${formatted} ${currency}` : formatted
 }
 
 /**

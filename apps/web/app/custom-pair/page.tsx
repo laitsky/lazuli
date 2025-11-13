@@ -39,11 +39,28 @@ export default function CustomPairPage() {
 
   /**
    * Extract base currency from symbol
-   * Handles both - and / separators
-   * @param symbol - Trading pair symbol (e.g., BTC-USDT or BTC/USDT)
+   * Handles our standardized notation:
+   * - Spot: BTC-USDT -> BTC
+   * - Perpetual: BTCUSDT.P -> BTC
+   * @param symbol - Trading pair symbol (e.g., BTC-USDT or BTCUSDT.P)
    * @returns Base currency (e.g., BTC)
    */
   const extractBaseCurrency = (symbol: string): string => {
+    // Handle perpetual notation (BTCUSDT.P)
+    if (symbol.endsWith('.P')) {
+      const baseQuote = symbol.slice(0, -2); // Remove .P
+      // Common quote currencies to remove
+      const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD'];
+
+      for (const quote of commonQuotes) {
+        if (baseQuote.endsWith(quote)) {
+          return baseQuote.slice(0, -quote.length);
+        }
+      }
+      return baseQuote; // Fallback
+    }
+
+    // Handle spot notation (BTC-USDT)
     const parts = symbol.split(/[-/]/);
     return parts[0] || symbol;
   };

@@ -1,5 +1,6 @@
 import ccxt from 'ccxt';
 import { Ticker, Market, OHLCV, Timeframe } from '../types';
+import { convertFromCCXTNotation, convertToCCXTNotation } from '../utils/validation';
 
 export class CCXTService {
   private spotExchanges: Map<string, any>;
@@ -98,26 +99,33 @@ export class CCXTService {
     try {
       const exchange = this.getExchange(exchangeId, type);
       const tickers = await exchange.fetchTickers();
-      
+
       // Transform exchange-specific ticker format to our standardized format
-      return Object.entries(tickers).map(([symbol, ticker]: [string, any]) => ({
-        symbol,
-        exchange: exchangeId,
-        type,
-        bid: ticker.bid || null,
-        ask: ticker.ask || null,
-        last: ticker.last || null,
-        high24h: ticker.high || null,
-        low24h: ticker.low || null,
-        volume24h: ticker.baseVolume || null,
-        quoteVolume24h: ticker.quoteVolume || null,
-        change24h: ticker.change || null,
-        percentage24h: ticker.percentage || null,
-        timestamp: ticker.timestamp || Date.now(),
-        // Include perpetual-specific data like funding rate and open interest
-        fundingRate: type === 'perp' ? (ticker.info?.fundingRate || null) : undefined,
-        openInterest: type === 'perp' ? (ticker.info?.openInterest || null) : undefined,
-      }));
+      return Object.entries(tickers).map(([ccxtSymbol, ticker]: [string, any]) => {
+        // Convert CCXT symbol notation to our standardized notation
+        // Spot: BTC/USDT -> BTC-USDT
+        // Perp: BTC/USDT:USDT -> BTCUSDT.P
+        const standardSymbol = convertFromCCXTNotation(ccxtSymbol, type);
+
+        return {
+          symbol: standardSymbol,
+          exchange: exchangeId,
+          type,
+          bid: ticker.bid || null,
+          ask: ticker.ask || null,
+          last: ticker.last || null,
+          high24h: ticker.high || null,
+          low24h: ticker.low || null,
+          volume24h: ticker.baseVolume || null,
+          quoteVolume24h: ticker.quoteVolume || null,
+          change24h: ticker.change || null,
+          percentage24h: ticker.percentage || null,
+          timestamp: ticker.timestamp || Date.now(),
+          // Include perpetual-specific data like funding rate and open interest
+          fundingRate: type === 'perp' ? (ticker.info?.fundingRate || null) : undefined,
+          openInterest: type === 'perp' ? (ticker.info?.openInterest || null) : undefined,
+        };
+      });
     } catch (error) {
       console.error(`Error fetching ${type} tickers for ${exchangeId}:`, error);
       return [];
@@ -144,17 +152,22 @@ export class CCXTService {
     try {
       const exchange = this.getExchange(exchangeId, type);
       const markets = exchange.markets;
-      
+
       // Transform exchange market data to our standardized format
-      return Object.entries(markets).map(([id, market]: [string, any]) => ({
-        id,
-        symbol: market.symbol,
-        base: market.base,
-        quote: market.quote,
-        type,
-        active: market.active,
-        exchange: exchangeId,
-      }));
+      return Object.entries(markets).map(([id, market]: [string, any]) => {
+        // Convert CCXT symbol notation to our standardized notation
+        const standardSymbol = convertFromCCXTNotation(market.symbol, type);
+
+        return {
+          id,
+          symbol: standardSymbol,
+          base: market.base,
+          quote: market.quote,
+          type,
+          active: market.active,
+          exchange: exchangeId,
+        };
+      });
     } catch (error) {
       console.error(`Error fetching ${type} markets for ${exchangeId}:`, error);
       return [];
@@ -229,7 +242,7 @@ export class CCXTService {
   /**
    * Fetch OHLCV (candlestick) data for a specific symbol and timeframe
    * @param exchangeId - Exchange identifier (binance, bybit, okx)
-   * @param symbol - Trading pair symbol (e.g., 'BTC/USDT')
+   * @param symbol - Trading pair symbol in standardized notation (e.g., 'BTC-USDT' or 'BTCUSDT.P')
    * @param timeframe - Timeframe for candles (1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w)
    * @param marketType - Market type (spot or perp)
    * @param limit - Number of candles to fetch (default: 100)
@@ -243,6 +256,11 @@ export class CCXTService {
     limit: number = 100
   ): Promise<OHLCV[]> {
     try {
+      // Convert our standardized symbol notation to CCXT format
+      // BTC-USDT -> BTC/USDT (spot)
+      // BTCUSDT.P -> BTC/USDT:USDT (perp)
+      const ccxtSymbol = convertToCCXTNotation(symbol, marketType);
+
       // Get the appropriate exchange instance
       const exchange = this.getExchange(exchangeId, marketType);
 
@@ -260,9 +278,9 @@ export class CCXTService {
         );
       }
 
-      // Fetch OHLCV data from the exchange
+      // Fetch OHLCV data from the exchange using CCXT symbol format
       // CCXT returns array of [timestamp, open, high, low, close, volume]
-      const ohlcvData = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
+      const ohlcvData = await exchange.fetchOHLCV(ccxtSymbol, timeframe, undefined, limit);
 
       // Transform CCXT format to our standardized OHLCV format
       return ohlcvData.map((candle: number[]) => ({

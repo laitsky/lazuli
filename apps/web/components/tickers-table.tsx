@@ -23,133 +23,168 @@ interface TickersTableProps {
 
 export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [searchQuery, setSearchQuery] = useState('')
-  const [typeFilter, setTypeFilter] = useState<'all' | 'spot' | 'perp'>('all')
-  const [quoteFilter, setQuoteFilter] = useState<string>('all')
-  const [contractFilter, setContractFilter] = useState<'all' | 'perpetual' | 'futures'>('all')
+  const [typeFilter, setTypeFilter] = useState<'spot' | 'perp'>('spot')
+  const [quoteFilter, setQuoteFilter] = useState<string>('USDT')
   const [sortBy, setSortBy] = useState<'symbol' | 'price' | 'change' | 'volume'>('volume')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 50 // Show 50 tickers per page
 
-  // Parse futures contract symbol (e.g., "BTC:USDT251226" -> {base: "BTC", quote: "USDT", expiry: "251226"})
-  const parseFuturesSymbol = (symbol: string) => {
-    // Check if it's a futures contract (contains :)
-    if (symbol.includes(':')) {
-      const [base, rest] = symbol.split(':')
-      // Check if there's an expiry date (YYMMDD format) - allow lowercase too
-      const expiryMatch = rest.match(/^([A-Za-z]+)(\d{6})$/)
-      if (expiryMatch) {
-        return {
-          base,
-          quote: expiryMatch[1],
-          expiry: expiryMatch[2],
-          isFutures: true,
+  /**
+   * Parse symbol using our standardized notation
+   *
+   * Notation:
+   * - Spot: BTC-USDT (hyphen separator)
+   * - Perpetual: BTCUSDT.P (.P suffix)
+   *
+   * Returns parsed components: base, quote, and whether it's a perpetual
+   */
+  const parseSymbol = (symbol: string) => {
+    // Check if it's a perpetual contract (.P suffix)
+    if (symbol.endsWith('.P')) {
+      // Extract the combined base+quote (e.g., BTCUSDT from BTCUSDT.P)
+      const baseQuote = symbol.slice(0, -2) // Remove .P
+
+      // Common quote currencies to check (in order of likelihood)
+      const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD']
+
+      for (const quote of commonQuotes) {
+        if (baseQuote.endsWith(quote)) {
+          const base = baseQuote.slice(0, -quote.length)
+          return {
+            base,
+            quote,
+            isPerpetual: true,
+          }
         }
       }
-      // Also check for dash/underscore separators (e.g., "USDT-251226" or "USDT_251226")
-      const expiryMatchWithSep = rest.match(/^([A-Za-z]+)[-_](\d{6})$/)
-      if (expiryMatchWithSep) {
-        return {
-          base,
-          quote: expiryMatchWithSep[1],
-          expiry: expiryMatchWithSep[2],
-          isFutures: true,
-        }
-      }
-      // Perpetual contract (no date)
+
+      // Fallback: couldn't parse perpetual, return as-is
       return {
-        base,
-        quote: rest,
-        expiry: null,
-        isFutures: false,
+        base: baseQuote,
+        quote: '',
+        isPerpetual: true,
       }
     }
-    // Spot market
-    const parts = symbol.split('/')
+
+    // Spot market with hyphen separator (BTC-USDT)
+    if (symbol.includes('-')) {
+      const [base, quote] = symbol.split('-')
+      return {
+        base: base || '',
+        quote: quote || '',
+        isPerpetual: false,
+      }
+    }
+
+    // Fallback: symbol doesn't match expected format
     return {
-      base: parts[0] || '',
-      quote: parts[1] || '',
-      expiry: null,
-      isFutures: false,
+      base: symbol,
+      quote: '',
+      isPerpetual: false,
     }
   }
 
-  // Format expiry date (YYMMDD -> readable format)
-  const formatExpiryDate = (expiry: string): string => {
-    if (!expiry || expiry.length !== 6) return ''
-    const year = '20' + expiry.substring(0, 2)
-    const month = expiry.substring(2, 4)
-    const day = expiry.substring(4, 6)
-    const date = new Date(`${year}-${month}-${day}`)
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  }
-
-  // Get display symbol (clean format for UI)
+  /**
+   * Get display symbol for UI
+   * Converts our notation to a clean display format
+   * - Spot: BTC-USDT -> BTC-USDT
+   * - Perpetual: BTCUSDT.P -> BTCUSDT.P
+   */
   const getDisplaySymbol = (symbol: string): string => {
-    const parsed = parseFuturesSymbol(symbol)
-    if (parsed.expiry) {
-      // Futures with expiry: "BTC/USDT (Dec 26, 2025)"
-      return `${parsed.base}/${parsed.quote}`
-    }
-    // Perpetual or Spot: show as-is (but replace : with /)
-    return symbol.replace(':', '/')
+    return symbol
   }
 
-  // Extract quote currency from symbol (e.g., "BTC/USDT" -> "USDT")
+  /**
+   * Extract quote currency from symbol
+   * - BTC-USDT -> USDT
+   * - BTCUSDT.P -> USDT
+   */
   const getQuoteCurrency = (symbol: string): string => {
-    const parsed = parseFuturesSymbol(symbol)
+    const parsed = parseSymbol(symbol)
     return parsed.quote
   }
 
-  // Normalize quote currency to group stablecoins
-  const normalizeQuoteCurrency = (quote: string): string => {
-    const upperQuote = quote.toUpperCase()
-    // Group USD stablecoins
-    if (['USDT', 'USDC', 'BUSD', 'TUSD', 'USDP', 'USDD', 'DAI', 'FDUSD'].includes(upperQuote)) {
-      return 'USD'
-    }
-    return upperQuote
-  }
-
-  // Get all available quote currencies from tickers
+  /**
+   * Get all available quote currencies from tickers
+   * Custom ordering: USDT, BTC, ETH, USDC, then other stablecoins (BUSD, DAI, FDUSD, TUSD), then others
+   */
   const availableQuotes = useMemo(() => {
     const quotes = new Set<string>()
     tickers.forEach((ticker) => {
       const quote = getQuoteCurrency(ticker.symbol)
       if (quote) {
-        const normalized = normalizeQuoteCurrency(quote)
-        quotes.add(normalized)
+        quotes.add(quote.toUpperCase())
       }
     })
-    return Array.from(quotes).sort()
+
+    // Custom sort order: USDT, BTC, ETH, USDC, then stablecoins alphabetically, then others alphabetically
+    const sortedQuotes = Array.from(quotes).sort((a, b) => {
+      // Define priority order
+      const priorityOrder = ['USDT', 'BTC', 'ETH', 'USDC']
+      const stablecoins = ['BUSD', 'DAI', 'FDUSD', 'TUSD']
+
+      // Get priority index (-1 if not in priority list)
+      const aPriority = priorityOrder.indexOf(a)
+      const bPriority = priorityOrder.indexOf(b)
+
+      // Both are in priority list - sort by priority
+      if (aPriority !== -1 && bPriority !== -1) {
+        return aPriority - bPriority
+      }
+
+      // Only a is priority - a comes first
+      if (aPriority !== -1) return -1
+
+      // Only b is priority - b comes first
+      if (bPriority !== -1) return 1
+
+      // Neither is priority - check if they're stablecoins
+      const aIsStable = stablecoins.includes(a)
+      const bIsStable = stablecoins.includes(b)
+
+      // Both are stablecoins - sort alphabetically
+      if (aIsStable && bIsStable) {
+        return a.localeCompare(b)
+      }
+
+      // Only a is stablecoin - a comes first
+      if (aIsStable) return -1
+
+      // Only b is stablecoin - b comes first
+      if (bIsStable) return 1
+
+      // Neither is priority nor stablecoin - sort alphabetically
+      return a.localeCompare(b)
+    })
+
+    return sortedQuotes
   }, [tickers])
+
+  /**
+   * Get icon/logo for currency
+   * Returns an emoji or Unicode symbol for major currencies
+   */
+  const getCurrencyIcon = (currency: string): string | null => {
+    const icons: Record<string, string> = {
+      'USDT': '₮',  // Tether symbol
+      'BTC': '₿',   // Bitcoin symbol
+      'ETH': 'Ξ',   // Ethereum symbol (Greek Xi)
+    }
+    return icons[currency] || null
+  }
 
   // Filter and sort tickers
   const filteredTickers = useMemo(() => {
     let filtered = tickers.filter((ticker) => {
       const matchesSearch = ticker.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-      const matchesType = typeFilter === 'all' || ticker.type === typeFilter
+      const matchesType = ticker.type === typeFilter
 
       // Quote currency filter
-      let matchesQuote = true
-      if (quoteFilter !== 'all') {
-        const tickerQuote = getQuoteCurrency(ticker.symbol)
-        const normalizedTickerQuote = normalizeQuoteCurrency(tickerQuote)
-        matchesQuote = normalizedTickerQuote === quoteFilter
-      }
+      const tickerQuote = getQuoteCurrency(ticker.symbol).toUpperCase()
+      const matchesQuote = tickerQuote === quoteFilter
 
-      // Contract type filter (perpetual vs futures)
-      let matchesContract = true
-      if (contractFilter !== 'all') {
-        const parsed = parseFuturesSymbol(ticker.symbol)
-        if (contractFilter === 'perpetual') {
-          matchesContract = !parsed.expiry && !parsed.isFutures
-        } else if (contractFilter === 'futures') {
-          matchesContract = parsed.isFutures || parsed.expiry !== null
-        }
-      }
-
-      return matchesSearch && matchesType && matchesQuote && matchesContract
+      return matchesSearch && matchesType && matchesQuote
     })
 
     // Sort tickers
@@ -188,7 +223,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     })
 
     return filtered
-  }, [tickers, searchQuery, typeFilter, quoteFilter, contractFilter, sortBy, sortOrder])
+  }, [tickers, searchQuery, typeFilter, quoteFilter, sortBy, sortOrder])
 
   const toggleSort = (column: typeof sortBy) => {
     if (sortBy === column) {
@@ -206,18 +241,13 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     setCurrentPage(1)
   }
 
-  const handleTypeFilterChange = (type: 'all' | 'spot' | 'perp') => {
+  const handleTypeFilterChange = (type: 'spot' | 'perp') => {
     setTypeFilter(type)
     setCurrentPage(1)
   }
 
   const handleQuoteFilterChange = (quote: string) => {
     setQuoteFilter(quote)
-    setCurrentPage(1)
-  }
-
-  const handleContractFilterChange = (contract: 'all' | 'perpetual' | 'futures') => {
-    setContractFilter(contract)
     setCurrentPage(1)
   }
 
@@ -290,13 +320,6 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
             <p className="text-sm font-semibold mb-2">Market Type</p>
             <div className="flex flex-wrap gap-2">
               <Button
-                variant={typeFilter === 'all' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleTypeFilterChange('all')}
-              >
-                All ({tickers.length})
-              </Button>
-              <Button
                 variant={typeFilter === 'spot' ? 'default' : 'outline'}
                 size="sm"
                 onClick={() => handleTypeFilterChange('spot')}
@@ -317,67 +340,28 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           <div>
             <p className="text-sm font-semibold mb-2">Quote Currency</p>
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant={quoteFilter === 'all' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => handleQuoteFilterChange('all')}
-              >
-                All
-              </Button>
               {availableQuotes.map((quote) => {
                 const count = tickers.filter((t) => {
-                  const tickerQuote = getQuoteCurrency(t.symbol)
-                  return normalizeQuoteCurrency(tickerQuote) === quote
+                  const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase()
+                  return tickerQuote === quote
                 }).length
+                const icon = getCurrencyIcon(quote)
                 return (
                   <Button
                     key={quote}
                     variant={quoteFilter === quote ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => handleQuoteFilterChange(quote)}
+                    className="gap-1.5"
                   >
-                    {quote === 'USD' ? 'USD (Stablecoins)' : quote} ({count})
+                    {icon && <span className="text-base">{icon}</span>}
+                    <span>{quote}</span>
+                    <span className="text-muted-foreground">({count})</span>
                   </Button>
                 )
               })}
             </div>
           </div>
-
-          {/* Contract Type Filter (for perpetual markets) */}
-          {typeFilter === 'perp' && (
-            <div>
-              <p className="text-sm font-semibold mb-2">Contract Type</p>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant={contractFilter === 'all' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => handleContractFilterChange('all')}
-                >
-                  All
-                </Button>
-                <Button
-                  variant={contractFilter === 'perpetual' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => handleContractFilterChange('perpetual')}
-                >
-                  Perpetual ({tickers.filter(t => {
-                    const parsed = parseFuturesSymbol(t.symbol)
-                    return t.type === 'perp' && !parsed.expiry && !parsed.isFutures
-                  }).length})
-                </Button>
-                <Button
-                  variant={contractFilter === 'futures' ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => handleContractFilterChange('futures')}
-                >
-                  Futures ({tickers.filter(t => {
-                    const parsed = parseFuturesSymbol(t.symbol)
-                    return t.type === 'perp' && (parsed.isFutures || parsed.expiry !== null)
-                  }).length})
-                </Button>
-              </div>
-            </div>
-          )}
 
           {/* Results Count */}
           <p className="text-sm text-muted-foreground">
@@ -405,7 +389,6 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                           Symbol {sortBy === 'symbol' && (sortOrder === 'asc' ? '↑' : '↓')}
                         </Button>
                       </TableHead>
-                      <TableHead>Type</TableHead>
                       <TableHead className="text-right">
                         <Button variant="ghost" size="sm" onClick={() => toggleSort('price')}>
                           Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
@@ -427,37 +410,20 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                   </TableHeader>
                   <TableBody>
                     {paginatedTickers.map((ticker) => {
-                      const parsed = parseFuturesSymbol(ticker.symbol)
                       const displaySymbol = getDisplaySymbol(ticker.symbol)
-                      const expiryDate = parsed.expiry ? formatExpiryDate(parsed.expiry) : null
+                      const quoteCurrency = getQuoteCurrency(ticker.symbol)
 
                       return (
                         <TableRow key={`${ticker.exchange}-${ticker.symbol}-${ticker.type}`}>
                           <TableCell className="font-medium">
-                            <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
                               <span>{displaySymbol}</span>
-                              {expiryDate && (
-                                <span className="text-xs text-muted-foreground">
-                                  Exp: {expiryDate}
-                                </span>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-1">
-                              <Badge variant={ticker.type === 'spot' ? 'default' : 'secondary'}>
+                              <Badge
+                                variant={ticker.type === 'spot' ? 'default' : 'secondary'}
+                                className="text-xs"
+                              >
                                 {ticker.type}
                               </Badge>
-                              {ticker.type === 'perp' && parsed.isFutures && (
-                                <Badge variant="outline" className="text-xs">
-                                  Futures
-                                </Badge>
-                              )}
-                              {ticker.type === 'perp' && !parsed.isFutures && !parsed.expiry && (
-                                <Badge variant="outline" className="text-xs">
-                                  Perpetual
-                                </Badge>
-                              )}
                             </div>
                           </TableCell>
                           <TableCell className="text-right font-mono">
@@ -467,7 +433,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                             {formatPercentage(ticker.percentage24h)}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            ${formatVolume(ticker.quoteVolume24h)}
+                            {formatVolume(ticker.quoteVolume24h, quoteCurrency)}
                           </TableCell>
                           <TableCell className="text-right text-sm">
                             <div className="text-green-600 dark:text-green-400">
