@@ -161,6 +161,20 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     return sortedQuotes
   }, [tickers])
 
+  /**
+   * Get icon/logo for currency
+   * Returns an emoji or Unicode symbol for major currencies
+   */
+  const getCurrencyIcon = (currency: string): string | null => {
+    const icons: Record<string, string> = {
+      'USDT': '₮',  // Tether symbol
+      'BTC': '₿',   // Bitcoin symbol
+      'ETH': 'Ξ',   // Ethereum symbol (Greek Xi)
+      'USDC': 'Ⓤ',  // Circled U for USD Coin
+    }
+    return icons[currency] || null
+  }
+
   // Filter and sort tickers
   const filteredTickers = useMemo(() => {
     let filtered = tickers.filter((ticker) => {
@@ -332,14 +346,18 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                   const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase()
                   return tickerQuote === quote
                 }).length
+                const icon = getCurrencyIcon(quote)
                 return (
                   <Button
                     key={quote}
                     variant={quoteFilter === quote ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => handleQuoteFilterChange(quote)}
+                    className="gap-1.5"
                   >
-                    {quote} ({count})
+                    {icon && <span className="text-base">{icon}</span>}
+                    <span>{quote}</span>
+                    <span className="text-muted-foreground">({count})</span>
                   </Button>
                 )
               })}
