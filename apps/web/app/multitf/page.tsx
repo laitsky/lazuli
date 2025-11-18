@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { CandlestickChart } from '@/components/candlestick-chart';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
@@ -494,6 +495,29 @@ export default function MultiTFPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Loading Skeletons - shown while charts are loading */}
+      {loading && selectedSymbol && Object.keys(chartsData).length === 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-9 w-48" />
+            <Skeleton className="h-5 w-32" />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-4">
+            {timeframes.map((tf) => (
+              <Card key={tf}>
+                <CardHeader>
+                  <Skeleton className="h-5 w-16" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-[300px] w-full" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Charts Grid */}
       {Object.keys(chartsData).length > 0 && (
