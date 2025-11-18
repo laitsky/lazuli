@@ -254,6 +254,13 @@ export default function MultiTFPage() {
       // Sorted with priority symbols first (BTC, ETH, SOL, XRP, BNB, DOGE), then alphabetically
   }, [tickers, searchQuery, quoteFilter]);
 
+  // Auto-load charts when a symbol is selected
+  useEffect(() => {
+    if (selectedSymbol) {
+      loadCharts();
+    }
+  }, [selectedSymbol]);
+
   /**
    * Load charts data for all timeframes with dynamic limits
    * Each timeframe fetches the optimal number of candles for best visualization
@@ -430,44 +437,45 @@ export default function MultiTFPage() {
             </div>
           </div>
 
-          {/* Symbol Search */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Search Symbol</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search by symbol (e.g., BTC/USDT)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
-
-          {/* Symbol Selector */}
+          {/* Symbol Selector with integrated search */}
           <div className="space-y-2">
             <label className="text-sm font-medium">
               Select Symbol ({filteredTickers.length} available)
             </label>
-            <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1">
-              {filteredTickers.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  {loading ? 'Loading tickers...' : 'No tickers found'}
-                </p>
-              ) : (
-                filteredTickers.map((ticker) => (
-                  <button
-                    key={ticker.symbol}
-                    onClick={() => setSelectedSymbol(ticker.symbol)}
-                    className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors cursor-pointer ${
-                      selectedSymbol === ticker.symbol ? 'bg-accent font-medium' : ''
-                    }`}
-                  >
-                    {ticker.symbol}
-                  </button>
-                ))
-              )}
+            <div className="border rounded-md overflow-hidden">
+              {/* Search input inside the selector box */}
+              <div className="p-2 border-b bg-muted/30">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search symbols..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 h-9"
+                  />
+                </div>
+              </div>
+              {/* Scrollable symbol list */}
+              <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+                {filteredTickers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    {loading ? 'Loading tickers...' : 'No tickers found'}
+                  </p>
+                ) : (
+                  filteredTickers.map((ticker) => (
+                    <button
+                      key={ticker.symbol}
+                      onClick={() => setSelectedSymbol(ticker.symbol)}
+                      className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors cursor-pointer ${
+                        selectedSymbol === ticker.symbol ? 'bg-accent font-medium' : ''
+                      }`}
+                    >
+                      {ticker.symbol}
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
@@ -477,16 +485,6 @@ export default function MultiTFPage() {
               <p className="text-sm font-medium">Selected: {selectedSymbol}</p>
             </div>
           )}
-
-          {/* Load Charts Button */}
-          <Button
-            onClick={loadCharts}
-            disabled={!selectedSymbol || loading}
-            className="w-full"
-            size="lg"
-          >
-            {loading ? 'Loading Charts...' : 'Load Charts'}
-          </Button>
 
           {/* Error/Warning Display */}
           {error && Object.keys(chartsData).length === 0 && (
