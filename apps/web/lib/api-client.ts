@@ -15,80 +15,80 @@ import {
   OHLCVResponse,
   CustomPairResponse,
   Timeframe,
-} from '@lazuli/shared'
+} from '@lazuli/shared';
 
 // API base URL - defaults to localhost in development
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
-const API_VERSION = '/api/v1'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const API_VERSION = '/api/v1';
 
 // Default timeout for API requests (30 seconds)
-const DEFAULT_TIMEOUT = 30000
+const DEFAULT_TIMEOUT = 30000;
 
 /**
  * Query parameters for tickers endpoint
  */
 export interface TickersQueryParams {
-  page?: number
-  limit?: number
-  type?: 'spot' | 'perp'
-  search?: string
-  sortBy?: 'volume' | 'price' | 'change'
-  sortOrder?: 'asc' | 'desc'
+  page?: number;
+  limit?: number;
+  type?: 'spot' | 'perp';
+  search?: string;
+  sortBy?: 'volume' | 'price' | 'change';
+  sortOrder?: 'asc' | 'desc';
 }
 
 /**
  * Query parameters for markets endpoint
  */
 export interface MarketsQueryParams {
-  page?: number
-  limit?: number
-  type?: 'spot' | 'perp'
-  search?: string
-  active?: boolean
+  page?: number;
+  limit?: number;
+  type?: 'spot' | 'perp';
+  search?: string;
+  active?: boolean;
 }
 
 /**
  * Query parameters for OHLCV endpoint
  */
 export interface OHLCVQueryParams {
-  timeframe: Timeframe
-  type?: 'spot' | 'perp'
-  limit?: number
+  timeframe: Timeframe;
+  type?: 'spot' | 'perp';
+  limit?: number;
 }
 
 /**
  * Query parameters for multi-timeframe OHLCV endpoint
  */
 export interface MultiTimeframeOHLCVQueryParams {
-  timeframes: Timeframe[]
-  type?: 'spot' | 'perp'
-  limit?: number
+  timeframes: Timeframe[];
+  type?: 'spot' | 'perp';
+  limit?: number;
 }
 
 /**
  * Query parameters for synthetic pair endpoint
  */
 export interface CustomPairQueryParams {
-  timeframe: Timeframe
-  type?: 'spot' | 'perp'
-  limit?: number
+  timeframe: Timeframe;
+  type?: 'spot' | 'perp';
+  limit?: number;
 }
 
 /**
  * Build query string from parameters
  */
 function buildQueryString(params?: Record<string, any>): string {
-  if (!params) return ''
+  if (!params) return '';
 
-  const queryParams = new URLSearchParams()
+  const queryParams = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null) {
-      queryParams.append(key, String(value))
+      queryParams.append(key, String(value));
     }
-  })
+  });
 
-  const queryString = queryParams.toString()
-  return queryString ? `?${queryString}` : ''
+  const queryString = queryParams.toString();
+  return queryString ? `?${queryString}` : '';
 }
 
 /**
@@ -103,49 +103,86 @@ async function fetchWithTimeout(
   options: RequestInit = {},
   timeout: number = DEFAULT_TIMEOUT
 ): Promise<Response> {
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), timeout)
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
     const response = await fetch(url, {
       ...options,
       signal: controller.signal,
-    })
-    clearTimeout(timeoutId)
-    return response
+    });
+    clearTimeout(timeoutId);
+    return response;
   } catch (error) {
-    clearTimeout(timeoutId)
+    clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Request timeout after ${timeout}ms`)
+      throw new Error(`Request timeout after ${timeout}ms`);
     }
-    throw error
+    throw error;
   }
 }
 
 /**
- * Base fetch wrapper with error handling and timeout support
+ * Cache configuration for different endpoint types
+ * - Exchanges list: Cache for 5 minutes (relatively static)
+ * - Tickers/Markets: No cache (real-time data)
  */
-async function apiFetch<T>(endpoint: string, queryParams?: Record<string, any>, timeout?: number): Promise<ApiResponse<T>> {
+interface CacheConfig {
+  next?: {
+    revalidate?: number | false;
+    tags?: string[];
+  };
+  cache?: RequestCache;
+}
+
+/**
+ * Get cache configuration based on endpoint
+ * Selectively caches static data while keeping real-time data fresh
+ */
+function getCacheConfig(endpoint: string): CacheConfig {
+  // Cache exchanges list for 5 minutes - this data rarely changes
+  if (endpoint.includes('/exchanges') && !endpoint.includes('/tickers/')) {
+    return {
+      next: { revalidate: 300 }, // 5 minutes
+    };
+  }
+
+  // All other endpoints: no caching (real-time data)
+  return {
+    cache: 'no-store',
+  };
+}
+
+/**
+ * Base fetch wrapper with error handling and timeout support
+ * Implements selective caching for static vs real-time data
+ */
+async function apiFetch<T>(
+  endpoint: string,
+  queryParams?: Record<string, any>,
+  timeout?: number
+): Promise<ApiResponse<T>> {
   try {
-    const queryString = buildQueryString(queryParams)
+    const queryString = buildQueryString(queryParams);
+    const cacheConfig = getCacheConfig(endpoint);
+
     const response = await fetchWithTimeout(
       `${API_BASE_URL}${endpoint}${queryString}`,
       {
         headers: {
           'Content-Type': 'application/json',
         },
-        // Disable caching for real-time data
-        cache: 'no-store',
+        ...cacheConfig,
       },
       timeout
-    )
+    );
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    const data: ApiResponse<T> = await response.json()
-    return data
+    const data: ApiResponse<T> = await response.json();
+    return data;
   } catch (error) {
     // Return error in standard API response format
     return {
@@ -153,7 +190,7 @@ async function apiFetch<T>(endpoint: string, queryParams?: Record<string, any>, 
       data: null as T,
       error: error instanceof Error ? error.message : 'Unknown error occurred',
       timestamp: Date.now(),
-    }
+    };
   }
 }
 
@@ -165,7 +202,7 @@ export class LazuliAPI {
    * Get list of all supported exchanges
    */
   static async getExchanges(): Promise<ApiResponse<ExchangeInfo[]>> {
-    return apiFetch<ExchangeInfo[]>(`${API_VERSION}/exchanges`)
+    return apiFetch<ExchangeInfo[]>(`${API_VERSION}/exchanges`);
   }
 
   /**
@@ -175,7 +212,7 @@ export class LazuliAPI {
     exchange: SupportedExchange,
     queryParams?: TickersQueryParams
   ): Promise<ApiResponse<TickersResponse>> {
-    return apiFetch<TickersResponse>(`${API_VERSION}/tickers/${exchange}`, queryParams)
+    return apiFetch<TickersResponse>(`${API_VERSION}/tickers/${exchange}`, queryParams);
   }
 
   /**
@@ -186,8 +223,8 @@ export class LazuliAPI {
     symbol: string
   ): Promise<ApiResponse<Ticker>> {
     // URL encode the symbol to handle special characters like /
-    const encodedSymbol = encodeURIComponent(symbol)
-    return apiFetch<Ticker>(`${API_VERSION}/tickers/${exchange}/${encodedSymbol}`)
+    const encodedSymbol = encodeURIComponent(symbol);
+    return apiFetch<Ticker>(`${API_VERSION}/tickers/${exchange}/${encodedSymbol}`);
   }
 
   /**
@@ -197,14 +234,14 @@ export class LazuliAPI {
     exchange: SupportedExchange,
     queryParams?: MarketsQueryParams
   ): Promise<ApiResponse<MarketsResponse>> {
-    return apiFetch<MarketsResponse>(`${API_VERSION}/markets/${exchange}`, queryParams)
+    return apiFetch<MarketsResponse>(`${API_VERSION}/markets/${exchange}`, queryParams);
   }
 
   /**
    * Health check - get API status
    */
   static async getHealth(): Promise<ApiResponse<HealthResponse>> {
-    return apiFetch<HealthResponse>('/health')
+    return apiFetch<HealthResponse>('/health');
   }
 
   /**
@@ -215,8 +252,11 @@ export class LazuliAPI {
     symbol: string,
     queryParams: OHLCVQueryParams
   ): Promise<ApiResponse<OHLCVResponse>> {
-    const encodedSymbol = encodeURIComponent(symbol)
-    return apiFetch<OHLCVResponse>(`${API_VERSION}/ohlcv/${exchange}/${encodedSymbol}`, queryParams)
+    const encodedSymbol = encodeURIComponent(symbol);
+    return apiFetch<OHLCVResponse>(
+      `${API_VERSION}/ohlcv/${exchange}/${encodedSymbol}`,
+      queryParams
+    );
   }
 
   /**
@@ -227,13 +267,13 @@ export class LazuliAPI {
     symbol: string,
     queryParams: MultiTimeframeOHLCVQueryParams
   ): Promise<ApiResponse<any>> {
-    const encodedSymbol = encodeURIComponent(symbol)
+    const encodedSymbol = encodeURIComponent(symbol);
     // Convert timeframes array to comma-separated string
     const params = {
       ...queryParams,
       timeframes: queryParams.timeframes.join(','),
-    }
-    return apiFetch<any>(`${API_VERSION}/ohlcv/multi/${exchange}/${encodedSymbol}`, params)
+    };
+    return apiFetch<any>(`${API_VERSION}/ohlcv/multi/${exchange}/${encodedSymbol}`, params);
   }
 
   /**
@@ -247,14 +287,14 @@ export class LazuliAPI {
     symbol2: string,
     queryParams: CustomPairQueryParams
   ): Promise<ApiResponse<CustomPairResponse>> {
-    const encodedSymbol1 = encodeURIComponent(symbol1)
-    const encodedSymbol2 = encodeURIComponent(symbol2)
+    const encodedSymbol1 = encodeURIComponent(symbol1);
+    const encodedSymbol2 = encodeURIComponent(symbol2);
     // Use 60s timeout for synthetic pair (fetches 2 symbols + calculation)
     return apiFetch<CustomPairResponse>(
       `${API_VERSION}/custom-pair/${exchange}/${encodedSymbol1}/${encodedSymbol2}`,
       queryParams,
       60000
-    )
+    );
   }
 }
 
@@ -266,13 +306,13 @@ export class LazuliAPI {
  * Format a number as USD currency
  */
 export function formatCurrency(value: number | null): string {
-  if (value === null) return 'N/A'
+  if (value === null) return 'N/A';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value)
+  }).format(value);
 }
 
 /**
@@ -282,40 +322,40 @@ export function formatCurrency(value: number | null): string {
  * @returns Formatted string with K/M/B suffix and optional currency
  */
 export function formatVolume(value: number | null, currency?: string): string {
-  if (value === null) return 'N/A'
+  if (value === null) return 'N/A';
 
-  let formatted: string
+  let formatted: string;
   if (value >= 1e9) {
-    formatted = `${(value / 1e9).toFixed(2)}B`
+    formatted = `${(value / 1e9).toFixed(2)}B`;
   } else if (value >= 1e6) {
-    formatted = `${(value / 1e6).toFixed(2)}M`
+    formatted = `${(value / 1e6).toFixed(2)}M`;
   } else if (value >= 1e3) {
-    formatted = `${(value / 1e3).toFixed(2)}K`
+    formatted = `${(value / 1e3).toFixed(2)}K`;
   } else {
-    formatted = value.toFixed(2)
+    formatted = value.toFixed(2);
   }
 
   // If currency is provided, append it; otherwise return just the number
-  return currency ? `${formatted} ${currency}` : formatted
+  return currency ? `${formatted} ${currency}` : formatted;
 }
 
 /**
  * Format percentage change with + or - sign
  */
 export function formatPercentage(value: number | null): string {
-  if (value === null) return 'N/A'
-  const sign = value >= 0 ? '+' : ''
-  return `${sign}${value.toFixed(2)}%`
+  if (value === null) return 'N/A';
+  const sign = value >= 0 ? '+' : '';
+  return `${sign}${value.toFixed(2)}%`;
 }
 
 /**
  * Get color class based on percentage change (for styling)
  */
 export function getChangeColor(value: number | null): string {
-  if (value === null) return 'text-muted-foreground'
-  if (value > 0) return 'text-green-600 dark:text-green-400'
-  if (value < 0) return 'text-red-600 dark:text-red-400'
-  return 'text-muted-foreground'
+  if (value === null) return 'text-muted-foreground';
+  if (value > 0) return 'text-green-600 dark:text-green-400';
+  if (value < 0) return 'text-red-600 dark:text-red-400';
+  return 'text-muted-foreground';
 }
 
 /**
@@ -325,5 +365,5 @@ export function formatTimestamp(timestamp: number): string {
   return new Intl.DateTimeFormat('en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
-  }).format(new Date(timestamp))
+  }).format(new Date(timestamp));
 }

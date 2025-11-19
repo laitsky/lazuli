@@ -3,23 +3,25 @@
  * Displays API status, supported exchanges, and quick links
  */
 
-import Link from 'next/link'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { LazuliAPI } from '@/lib/api-client'
-import { ApiStatusIndicator } from '@/components/api-status-indicator'
-import { ExchangeLogo } from '@/components/exchange-logo'
-import { ArrowRight, BarChart2, Globe, Activity, Database } from 'lucide-react'
+import Link from 'next/link';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { LazuliAPI } from '@/lib/api-client';
+import { ApiStatusIndicator } from '@/components/api-status-indicator';
+import { ExchangeLogo } from '@/components/exchange-logo';
+import { ArrowRight, BarChart2, Globe, Activity, Database } from 'lucide-react';
 
-export const dynamic = 'force-dynamic'
+// Use Incremental Static Regeneration instead of force-dynamic
+// Page regenerates every 60 seconds, providing fast navigation while keeping data fresh
+export const revalidate = 60;
 
 export default async function HomePage() {
   // Fetch exchanges on server-side
   // Health status is fetched client-side to avoid SSR networking issues
-  const exchangesResponse = await LazuliAPI.getExchanges()
+  const exchangesResponse = await LazuliAPI.getExchanges();
 
-  const exchanges = exchangesResponse.success ? exchangesResponse.data : []
+  const exchanges = exchangesResponse.success ? exchangesResponse.data : [];
 
   return (
     <div className="space-y-12 pb-12">
@@ -38,8 +40,8 @@ export default async function HomePage() {
             <span className="text-primary">Precision</span>
           </h1>
           <p className="text-xl font-light text-muted-foreground max-w-2xl animate-delay-200 animate-fade-in leading-relaxed">
-            Real-time cryptocurrency data aggregation from major exchanges.
-            Unified interface for spot and perpetual markets.
+            Real-time cryptocurrency data aggregation from major exchanges. Unified interface for
+            spot and perpetual markets.
           </p>
         </div>
 
@@ -49,10 +51,13 @@ export default async function HomePage() {
               Start Trading <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
-          <Button size="lg" variant="outline" className="w-full sm:w-auto rounded-full glass hover:bg-white/10" asChild>
-            <Link href="/exchanges">
-              View Exchanges
-            </Link>
+          <Button
+            size="lg"
+            variant="outline"
+            className="w-full sm:w-auto rounded-full glass hover:bg-white/10"
+            asChild
+          >
+            <Link href="/exchanges">View Exchanges</Link>
           </Button>
         </div>
       </div>
@@ -87,8 +92,12 @@ export default async function HomePage() {
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Market Types</span>
               <div className="flex gap-2">
-                <Badge variant="secondary" className="text-[10px]">SPOT</Badge>
-                <Badge variant="secondary" className="text-[10px]">PERP</Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  SPOT
+                </Badge>
+                <Badge variant="secondary" className="text-[10px]">
+                  PERP
+                </Badge>
               </div>
             </div>
           </CardContent>
@@ -101,7 +110,8 @@ export default async function HomePage() {
           <h2 className="text-3xl font-display font-bold">Supported Exchanges</h2>
           <Button variant="ghost" size="sm" asChild>
             <Link href="/exchanges" className="group">
-              View All <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+              View All{' '}
+              <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
             </Link>
           </Button>
         </div>
@@ -129,13 +139,23 @@ export default async function HomePage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex flex-wrap gap-2">
-                  {exchange.hasSpot && <Badge variant="secondary" className="bg-background/50">Spot</Badge>}
-                  {exchange.hasPerp && <Badge variant="secondary" className="bg-background/50">Perp</Badge>}
+                  {exchange.hasSpot && (
+                    <Badge variant="secondary" className="bg-background/50">
+                      Spot
+                    </Badge>
+                  )}
+                  {exchange.hasPerp && (
+                    <Badge variant="secondary" className="bg-background/50">
+                      Perp
+                    </Badge>
+                  )}
                 </div>
-                <Button className="w-full group-hover:bg-primary group-hover:text-primary-foreground transition-colors" variant="secondary" asChild>
-                  <Link href={`/markets?exchange=${exchange.id}`}>
-                    Trade Now
-                  </Link>
+                <Button
+                  className="w-full group-hover:bg-primary group-hover:text-primary-foreground transition-colors"
+                  variant="secondary"
+                  asChild
+                >
+                  <Link href={`/markets?exchange=${exchange.id}`}>Trade Now</Link>
                 </Button>
               </CardContent>
             </Card>
@@ -174,5 +194,5 @@ export default async function HomePage() {
         </Card>
       </div>
     </div>
-  )
+  );
 }
