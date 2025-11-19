@@ -16,6 +16,7 @@ import { TickersTable } from '@/components/tickers-table';
 import { LazuliAPI } from '@/lib/api-client';
 import { Ticker, SupportedExchange } from '@lazuli/shared';
 import Link from 'next/link';
+import { BarChart3, Globe, Activity, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
 // Allow partial caching - exchanges list is cached, tickers are fetched fresh
 // This enables fast page navigation while keeping ticker data real-time
@@ -74,7 +75,7 @@ async function TickersSection({ exchange }: { exchange: SupportedExchange }) {
 
   if (!tickersData || tickersData.tickers.length === 0) {
     return (
-      <Card>
+      <Card className="glass border-white/5">
         <CardHeader>
           <CardTitle>No Tickers Available</CardTitle>
           <CardDescription>No ticker data found for this exchange.</CardDescription>
@@ -83,45 +84,56 @@ async function TickersSection({ exchange }: { exchange: SupportedExchange }) {
     );
   }
 
+  // Calculate aggregate stats
+  const spotCount = tickersData.tickers.filter((t) => t.type === 'spot').length;
+  const perpCount = tickersData.tickers.filter((t) => t.type === 'perp').length;
+  const totalVolume = tickersData.tickers.reduce((acc, t) => acc + (t.quoteVolume24h || 0), 0);
+
   return (
-    <>
-      {/* Stats */}
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {tickersData.exchange.charAt(0).toUpperCase() + tickersData.exchange.slice(1)} Market
-            Overview
-          </CardTitle>
-          <CardDescription>
-            Last updated: {new Date().toLocaleTimeString()} • Showing all {tickersData.count}{' '}
-            tickers (sorted by volume)
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <p className="text-sm font-extralight text-muted-foreground">Total Tickers</p>
-              <p className="text-3xl font-display font-bold">{tickersData.count}</p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-extralight text-muted-foreground">Spot Markets</p>
-              <p className="text-3xl font-display font-bold">
-                {tickersData.tickers.filter((t) => t.type === 'spot').length}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <p className="text-sm font-extralight text-muted-foreground">Perpetual Markets</p>
-              <p className="text-3xl font-display font-bold">
-                {tickersData.tickers.filter((t) => t.type === 'perp').length}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Total Tickers
+            </CardTitle>
+            <Activity className="h-4 w-4 text-primary" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-display">{tickersData.count}</div>
+            <p className="text-xs text-muted-foreground mt-1">Active trading pairs</p>
+          </CardContent>
+        </Card>
+        <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Spot Markets
+            </CardTitle>
+            <ArrowUpRight className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-display">{spotCount}</div>
+            <p className="text-xs text-muted-foreground mt-1">Traditional trading pairs</p>
+          </CardContent>
+        </Card>
+        <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Perpetual Markets
+            </CardTitle>
+            <BarChart3 className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold font-display">{perpCount}</div>
+            <p className="text-xs text-muted-foreground mt-1">Futures contracts</p>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Tickers Table */}
       <TickersTable tickers={tickersData.tickers} exchange={tickersData.exchange} />
-    </>
+    </div>
   );
 }
 
@@ -130,38 +142,33 @@ async function TickersSection({ exchange }: { exchange: SupportedExchange }) {
  */
 function TickersLoadingFallback() {
   return (
-    <>
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-7 w-48" />
-          <Skeleton className="h-4 w-96" />
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
+    <div className="space-y-6">
+      <div className="grid gap-4 md:grid-cols-3">
+        {[1, 2, 3].map((i) => (
+          <Card key={i} className="glass border-white/5">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-9 w-16" />
-            </div>
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-9 w-16" />
-            </div>
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-32" />
-              <Skeleton className="h-9 w-16" />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
+              <Skeleton className="h-4 w-4 rounded-full" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-8 w-16 mb-2" />
+              <Skeleton className="h-3 w-32" />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Card className="glass border-white/5">
         <CardContent className="py-12">
           <div className="space-y-4">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-64 w-full" />
+            <Skeleton className="h-10 w-full max-w-sm" />
+            <Skeleton className="h-12 w-full" />
+            {[1, 2, 3, 4, 5].map((i) => (
+              <Skeleton key={i} className="h-16 w-full" />
+            ))}
           </div>
         </CardContent>
       </Card>
-    </>
+    </div>
   );
 }
 
@@ -180,38 +187,42 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
   const exchanges = exchangesResponse.success ? exchangesResponse.data : [];
 
   return (
-    <div className="space-y-6">
-      {/* Header - renders immediately */}
-      <div className="space-y-2">
-        <h1 className="text-5xl font-display font-bold tracking-tight">Markets</h1>
-        <p className="text-lg font-light text-muted-foreground">
-          Real-time cryptocurrency price data and market statistics
-        </p>
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Hero Section */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-background to-background border border-white/10 p-8">
+        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl opacity-50"></div>
+        <div className="relative z-10">
+          <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-2">
+            Markets
+          </h1>
+          <p className="text-lg font-light text-muted-foreground max-w-2xl">
+            Real-time cryptocurrency price data and market statistics across major exchanges.
+          </p>
+        </div>
       </div>
 
-      {/* Exchange Selector - renders immediately */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Select Exchange</CardTitle>
-          <CardDescription>Choose an exchange to view tickers</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-wrap gap-2">
-            {exchanges.map((ex) => (
-              <Link key={ex.id} href={`/markets?exchange=${ex.id}`}>
-                <Button variant={exchange === ex.id ? 'default' : 'outline'} size="lg">
-                  {ex.name}
-                  {exchange === ex.id && (
-                    <Badge variant="secondary" className="ml-2">
-                      Active
-                    </Badge>
-                  )}
-                </Button>
-              </Link>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Exchange Selector */}
+      <div className="flex flex-wrap gap-2 p-1 bg-muted/30 rounded-xl border border-white/5 w-fit backdrop-blur-sm">
+        {exchanges.map((ex) => (
+          <Link key={ex.id} href={`/markets?exchange=${ex.id}`}>
+            <Button
+              variant={exchange === ex.id ? 'default' : 'ghost'}
+              size="lg"
+              className={`rounded-lg transition-all duration-300 ${
+                exchange === ex.id
+                  ? 'shadow-lg shadow-primary/20'
+                  : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Globe className={`mr-2 h-4 w-4 ${exchange === ex.id ? 'animate-pulse' : ''}`} />
+              {ex.name}
+              {exchange === ex.id && (
+                <span className="ml-2 flex h-2 w-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
+              )}
+            </Button>
+          </Link>
+        ))}
+      </div>
 
       {/* Tickers Data - streams in via Suspense, showing loading skeleton while fetching */}
       <Suspense key={exchange} fallback={<TickersLoadingFallback />}>
