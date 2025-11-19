@@ -1,5 +1,5 @@
 /**
- * Custom Pair loading state - Displayed while custom pair page loads
+ * Synthetic Pair loading state - Displayed while synthetic pair page loads
  */
 
 import { PageHeaderSkeleton, Skeleton, CardSkeleton } from '@/components/ui/skeleton'

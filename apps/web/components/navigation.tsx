@@ -20,10 +20,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 const navItems = [
   { href: '/', label: 'Dashboard' },
   { href: '/exchanges', label: 'Exchanges' },
-  { href: '/tickers', label: 'Tickers' },
   { href: '/markets', label: 'Markets' },
   { href: '/multitf', label: 'MultiTF' },
-  { href: '/custom-pair', label: 'Custom Pair' },
+  { href: '/synthetic-pair', label: 'Synthetic Pair' },
 ]
 
 /**

@@ -63,10 +63,10 @@ export default async function HomePage() {
                   {exchange.hasPerp && <Badge variant="secondary">Perp</Badge>}
                 </div>
                 <Link
-                  href={`/tickers?exchange=${exchange.id}`}
-                  className="w-full inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-medium border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors"
+                  href={`/markets?exchange=${exchange.id}`}
+                  className="w-full inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-medium border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer"
                 >
-                  View Tickers
+                  View Markets
                 </Link>
               </CardContent>
             </Card>
@@ -86,7 +86,7 @@ export default async function HomePage() {
             <CardContent>
               <Link
                 href="/exchanges"
-                className="w-full inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+                className="w-full inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors cursor-pointer"
               >
                 View Exchanges
               </Link>
@@ -95,28 +95,13 @@ export default async function HomePage() {
 
           <Card className="hover:shadow-lg transition-shadow">
             <CardHeader>
-              <CardTitle>Live Tickers</CardTitle>
+              <CardTitle>Markets</CardTitle>
               <CardDescription>Real-time price data and market information</CardDescription>
             </CardHeader>
             <CardContent>
               <Link
-                href="/tickers"
-                className="w-full inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
-              >
-                View Tickers
-              </Link>
-            </CardContent>
-          </Card>
-
-          <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader>
-              <CardTitle>Markets</CardTitle>
-              <CardDescription>Browse available trading pairs and markets</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Link
                 href="/markets"
-                className="w-full inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors"
+                className="w-full inline-flex items-center justify-center h-9 px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors cursor-pointer"
               >
                 View Markets
               </Link>
