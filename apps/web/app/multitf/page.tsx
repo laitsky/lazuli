@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { CandlestickChart } from '@/components/candlestick-chart';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
@@ -21,6 +22,7 @@ export default function MultiTFPage() {
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [marketType, setMarketType] = useState<'spot' | 'perp'>('spot');
+  const [quoteFilter, setQuoteFilter] = useState<string>('USDT');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [chartsData, setChartsData] = useState<Record<Timeframe, OHLCV[]>>({} as Record<Timeframe, OHLCV[]>);
@@ -56,6 +58,57 @@ export default function MultiTFPage() {
     return limits[timeframe] || 100;
   };
 
+  /**
+   * Parse symbol using standardized notation
+   * - Spot: BTC-USDT (hyphen separator)
+   * - Perpetual: BTCUSDT.P (.P suffix)
+   */
+  const parseSymbol = (symbol: string) => {
+    // Check if it's a perpetual contract (.P suffix)
+    if (symbol.endsWith('.P')) {
+      const baseQuote = symbol.slice(0, -2); // Remove .P
+      const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD'];
+
+      for (const quote of commonQuotes) {
+        if (baseQuote.endsWith(quote)) {
+          const base = baseQuote.slice(0, -quote.length);
+          return { base, quote, isPerpetual: true };
+        }
+      }
+      return { base: baseQuote, quote: '', isPerpetual: true };
+    }
+
+    // Spot market with hyphen separator (BTC-USDT)
+    if (symbol.includes('-')) {
+      const [base, quote] = symbol.split('-');
+      return { base: base || '', quote: quote || '', isPerpetual: false };
+    }
+
+    return { base: symbol, quote: '', isPerpetual: false };
+  };
+
+  /**
+   * Extract quote currency from symbol
+   * - BTC-USDT -> USDT
+   * - BTCUSDT.P -> USDT
+   */
+  const getQuoteCurrency = (symbol: string): string => {
+    const parsed = parseSymbol(symbol);
+    return parsed.quote;
+  };
+
+  /**
+   * Get icon/logo for currency
+   */
+  const getCurrencyIcon = (currency: string): string | null => {
+    const icons: Record<string, string> = {
+      'USDT': '₮',  // Tether symbol
+      'BTC': '₿',   // Bitcoin symbol
+      'ETH': 'Ξ',   // Ethereum symbol (Greek Xi)
+    };
+    return icons[currency] || null;
+  };
+
   // Load exchanges on mount
   useEffect(() => {
     async function loadExchanges() {
@@ -71,7 +124,7 @@ export default function MultiTFPage() {
   }, []);
 
   // Load tickers when exchange or market type changes
-  // Fetches ALL tickers using pagination (same approach as tickers page)
+  // Fetches ALL tickers using pagination (same approach as markets page)
   useEffect(() => {
     async function loadTickers() {
       if (!selectedExchange) return;
@@ -124,16 +177,90 @@ export default function MultiTFPage() {
     loadTickers();
   }, [selectedExchange, marketType]); // Re-fetch when exchange or market type changes
 
-  // Filter tickers based on search query only (type filtering is done by API)
+  /**
+   * Get all available quote currencies from tickers
+   * Custom ordering: USDT, BTC, ETH, USDC, then other stablecoins, then others
+   */
+  const availableQuotes = useMemo(() => {
+    const quotes = new Set<string>();
+    tickers.forEach((ticker) => {
+      const quote = getQuoteCurrency(ticker.symbol);
+      if (quote) {
+        quotes.add(quote.toUpperCase());
+      }
+    });
+
+    // Custom sort order: USDT, BTC, ETH, USDC, then stablecoins alphabetically, then others alphabetically
+    const sortedQuotes = Array.from(quotes).sort((a, b) => {
+      const priorityOrder = ['USDT', 'BTC', 'ETH', 'USDC'];
+      const stablecoins = ['BUSD', 'DAI', 'FDUSD', 'TUSD'];
+
+      const aPriority = priorityOrder.indexOf(a);
+      const bPriority = priorityOrder.indexOf(b);
+
+      if (aPriority !== -1 && bPriority !== -1) return aPriority - bPriority;
+      if (aPriority !== -1) return -1;
+      if (bPriority !== -1) return 1;
+
+      const aIsStable = stablecoins.includes(a);
+      const bIsStable = stablecoins.includes(b);
+
+      if (aIsStable && bIsStable) return a.localeCompare(b);
+      if (aIsStable) return -1;
+      if (bIsStable) return 1;
+
+      return a.localeCompare(b);
+    });
+
+    return sortedQuotes;
+  }, [tickers]);
+
+  // Filter tickers based on search query and quote currency (type filtering is done by API)
   const filteredTickers = useMemo(() => {
     return tickers
       .filter((t) => {
-        if (!searchQuery) return true;
-        return t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesSearch = !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+        const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
+        const matchesQuote = tickerQuote === quoteFilter;
+        return matchesSearch && matchesQuote;
+      })
+      .sort((a, b) => {
+        // Priority symbols order: BTC, ETH, SOL, XRP, BNB, DOGE
+        const prioritySymbols = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE'];
+
+        // Extract base currencies from symbols
+        const aBase = parseSymbol(a.symbol).base.toUpperCase();
+        const bBase = parseSymbol(b.symbol).base.toUpperCase();
+
+        // Get priority indices (-1 if not in priority list)
+        const aPriority = prioritySymbols.indexOf(aBase);
+        const bPriority = prioritySymbols.indexOf(bBase);
+
+        // Both are priority symbols - sort by priority order
+        if (aPriority !== -1 && bPriority !== -1) {
+          return aPriority - bPriority;
+        }
+
+        // Only a is priority - a comes first
+        if (aPriority !== -1) return -1;
+
+        // Only b is priority - b comes first
+        if (bPriority !== -1) return 1;
+
+        // Neither is priority - sort alphabetically by symbol
+        return a.symbol.localeCompare(b.symbol);
       });
       // Shows ALL available tickers for the selected market type (fetched via pagination)
-      // Search functionality helps users find what they need quickly
-  }, [tickers, searchQuery]);
+      // Search and quote currency filter help users find what they need quickly
+      // Sorted with priority symbols first (BTC, ETH, SOL, XRP, BNB, DOGE), then alphabetically
+  }, [tickers, searchQuery, quoteFilter]);
+
+  // Auto-load charts when a symbol is selected
+  useEffect(() => {
+    if (selectedSymbol) {
+      loadCharts();
+    }
+  }, [selectedSymbol]);
 
   /**
    * Load charts data for all timeframes with dynamic limits
@@ -284,44 +411,72 @@ export default function MultiTFPage() {
             </div>
           </div>
 
-          {/* Symbol Search */}
+          {/* Quote Currency Filter */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Search Symbol</label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search by symbol (e.g., BTC/USDT)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
+            <label className="text-sm font-medium">Quote Currency</label>
+            <div className="flex flex-wrap gap-2">
+              {availableQuotes.map((quote) => {
+                const count = tickers.filter((t) => {
+                  const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
+                  return tickerQuote === quote;
+                }).length;
+                const icon = getCurrencyIcon(quote);
+                return (
+                  <Button
+                    key={quote}
+                    variant={quoteFilter === quote ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setQuoteFilter(quote)}
+                    className="gap-1.5"
+                  >
+                    {icon && <span className="text-base">{icon}</span>}
+                    <span>{quote}</span>
+                    <span className="text-muted-foreground">({count})</span>
+                  </Button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Symbol Selector */}
+          {/* Symbol Selector with integrated search */}
           <div className="space-y-2">
             <label className="text-sm font-medium">
               Select Symbol ({filteredTickers.length} available)
             </label>
-            <div className="max-h-48 overflow-y-auto border rounded-md p-2 space-y-1">
-              {filteredTickers.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  {loading ? 'Loading tickers...' : 'No tickers found'}
-                </p>
-              ) : (
-                filteredTickers.map((ticker) => (
-                  <button
-                    key={ticker.symbol}
-                    onClick={() => setSelectedSymbol(ticker.symbol)}
-                    className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors ${
-                      selectedSymbol === ticker.symbol ? 'bg-accent font-medium' : ''
-                    }`}
-                  >
-                    {ticker.symbol}
-                  </button>
-                ))
-              )}
+            <div className="border rounded-md overflow-hidden">
+              {/* Search input inside the selector box */}
+              <div className="p-2 border-b bg-muted/30">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    type="text"
+                    placeholder="Search symbols..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10 h-9"
+                  />
+                </div>
+              </div>
+              {/* Scrollable symbol list */}
+              <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+                {filteredTickers.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    {loading ? 'Loading tickers...' : 'No tickers found'}
+                  </p>
+                ) : (
+                  filteredTickers.map((ticker) => (
+                    <button
+                      key={ticker.symbol}
+                      onClick={() => setSelectedSymbol(ticker.symbol)}
+                      className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors cursor-pointer ${
+                        selectedSymbol === ticker.symbol ? 'bg-accent font-medium' : ''
+                      }`}
+                    >
+                      {ticker.symbol}
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
           </div>
 
@@ -332,16 +487,6 @@ export default function MultiTFPage() {
             </div>
           )}
 
-          {/* Load Charts Button */}
-          <Button
-            onClick={loadCharts}
-            disabled={!selectedSymbol || loading}
-            className="w-full"
-            size="lg"
-          >
-            {loading ? 'Loading Charts...' : 'Load Charts'}
-          </Button>
-
           {/* Error/Warning Display */}
           {error && Object.keys(chartsData).length === 0 && (
             <div className="p-3 bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-md">
@@ -350,6 +495,29 @@ export default function MultiTFPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Loading Skeletons - shown while charts are loading */}
+      {loading && selectedSymbol && Object.keys(chartsData).length === 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Skeleton className="h-9 w-48" />
+            <Skeleton className="h-5 w-32" />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-4">
+            {timeframes.map((tf) => (
+              <Card key={tf}>
+                <CardHeader>
+                  <Skeleton className="h-5 w-16" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-[300px] w-full" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Charts Grid */}
       {Object.keys(chartsData).length > 0 && (

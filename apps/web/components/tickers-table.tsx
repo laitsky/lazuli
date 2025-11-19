@@ -14,7 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Ticker } from '@lazuli/shared'
 import { formatCurrency, formatPercentage, formatVolume, getChangeColor } from '@/lib/api-client'
-import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Search } from 'lucide-react'
 
 interface TickersTableProps {
   tickers: Ticker[]
@@ -298,23 +298,24 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
 
   return (
     <div className="space-y-4">
+      {/* Search - Prominent placement above filters */}
+      <div className="relative max-w-2xl">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search symbols (e.g., BTC, ETH, USDT)..."
+          value={searchQuery}
+          onChange={(e) => handleSearchChange(e.target.value)}
+          className="pl-10"
+        />
+      </div>
+
       {/* Filters */}
       <Card>
         <CardHeader>
           <CardTitle>Filters</CardTitle>
-          <CardDescription>Search and filter {exchange} tickers</CardDescription>
+          <CardDescription>Filter {exchange} tickers by market type and quote currency</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Search */}
-          <div>
-            <Input
-              placeholder="Search symbols (e.g., BTC, ETH, USDT)..."
-              value={searchQuery}
-              onChange={(e) => handleSearchChange(e.target.value)}
-              className="max-w-md"
-            />
-          </div>
-
           {/* Type Filter */}
           <div>
             <p className="text-sm font-semibold mb-2">Market Type</p>
