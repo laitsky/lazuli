@@ -41,11 +41,11 @@ export async function MarketTicker() {
               href={`/markets?exchange=${exchange}&symbol=${ticker.symbol}`}
               className="group flex items-center gap-3 min-w-[200px] px-4 py-2 rounded-lg hover:bg-white/5 transition-colors"
             >
-              <div className="flex flex-col">
-                <span className="font-bold text-sm text-muted-foreground group-hover:text-primary transition-colors">
+              <div className="flex flex-col gap-0.5">
+                <span className="font-bold text-sm text-muted-foreground group-hover:text-primary transition-colors leading-tight">
                   {ticker.symbol.split('/')[0]}
                 </span>
-                <span className="font-mono text-xs text-muted-foreground/50">
+                <span className="font-mono text-xs text-muted-foreground/50 leading-tight">
                   {ticker.symbol.split('/')[1]}
                 </span>
               </div>
