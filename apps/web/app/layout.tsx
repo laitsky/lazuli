@@ -39,11 +39,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${spaceGrotesk.variable} ${ibmPlexSans.variable} ${jetbrainsMono.variable}`}>
-      <body className="antialiased font-sans">
+      <body className="antialiased font-sans min-h-screen">
         <Navigation />
         {/* Main content area with left margin to account for sidebar on desktop */}
         {/* Mobile: full width, Desktop (lg): 256px left margin for sidebar */}
-        <main className="min-h-screen px-4 py-8 lg:ml-64 lg:px-8">
+        <main className="min-h-screen px-4 py-8 lg:ml-64 lg:px-8 relative z-10">
           <div className="mx-auto max-w-7xl">
             {children}
           </div>
