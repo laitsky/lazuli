@@ -1,6 +1,6 @@
 {
   "name": "lazuli",
-  "version": "1.0.0",
+  "version": "0.1.0-alpha",
   "description": "Full-stack cryptocurrency trading tool with real-time data",
   "private": true,
   "workspaces": [

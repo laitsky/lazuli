@@ -1,6 +1,6 @@
 {
   "name": "@lazuli/api",
-  "version": "1.0.0",
+  "version": "0.1.0-alpha",
   "description": "Lazuli REST API - Cryptocurrency trading data service",
   "main": "dist/index.js",
   "scripts": {
@@ -11,7 +11,14 @@
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist .turbo"
   },
-  "keywords": ["cryptocurrency", "trading", "api", "binance", "bybit", "okx"],
+  "keywords": [
+    "cryptocurrency",
+    "trading",
+    "api",
+    "binance",
+    "bybit",
+    "okx"
+  ],
   "author": "",
   "license": "ISC",
   "devDependencies": {

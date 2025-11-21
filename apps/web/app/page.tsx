@@ -46,7 +46,7 @@ export default async function HomePage() {
               variant="outline"
               className="animate-delay-100 animate-fade-in backdrop-blur-md border-primary/30 px-4 py-1 text-sm"
             >
-              v1.0 Public Beta
+              v0.1 Alpha
             </Badge>
             <h1 className="text-6xl md:text-8xl font-display font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-foreground via-foreground/90 to-foreground/50 animate-delay-100 animate-fade-in leading-[1.1]">
               Trade with <br />
