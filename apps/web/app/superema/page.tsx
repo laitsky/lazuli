@@ -223,7 +223,7 @@ export default function SuperEMAPage() {
   /**
    * Generate color for EMA line based on period
    * Uses a gradient from blue (short) to red (long)
-   * Returns hex color for lightweight-charts compatibility
+   * Returns rgba color with low opacity for better candlestick visibility
    */
   const getEMAColor = (period: number, maxPeriod: number = 400): string => {
     const ratio = period / maxPeriod;
@@ -248,7 +248,8 @@ export default function SuperEMAPage() {
     const g = Math.round(hue2rgb(p, q, hue) * 255);
     const b = Math.round(hue2rgb(p, q, hue - 1/3) * 255);
 
-    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+    // Use rgba with 40% opacity for thinner appearance
+    return `rgba(${r}, ${g}, ${b}, 0.4)`;
   };
 
   /**
@@ -344,13 +345,15 @@ export default function SuperEMAPage() {
     }));
     candlestickSeries.setData(candlestickData);
 
-    // Add all 400 EMA lines
+    // Add all 400 EMA lines with thin lines for better candlestick visibility
     for (let period = 1; period <= 400; period++) {
       const emaSeries = chart.addLineSeries({
         color: getEMAColor(period),
         lineWidth: 1,
+        lineStyle: 0,
         priceLineVisible: false,
         lastValueVisible: false,
+        crosshairMarkerVisible: false,
       });
 
       const emaLineData: LineData[] = emaData.data
