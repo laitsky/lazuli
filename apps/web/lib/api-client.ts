@@ -75,6 +75,38 @@ export interface CustomPairQueryParams {
 }
 
 /**
+ * Query parameters for SuperEMA endpoint
+ */
+export interface SuperEMAQueryParams {
+  timeframe: Timeframe;
+  type?: 'spot' | 'perp';
+  limit?: number;
+  maxPeriod?: number;
+}
+
+/**
+ * EMA data point with all period values
+ */
+export interface EMADataPoint {
+  timestamp: number;
+  close: number;
+  emas: Record<number, number>;
+}
+
+/**
+ * SuperEMA response structure
+ */
+export interface SuperEMAResponse {
+  exchange: string;
+  symbol: string;
+  timeframe: string;
+  marketType: 'spot' | 'perp';
+  periods: number[];
+  data: EMADataPoint[];
+  candleCount: number;
+}
+
+/**
  * Build query string from parameters
  */
 function buildQueryString(params?: Record<string, any>): string {
@@ -294,6 +326,24 @@ export class LazuliAPI {
       `${API_VERSION}/custom-pair/${exchange}/${encodedSymbol1}/${encodedSymbol2}`,
       queryParams,
       60000
+    );
+  }
+
+  /**
+   * Get SuperEMA data (1-400 EMA periods) for a specific symbol
+   * Uses extended timeout (90s) due to heavy computation
+   */
+  static async getSuperEMA(
+    exchange: SupportedExchange,
+    symbol: string,
+    queryParams: SuperEMAQueryParams
+  ): Promise<ApiResponse<SuperEMAResponse>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    // Use 90s timeout for SuperEMA (heavy computation)
+    return apiFetch<SuperEMAResponse>(
+      `${API_VERSION}/superema/${exchange}/${encodedSymbol}`,
+      queryParams,
+      90000
     );
   }
 }
