@@ -22,6 +22,10 @@ import {
   AlertCircle,
   ArrowRight,
   Sparkles,
+  Download,
+  FileImage,
+  FileSpreadsheet,
+  Layers,
 } from 'lucide-react';
 import {
   LineChart,
@@ -62,12 +66,54 @@ export default function CustomIndexPage() {
 
   // Ref for scrolling to results
   const resultsRef = useRef<HTMLDivElement>(null);
+  // Ref for chart export
+  const chartRef = useRef<HTMLDivElement>(null);
+  // State for hovered line in chart
+  const [hoveredLine, setHoveredLine] = useState<string | null>(null);
 
   // Available timeframes
   const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
 
   // Popular assets for quick-add
   const POPULAR_ASSETS = ['BTC', 'ETH', 'SOL', 'XRP', 'BNB', 'DOGE', 'ADA', 'AVAX', 'LINK', 'DOT'];
+
+  // Preset templates for quick start
+  const PRESET_TEMPLATES = [
+    {
+      name: 'Top 5 by Volume',
+      description: 'High-volume majors',
+      assets: [
+        { symbol: 'BTC-USDT', weight: 30 },
+        { symbol: 'ETH-USDT', weight: 25 },
+        { symbol: 'BNB-USDT', weight: 20 },
+        { symbol: 'SOL-USDT', weight: 15 },
+        { symbol: 'XRP-USDT', weight: 10 },
+      ],
+    },
+    {
+      name: 'DeFi Blue Chips',
+      description: 'Top DeFi protocols',
+      assets: [
+        { symbol: 'UNI-USDT', weight: 25 },
+        { symbol: 'AAVE-USDT', weight: 25 },
+        { symbol: 'LINK-USDT', weight: 20 },
+        { symbol: 'MKR-USDT', weight: 15 },
+        { symbol: 'SNX-USDT', weight: 15 },
+      ],
+    },
+    {
+      name: 'Layer 1 Index',
+      description: 'Major L1 blockchains',
+      assets: [
+        { symbol: 'ETH-USDT', weight: 30 },
+        { symbol: 'SOL-USDT', weight: 20 },
+        { symbol: 'ADA-USDT', weight: 15 },
+        { symbol: 'AVAX-USDT', weight: 15 },
+        { symbol: 'DOT-USDT', weight: 10 },
+        { symbol: 'ATOM-USDT', weight: 10 },
+      ],
+    },
+  ];
 
   // Pie chart colors
   const PIE_COLORS = [
@@ -281,6 +327,66 @@ export default function CustomIndexPage() {
   };
 
   /**
+   * Apply preset template
+   */
+  const applyTemplate = (template: (typeof PRESET_TEMPLATES)[0]) => {
+    setSelectedAssets(template.assets);
+    setIndexName(template.name);
+    setError(null);
+    setIndexResult(null);
+  };
+
+  /**
+   * Export chart as PNG
+   */
+  const exportToPNG = async () => {
+    if (!chartRef.current) return;
+    try {
+      const { default: html2canvas } = await import('html2canvas');
+      const canvas = await html2canvas(chartRef.current, {
+        backgroundColor: '#0a0a0a',
+        scale: 2,
+      });
+      const link = document.createElement('a');
+      link.download = `${indexResult?.name || 'custom-index'}-chart.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      setError('Failed to export PNG. Please try again.');
+    }
+  };
+
+  /**
+   * Export data as CSV
+   */
+  const exportToCSV = () => {
+    if (!indexResult || !chartData.length) return;
+
+    // Build CSV headers
+    const headers = ['Time', indexResult.name, 'BTC', 'ETH', 'SOL'];
+    const csvRows = [headers.join(',')];
+
+    // Add data rows
+    chartData.forEach((row) => {
+      const values = [
+        `"${row.time}"`,
+        row[indexResult.name] !== undefined ? (row[indexResult.name] as number).toFixed(2) : '',
+        row['BTC'] !== undefined ? (row['BTC'] as number).toFixed(2) : '',
+        row['ETH'] !== undefined ? (row['ETH'] as number).toFixed(2) : '',
+        row['SOL'] !== undefined ? (row['SOL'] as number).toFixed(2) : '',
+      ];
+      csvRows.push(values.join(','));
+    });
+
+    // Download
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+    const link = document.createElement('a');
+    link.download = `${indexResult.name}-data.csv`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+  };
+
+  /**
    * Calculate index
    */
   async function calculateIndex() {
@@ -363,6 +469,44 @@ export default function CustomIndexPage() {
           </div>
         </div>
       </div>
+
+      {/* Preset Templates */}
+      <Card className="glass border-white/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Layers className="h-4 w-4 text-primary" />
+            Start from Template
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {PRESET_TEMPLATES.map((template) => (
+              <button
+                key={template.name}
+                onClick={() => applyTemplate(template)}
+                className="text-left p-3 rounded-lg border border-white/10 hover:border-primary/50 hover:bg-primary/5 transition-all group"
+              >
+                <div className="font-medium text-sm group-hover:text-primary transition-colors">
+                  {template.name}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">{template.description}</div>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {template.assets.slice(0, 3).map((a) => (
+                    <span key={a.symbol} className="text-xs bg-muted/50 px-1.5 py-0.5 rounded">
+                      {a.symbol.replace('-USDT', '')}
+                    </span>
+                  ))}
+                  {template.assets.length > 3 && (
+                    <span className="text-xs text-muted-foreground">
+                      +{template.assets.length - 3}
+                    </span>
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Two-Panel Layout */}
       <div className="grid lg:grid-cols-5 gap-6">
@@ -645,23 +789,31 @@ export default function CustomIndexPage() {
               </span>
               <span className="text-muted-foreground text-lg font-normal ml-2">Performance</span>
             </h2>
-            <Badge
-              variant="outline"
-              className={
-                indexResult.totalReturn >= 0
-                  ? 'text-green-500 border-green-500/30'
-                  : 'text-red-500 border-red-500/30'
-              }
-            >
-              {indexResult.totalReturn >= 0 ? '+' : ''}
-              {indexResult.totalReturn.toFixed(2)}%
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge
+                variant="outline"
+                className={
+                  indexResult.totalReturn >= 0
+                    ? 'text-green-500 border-green-500/30'
+                    : 'text-red-500 border-red-500/30'
+                }
+              >
+                {indexResult.totalReturn >= 0 ? '+' : ''}
+                {indexResult.totalReturn.toFixed(2)}%
+              </Badge>
+              <Button variant="outline" size="sm" onClick={exportToPNG} title="Export as PNG">
+                <FileImage className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="sm" onClick={exportToCSV} title="Export as CSV">
+                <FileSpreadsheet className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           <Card className="glass border-white/5">
-            <CardContent className="p-4">
+            <CardContent className="p-4" ref={chartRef}>
               <ResponsiveContainer width="100%" height={350}>
-                <LineChart data={chartData}>
+                <LineChart data={chartData} onMouseLeave={() => setHoveredLine(null)}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                   <XAxis
                     dataKey="time"
@@ -683,12 +835,16 @@ export default function CustomIndexPage() {
                     }}
                     formatter={(value: number) => [`${value.toFixed(2)}%`, '']}
                   />
-                  <Legend />
+                  <Legend
+                    onMouseEnter={(e) => setHoveredLine(e.dataKey as string)}
+                    onMouseLeave={() => setHoveredLine(null)}
+                  />
                   <Line
                     type="monotone"
                     dataKey="BTC"
                     stroke={CHART_COLORS.BTC}
-                    strokeWidth={1.5}
+                    strokeWidth={hoveredLine === 'BTC' ? 3 : 1.5}
+                    strokeOpacity={hoveredLine && hoveredLine !== 'BTC' ? 0.3 : 1}
                     dot={false}
                     strokeDasharray="4 4"
                   />
@@ -696,7 +852,8 @@ export default function CustomIndexPage() {
                     type="monotone"
                     dataKey="ETH"
                     stroke={CHART_COLORS.ETH}
-                    strokeWidth={1.5}
+                    strokeWidth={hoveredLine === 'ETH' ? 3 : 1.5}
+                    strokeOpacity={hoveredLine && hoveredLine !== 'ETH' ? 0.3 : 1}
                     dot={false}
                     strokeDasharray="4 4"
                   />
@@ -704,7 +861,8 @@ export default function CustomIndexPage() {
                     type="monotone"
                     dataKey="SOL"
                     stroke={CHART_COLORS.SOL}
-                    strokeWidth={1.5}
+                    strokeWidth={hoveredLine === 'SOL' ? 3 : 1.5}
+                    strokeOpacity={hoveredLine && hoveredLine !== 'SOL' ? 0.3 : 1}
                     dot={false}
                     strokeDasharray="4 4"
                   />
@@ -712,11 +870,80 @@ export default function CustomIndexPage() {
                     type="monotone"
                     dataKey={indexResult.name}
                     stroke={CHART_COLORS.index}
-                    strokeWidth={3}
+                    strokeWidth={hoveredLine === indexResult.name ? 4 : 3}
+                    strokeOpacity={hoveredLine && hoveredLine !== indexResult.name ? 0.3 : 1}
                     dot={false}
                   />
                 </LineChart>
               </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          {/* Performance Table */}
+          <Card className="glass border-white/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Asset Contribution</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="text-left py-2 font-medium text-muted-foreground">Asset</th>
+                      <th className="text-right py-2 font-medium text-muted-foreground">Weight</th>
+                      <th className="text-right py-2 font-medium text-muted-foreground">Return</th>
+                      <th className="text-right py-2 font-medium text-muted-foreground">
+                        Contribution
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {indexResult.assets.map((asset, idx) => {
+                      // Calculate individual asset return (simplified estimation)
+                      const assetReturn =
+                        (indexResult.totalReturn * asset.weight) / 100 / (asset.weight / 100);
+                      const contribution = (assetReturn * asset.weight) / 100;
+                      return (
+                        <tr key={asset.symbol} className="border-b border-white/5">
+                          <td className="py-2">
+                            <div className="flex items-center gap-2">
+                              <div
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: PIE_COLORS[idx % PIE_COLORS.length] }}
+                              />
+                              <span className="font-mono">{asset.symbol.replace('-USDT', '')}</span>
+                            </div>
+                          </td>
+                          <td className="text-right py-2 font-mono">{asset.weight.toFixed(1)}%</td>
+                          <td
+                            className={`text-right py-2 font-mono ${assetReturn >= 0 ? 'text-green-500' : 'text-red-500'}`}
+                          >
+                            {assetReturn >= 0 ? '+' : ''}
+                            {assetReturn.toFixed(2)}%
+                          </td>
+                          <td
+                            className={`text-right py-2 font-mono ${contribution >= 0 ? 'text-green-500' : 'text-red-500'}`}
+                          >
+                            {contribution >= 0 ? '+' : ''}
+                            {contribution.toFixed(2)}%
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    <tr className="font-medium">
+                      <td className="py-2">Total</td>
+                      <td className="text-right py-2 font-mono">100%</td>
+                      <td className="text-right py-2">-</td>
+                      <td
+                        className={`text-right py-2 font-mono ${indexResult.totalReturn >= 0 ? 'text-green-500' : 'text-red-500'}`}
+                      >
+                        {indexResult.totalReturn >= 0 ? '+' : ''}
+                        {indexResult.totalReturn.toFixed(2)}%
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </CardContent>
           </Card>
         </div>
