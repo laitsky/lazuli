@@ -4,11 +4,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CandlestickChart } from '@/components/candlestick-chart';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
-import { Search, TrendingUp } from 'lucide-react';
+import { Search, TrendingUp, LayoutGrid, Clock, AlertCircle } from 'lucide-react';
 
 /**
  * Multi-timeframe analysis page
@@ -25,7 +26,9 @@ export default function MultiTFPage() {
   const [quoteFilter, setQuoteFilter] = useState<string>('USDT');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [loading, setLoading] = useState(false);
-  const [chartsData, setChartsData] = useState<Record<Timeframe, OHLCV[]>>({} as Record<Timeframe, OHLCV[]>);
+  const [chartsData, setChartsData] = useState<Record<Timeframe, OHLCV[]>>(
+    {} as Record<Timeframe, OHLCV[]>
+  );
   const [error, setError] = useState<string | null>(null);
 
   // Available timeframes to display
@@ -46,14 +49,14 @@ export default function MultiTFPage() {
    */
   const getCandleLimit = (timeframe: Timeframe): number => {
     const limits: Record<Timeframe, number> = {
-      '1m': 100,    // ~1.6 hours
-      '5m': 150,    // ~12.5 hours
-      '15m': 200,   // ~2 days
-      '1h': 500,    // ~20 days (3 weeks)
-      '4h': 1000,   // ~166 days (5.5 months / half a year)
-      '1d': 1000,   // ~2.7 years
-      '3d': 1000,   // ~8 years
-      '1w': 1000,   // ~19 years (almost 2 decades!)
+      '1m': 100, // ~1.6 hours
+      '5m': 150, // ~12.5 hours
+      '15m': 200, // ~2 days
+      '1h': 500, // ~20 days (3 weeks)
+      '4h': 1000, // ~166 days (5.5 months / half a year)
+      '1d': 1000, // ~2.7 years
+      '3d': 1000, // ~8 years
+      '1w': 1000, // ~19 years (almost 2 decades!)
     };
     return limits[timeframe] || 100;
   };
@@ -67,7 +70,18 @@ export default function MultiTFPage() {
     // Check if it's a perpetual contract (.P suffix)
     if (symbol.endsWith('.P')) {
       const baseQuote = symbol.slice(0, -2); // Remove .P
-      const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD'];
+      const commonQuotes = [
+        'USDT',
+        'USDC',
+        'BUSD',
+        'USD',
+        'BTC',
+        'ETH',
+        'BNB',
+        'TUSD',
+        'DAI',
+        'FDUSD',
+      ];
 
       for (const quote of commonQuotes) {
         if (baseQuote.endsWith(quote)) {
@@ -102,9 +116,9 @@ export default function MultiTFPage() {
    */
   const getCurrencyIcon = (currency: string): string | null => {
     const icons: Record<string, string> = {
-      'USDT': '₮',  // Tether symbol
-      'BTC': '₿',   // Bitcoin symbol
-      'ETH': 'Ξ',   // Ethereum symbol (Greek Xi)
+      USDT: '₮', // Tether symbol
+      BTC: '₿', // Bitcoin symbol
+      ETH: 'Ξ', // Ethereum symbol (Greek Xi)
     };
     return icons[currency] || null;
   };
@@ -219,7 +233,8 @@ export default function MultiTFPage() {
   const filteredTickers = useMemo(() => {
     return tickers
       .filter((t) => {
-        const matchesSearch = !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesSearch =
+          !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
         const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
         const matchesQuote = tickerQuote === quoteFilter;
         return matchesSearch && matchesQuote;
@@ -250,9 +265,9 @@ export default function MultiTFPage() {
         // Neither is priority - sort alphabetically by symbol
         return a.symbol.localeCompare(b.symbol);
       });
-      // Shows ALL available tickers for the selected market type (fetched via pagination)
-      // Search and quote currency filter help users find what they need quickly
-      // Sorted with priority symbols first (BTC, ETH, SOL, XRP, BNB, DOGE), then alphabetically
+    // Shows ALL available tickers for the selected market type (fetched via pagination)
+    // Search and quote currency filter help users find what they need quickly
+    // Sorted with priority symbols first (BTC, ETH, SOL, XRP, BNB, DOGE), then alphabetically
   }, [tickers, searchQuery, quoteFilter]);
 
   // Auto-load charts when a symbol is selected
@@ -332,7 +347,9 @@ export default function MultiTFPage() {
 
       // Show warning if some timeframes failed
       if (failedTimeframes.length > 0 && Object.keys(chartsMap).length > 0) {
-        setError(`Some timeframes are not supported by this exchange: ${failedTimeframes.join(', ')}`);
+        setError(
+          `Some timeframes are not supported by this exchange: ${failedTimeframes.join(', ')}`
+        );
       } else if (Object.keys(chartsMap).length === 0) {
         setError('No chart data available for any timeframe');
       }
@@ -344,77 +361,94 @@ export default function MultiTFPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center gap-2">
-        <TrendingUp className="h-6 w-6" />
-        <h1 className="text-5xl font-display font-bold">Multi-Timeframe Analysis</h1>
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Hero Section */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-background to-background border border-white/10 p-8">
+        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl opacity-50"></div>
+        <div className="relative z-10 flex items-center gap-4">
+          <div className="p-3 rounded-2xl bg-primary/10 text-primary">
+            <LayoutGrid className="h-8 w-8" />
+          </div>
+          <div>
+            <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight">
+              Multi-Timeframe
+            </h1>
+            <p className="text-lg font-light text-muted-foreground mt-2">
+              Analyze market trends across multiple time horizons simultaneously.
+            </p>
+          </div>
+        </div>
       </div>
 
-      <p className="text-lg font-light text-muted-foreground">
-        Analyze a single ticker across multiple timeframes: 1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w
-      </p>
-
       {/* Controls Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Select Ticker</CardTitle>
+      <Card className="glass border-white/5 overflow-hidden">
+        <CardHeader className="border-b border-white/5 bg-white/5">
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            Analysis Configuration
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Exchange Selector */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Exchange</label>
-            <div className="flex gap-2 flex-wrap">
-              {exchanges.map((exchange) => (
+        <CardContent className="p-6 space-y-6">
+          {/* Exchange and Market Type - side by side */}
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Exchange Selector */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium text-muted-foreground">Exchange</label>
+              <div className="flex gap-2 flex-wrap">
+                {exchanges.map((exchange) => (
+                  <Button
+                    key={exchange.id}
+                    variant={selectedExchange === exchange.id ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      setSelectedExchange(exchange.id);
+                      setSelectedSymbol('');
+                      setChartsData({} as Record<Timeframe, OHLCV[]>);
+                    }}
+                    className="transition-all"
+                  >
+                    {exchange.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Market Type Selector */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium text-muted-foreground">Market Type</label>
+              <div className="flex p-1 bg-muted/50 rounded-lg w-fit">
                 <Button
-                  key={exchange.id}
-                  variant={selectedExchange === exchange.id ? 'default' : 'outline'}
+                  variant={marketType === 'spot' ? 'secondary' : 'ghost'}
                   size="sm"
                   onClick={() => {
-                    setSelectedExchange(exchange.id);
+                    setMarketType('spot');
                     setSelectedSymbol('');
                     setChartsData({} as Record<Timeframe, OHLCV[]>);
                   }}
+                  className="rounded-md"
                 >
-                  {exchange.name}
+                  Spot
                 </Button>
-              ))}
+                <Button
+                  variant={marketType === 'perp' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => {
+                    setMarketType('perp');
+                    setSelectedSymbol('');
+                    setChartsData({} as Record<Timeframe, OHLCV[]>);
+                  }}
+                  className="rounded-md"
+                >
+                  Perpetual
+                </Button>
+              </div>
             </div>
           </div>
 
-          {/* Market Type Selector */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Market Type</label>
-            <div className="flex gap-2">
-              <Button
-                variant={marketType === 'spot' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setMarketType('spot');
-                  setSelectedSymbol('');
-                  setChartsData({} as Record<Timeframe, OHLCV[]>);
-                }}
-              >
-                Spot
-              </Button>
-              <Button
-                variant={marketType === 'perp' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setMarketType('perp');
-                  setSelectedSymbol('');
-                  setChartsData({} as Record<Timeframe, OHLCV[]>);
-                }}
-              >
-                Perpetual
-              </Button>
-            </div>
-          </div>
-
-          {/* Quote Currency Filter */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Quote Currency</label>
-            <div className="flex flex-wrap gap-2">
+          {/* Quote Currency Filter - full width below */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-muted-foreground">Quote Currency</label>
+            <div className="flex flex-wrap gap-1.5">
               {availableQuotes.map((quote) => {
                 const count = tickers.filter((t) => {
                   const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
@@ -431,7 +465,7 @@ export default function MultiTFPage() {
                   >
                     {icon && <span className="text-base">{icon}</span>}
                     <span>{quote}</span>
-                    <span className="text-muted-foreground">({count})</span>
+                    <span className="text-muted-foreground text-xs opacity-70">({count})</span>
                   </Button>
                 );
               })}
@@ -439,13 +473,13 @@ export default function MultiTFPage() {
           </div>
 
           {/* Symbol Selector with integrated search */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-muted-foreground">
               Select Symbol ({filteredTickers.length} available)
             </label>
-            <div className="border rounded-md overflow-hidden">
+            <div className="border border-white/10 rounded-xl overflow-hidden bg-background/50 backdrop-blur-sm">
               {/* Search input inside the selector box */}
-              <div className="p-2 border-b bg-muted/30">
+              <div className="p-3 border-b border-white/5 bg-white/5">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -453,28 +487,39 @@ export default function MultiTFPage() {
                     placeholder="Search symbols..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-10 h-9"
+                    className="pl-10 h-10 bg-transparent border-none focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
                 </div>
               </div>
               {/* Scrollable symbol list */}
-              <div className="max-h-48 overflow-y-auto p-2 space-y-1">
+              <div className="max-h-48 overflow-y-auto p-2 space-y-1 custom-scrollbar">
                 {filteredTickers.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    {loading ? 'Loading tickers...' : 'No tickers found'}
-                  </p>
+                  <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                    {loading ? (
+                      <div className="animate-pulse">Loading tickers...</div>
+                    ) : (
+                      <>
+                        <Search className="h-8 w-8 mb-2 opacity-20" />
+                        <p className="text-sm">No tickers found</p>
+                      </>
+                    )}
+                  </div>
                 ) : (
-                  filteredTickers.map((ticker) => (
-                    <button
-                      key={ticker.symbol}
-                      onClick={() => setSelectedSymbol(ticker.symbol)}
-                      className={`w-full text-left px-3 py-2 rounded text-sm hover:bg-accent transition-colors cursor-pointer ${
-                        selectedSymbol === ticker.symbol ? 'bg-accent font-medium' : ''
-                      }`}
-                    >
-                      {ticker.symbol}
-                    </button>
-                  ))
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                    {filteredTickers.map((ticker) => (
+                      <button
+                        key={ticker.symbol}
+                        onClick={() => setSelectedSymbol(ticker.symbol)}
+                        className={`text-left px-4 py-3 rounded-lg text-sm transition-all duration-200 border border-transparent ${
+                          selectedSymbol === ticker.symbol
+                            ? 'bg-primary/20 border-primary/50 text-primary font-medium shadow-[0_0_15px_rgba(var(--primary),0.3)]'
+                            : 'hover:bg-white/5 hover:border-white/10'
+                        }`}
+                      >
+                        {ticker.symbol}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
@@ -482,15 +527,27 @@ export default function MultiTFPage() {
 
           {/* Selected Symbol Display */}
           {selectedSymbol && (
-            <div className="p-3 bg-accent rounded-md">
-              <p className="text-sm font-medium">Selected: {selectedSymbol}</p>
+            <div className="flex items-center justify-between p-4 bg-primary/5 border border-primary/20 rounded-xl">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
+                  {selectedSymbol.charAt(0)}
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-primary">Active Symbol</p>
+                  <p className="text-lg font-bold">{selectedSymbol}</p>
+                </div>
+              </div>
+              <Badge variant="outline" className="bg-background/50">
+                {marketType === 'spot' ? 'Spot Market' : 'Perpetual Futures'}
+              </Badge>
             </div>
           )}
 
           {/* Error/Warning Display */}
           {error && Object.keys(chartsData).length === 0 && (
-            <div className="p-3 bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-md">
-              <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
+            <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-xl flex items-center gap-3 text-destructive">
+              <AlertCircle className="h-5 w-5" />
+              <p className="text-sm font-medium">{error}</p>
             </div>
           )}
         </CardContent>
@@ -498,20 +555,20 @@ export default function MultiTFPage() {
 
       {/* Loading Skeletons - shown while charts are loading */}
       {loading && selectedSymbol && Object.keys(chartsData).length === 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Skeleton className="h-9 w-48" />
-            <Skeleton className="h-5 w-32" />
+        <div className="space-y-6 animate-in fade-in duration-500">
+          <div className="flex items-center gap-4">
+            <Skeleton className="h-10 w-64 rounded-lg" />
+            <Skeleton className="h-6 w-32 rounded-full" />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {timeframes.map((tf) => (
-              <Card key={tf}>
-                <CardHeader>
-                  <Skeleton className="h-5 w-16" />
+              <Card key={tf} className="glass border-white/5">
+                <CardHeader className="pb-2">
+                  <Skeleton className="h-5 w-24" />
                 </CardHeader>
                 <CardContent>
-                  <Skeleton className="h-[300px] w-full" />
+                  <Skeleton className="h-[300px] w-full rounded-xl" />
                 </CardContent>
               </Card>
             ))}
@@ -521,33 +578,47 @@ export default function MultiTFPage() {
 
       {/* Charts Grid */}
       {Object.keys(chartsData).length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-3xl font-display font-bold">
-            {selectedSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
-          </h2>
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
+          <div className="flex items-center justify-between">
+            <h2 className="text-3xl font-display font-bold flex items-center gap-3">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary to-purple-400">
+                {selectedSymbol}
+              </span>
+              <span className="text-muted-foreground text-lg font-normal">
+                on {exchanges.find((e) => e.id === selectedExchange)?.name}
+              </span>
+            </h2>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-full border border-white/5">
+              <Clock className="h-4 w-4" />
+              <span>Last updated: {new Date().toLocaleTimeString()}</span>
+            </div>
+          </div>
 
           {/* Warning for partial failures */}
           {error && (
-            <div className="p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-800 rounded-md">
-              <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                ⚠️ {error}
-              </p>
+            <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl flex items-center gap-3 text-yellow-500">
+              <AlertCircle className="h-5 w-5" />
+              <p className="text-sm font-medium">{error}</p>
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {timeframes.map((tf) => {
               const data = chartsData[tf];
               if (!data || data.length === 0) return null;
 
               return (
-                <CandlestickChart
-                  key={tf}
-                  data={data}
-                  timeframe={tf}
-                  symbol={selectedSymbol}
-                  height={300}
-                />
+                <div key={tf} className="group">
+                  <div className="relative z-10 transition-transform duration-300 group-hover:-translate-y-1">
+                    <CandlestickChart
+                      data={data}
+                      timeframe={tf}
+                      symbol={selectedSymbol}
+                      height={350}
+                    />
+                  </div>
+                  <div className="absolute inset-0 bg-primary/5 blur-xl rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10" />
+                </div>
               );
             })}
           </div>
@@ -556,13 +627,14 @@ export default function MultiTFPage() {
 
       {/* Empty State */}
       {Object.keys(chartsData).length === 0 && !loading && !error && (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <TrendingUp className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No Charts Loaded</h3>
-            <p className="text-muted-foreground">
-              Select an exchange, market type, and symbol, then click "Load Charts" to view
-              multi-timeframe analysis.
+        <Card className="glass border-white/5 border-dashed">
+          <CardContent className="py-24 text-center">
+            <div className="w-20 h-20 bg-muted/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <LayoutGrid className="h-10 w-10 text-muted-foreground/50" />
+            </div>
+            <h3 className="text-2xl font-display font-bold mb-3">Ready to Analyze</h3>
+            <p className="text-muted-foreground max-w-md mx-auto text-lg font-light">
+              Select an exchange, market type, and symbol above to generate multi-timeframe charts.
             </p>
           </CardContent>
         </Card>

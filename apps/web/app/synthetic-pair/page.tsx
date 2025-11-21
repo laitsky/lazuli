@@ -4,11 +4,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { CandlestickChart } from '@/components/candlestick-chart';
 import { VirtualizedTickerList } from '@/components/virtualized-ticker-list';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
-import { Search, TrendingUp, Divide } from 'lucide-react';
+import { Search, TrendingUp, Divide, ArrowRight, Calculator, AlertCircle } from 'lucide-react';
 
 /**
  * Synthetic Pair Generator Page
@@ -51,7 +52,18 @@ export default function SyntheticPairPage() {
     if (symbol.endsWith('.P')) {
       const baseQuote = symbol.slice(0, -2); // Remove .P
       // Common quote currencies to remove
-      const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD'];
+      const commonQuotes = [
+        'USDT',
+        'USDC',
+        'BUSD',
+        'USD',
+        'BTC',
+        'ETH',
+        'BNB',
+        'TUSD',
+        'DAI',
+        'FDUSD',
+      ];
 
       for (const quote of commonQuotes) {
         if (baseQuote.endsWith(quote)) {
@@ -72,14 +84,14 @@ export default function SyntheticPairPage() {
    */
   const getCandleLimit = (timeframe: Timeframe): number => {
     const limits: Record<Timeframe, number> = {
-      '1m': 100,    // ~1.6 hours
-      '5m': 150,    // ~12.5 hours
-      '15m': 200,   // ~2 days
-      '1h': 500,    // ~20 days (3 weeks)
-      '4h': 1000,   // ~166 days (5.5 months)
-      '1d': 1000,   // ~2.7 years
-      '3d': 1000,   // ~8 years
-      '1w': 1000,   // ~19 years
+      '1m': 100, // ~1.6 hours
+      '5m': 150, // ~12.5 hours
+      '15m': 200, // ~2 days
+      '1h': 500, // ~20 days (3 weeks)
+      '4h': 1000, // ~166 days (5.5 months)
+      '1d': 1000, // ~2.7 years
+      '3d': 1000, // ~8 years
+      '1w': 1000, // ~19 years
     };
     return limits[timeframe] || 100;
   };
@@ -93,7 +105,18 @@ export default function SyntheticPairPage() {
     // Check if it's a perpetual contract (.P suffix)
     if (symbol.endsWith('.P')) {
       const baseQuote = symbol.slice(0, -2); // Remove .P
-      const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD'];
+      const commonQuotes = [
+        'USDT',
+        'USDC',
+        'BUSD',
+        'USD',
+        'BTC',
+        'ETH',
+        'BNB',
+        'TUSD',
+        'DAI',
+        'FDUSD',
+      ];
 
       for (const quote of commonQuotes) {
         if (baseQuote.endsWith(quote)) {
@@ -128,9 +151,9 @@ export default function SyntheticPairPage() {
    */
   const getCurrencyIcon = (currency: string): string | null => {
     const icons: Record<string, string> = {
-      'USDT': '₮',  // Tether symbol
-      'BTC': '₿',   // Bitcoin symbol
-      'ETH': 'Ξ',   // Ethereum symbol (Greek Xi)
+      USDT: '₮', // Tether symbol
+      BTC: '₿', // Bitcoin symbol
+      ETH: 'Ξ', // Ethereum symbol (Greek Xi)
     };
     return icons[currency] || null;
   };
@@ -194,7 +217,9 @@ export default function SyntheticPairPage() {
 
         // Warn if we hit the page limit
         if (currentPage > MAX_PAGES) {
-          console.warn(`Reached maximum page limit (${MAX_PAGES}). Some tickers may not be loaded.`);
+          console.warn(
+            `Reached maximum page limit (${MAX_PAGES}). Some tickers may not be loaded.`
+          );
         }
       } catch (err) {
         setError('Failed to load tickers');
@@ -248,7 +273,8 @@ export default function SyntheticPairPage() {
   const filteredTickers = useMemo(() => {
     return tickers
       .filter((t) => {
-        const matchesSearch = !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesSearch =
+          !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
         const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
         const matchesQuote = tickerQuote === quoteFilter;
         return matchesSearch && matchesQuote;
@@ -302,16 +328,11 @@ export default function SyntheticPairPage() {
 
     try {
       const limit = getCandleLimit(selectedTimeframe);
-      const response = await LazuliAPI.getCustomPair(
-        selectedExchange,
-        symbol1,
-        symbol2,
-        {
-          timeframe: selectedTimeframe,
-          type: marketType,
-          limit,
-        }
-      );
+      const response = await LazuliAPI.getCustomPair(selectedExchange, symbol1, symbol2, {
+        timeframe: selectedTimeframe,
+        type: marketType,
+        limit,
+      });
 
       if (response.success && response.data) {
         setChartData(response.data.candles);
@@ -331,80 +352,98 @@ export default function SyntheticPairPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center gap-2">
-        <Divide className="h-6 w-6" />
-        <h1 className="text-5xl font-display font-bold">Synthetic Pair Generator</h1>
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Hero Section */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-background to-background border border-white/10 p-8">
+        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl opacity-50"></div>
+        <div className="relative z-10 flex items-center gap-4">
+          <div className="p-3 rounded-2xl bg-primary/10 text-primary">
+            <Calculator className="h-8 w-8" />
+          </div>
+          <div>
+            <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight">
+              Synthetic Pairs
+            </h1>
+            <p className="text-lg font-light text-muted-foreground mt-2">
+              Create custom trading pairs by dividing any two assets to analyze relative
+              performance.
+            </p>
+          </div>
+        </div>
       </div>
 
-      <p className="text-lg font-light text-muted-foreground">
-        Create synthetic trading pairs by dividing two ticker prices. Example: BTC-USDT / AVAX-USDT = BTC/AVAX
-      </p>
-
       {/* Controls Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Configure Synthetic Pair</CardTitle>
+      <Card className="glass border-white/5 overflow-hidden">
+        <CardHeader className="border-b border-white/5 bg-white/5">
+          <CardTitle className="flex items-center gap-2">
+            <Divide className="h-5 w-5 text-primary" />
+            Pair Configuration
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Exchange Selector */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Exchange</label>
-            <div className="flex gap-2 flex-wrap">
-              {exchanges.map((exchange) => (
+        <CardContent className="p-6 space-y-6">
+          {/* Exchange and Market Type - side by side */}
+          <div className="grid gap-6 md:grid-cols-2">
+            {/* Exchange Selector */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium text-muted-foreground">Exchange</label>
+              <div className="flex gap-2 flex-wrap">
+                {exchanges.map((exchange) => (
+                  <Button
+                    key={exchange.id}
+                    variant={selectedExchange === exchange.id ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      setSelectedExchange(exchange.id);
+                      setSymbol1('');
+                      setSymbol2('');
+                      setChartData([]);
+                    }}
+                    className="transition-all"
+                  >
+                    {exchange.name}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            {/* Market Type Selector */}
+            <div className="space-y-3">
+              <label className="text-sm font-medium text-muted-foreground">Market Type</label>
+              <div className="flex p-1 bg-muted/50 rounded-lg w-fit">
                 <Button
-                  key={exchange.id}
-                  variant={selectedExchange === exchange.id ? 'default' : 'outline'}
+                  variant={marketType === 'spot' ? 'secondary' : 'ghost'}
                   size="sm"
                   onClick={() => {
-                    setSelectedExchange(exchange.id);
+                    setMarketType('spot');
                     setSymbol1('');
                     setSymbol2('');
                     setChartData([]);
                   }}
+                  className="rounded-md"
                 >
-                  {exchange.name}
+                  Spot
                 </Button>
-              ))}
+                <Button
+                  variant={marketType === 'perp' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  onClick={() => {
+                    setMarketType('perp');
+                    setSymbol1('');
+                    setSymbol2('');
+                    setChartData([]);
+                  }}
+                  className="rounded-md"
+                >
+                  Perpetual
+                </Button>
+              </div>
             </div>
           </div>
 
-          {/* Market Type Selector */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Market Type</label>
-            <div className="flex gap-2">
-              <Button
-                variant={marketType === 'spot' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setMarketType('spot');
-                  setSymbol1('');
-                  setSymbol2('');
-                  setChartData([]);
-                }}
-              >
-                Spot
-              </Button>
-              <Button
-                variant={marketType === 'perp' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => {
-                  setMarketType('perp');
-                  setSymbol1('');
-                  setSymbol2('');
-                  setChartData([]);
-                }}
-              >
-                Perpetual
-              </Button>
-            </div>
-          </div>
-
-          {/* Quote Currency Filter */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Quote Currency</label>
-            <div className="flex flex-wrap gap-2">
+          {/* Quote Currency Filter - full width below */}
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-muted-foreground">Quote Currency</label>
+            <div className="flex flex-wrap gap-1.5">
               {availableQuotes.map((quote) => {
                 const count = tickers.filter((t) => {
                   const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
@@ -421,7 +460,7 @@ export default function SyntheticPairPage() {
                   >
                     {icon && <span className="text-base">{icon}</span>}
                     <span>{quote}</span>
-                    <span className="text-muted-foreground">({count})</span>
+                    <span className="text-muted-foreground text-xs opacity-70">({count})</span>
                   </Button>
                 );
               })}
@@ -429,8 +468,8 @@ export default function SyntheticPairPage() {
           </div>
 
           {/* Timeframe Selector */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Timeframe</label>
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-muted-foreground">Timeframe</label>
             <div className="flex gap-2 flex-wrap">
               {timeframes.map((tf) => (
                 <Button
@@ -438,6 +477,7 @@ export default function SyntheticPairPage() {
                   variant={selectedTimeframe === tf ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSelectedTimeframe(tf)}
+                  className="min-w-[3rem]"
                 >
                   {tf}
                 </Button>
@@ -446,8 +486,8 @@ export default function SyntheticPairPage() {
           </div>
 
           {/* Symbol Search - filters both symbol lists below */}
-          <div>
-            <label className="text-sm font-medium mb-2 block">Search Symbols</label>
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-muted-foreground">Search Symbols</label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -455,81 +495,102 @@ export default function SyntheticPairPage() {
                 placeholder="Search symbols (e.g., BTC, ETH)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
+                className="pl-10 bg-background/50"
               />
             </div>
-            <p className="text-xs text-muted-foreground mt-1.5">
+            <p className="text-xs text-muted-foreground">
               {filteredTickers.length} symbols available
             </p>
           </div>
 
           {/* Two-column layout for symbol selection with virtual scrolling */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Symbol 1 (Numerator) */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                Symbol 1 (Numerator)
-              </label>
-              <VirtualizedTickerList
-                tickers={filteredTickers}
-                selectedSymbol={symbol1}
-                onSelect={setSymbol1}
-                loading={loading}
-                ariaLabel="numerator"
-              />
-              {symbol1 && (
-                <div className="p-2 bg-accent rounded-md">
-                  <p className="text-xs font-medium">{symbol1}</p>
-                </div>
-              )}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-muted-foreground">
+                  Symbol 1 (Numerator)
+                </label>
+                {symbol1 && (
+                  <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+                    {symbol1}
+                  </Badge>
+                )}
+              </div>
+              <div className="border border-white/10 rounded-xl overflow-hidden bg-background/50 backdrop-blur-sm h-[300px]">
+                <VirtualizedTickerList
+                  tickers={filteredTickers}
+                  selectedSymbol={symbol1}
+                  onSelect={setSymbol1}
+                  loading={loading}
+                  ariaLabel="numerator"
+                />
+              </div>
             </div>
 
             {/* Symbol 2 (Denominator) */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                Symbol 2 (Denominator)
-              </label>
-              <VirtualizedTickerList
-                tickers={filteredTickers}
-                selectedSymbol={symbol2}
-                onSelect={setSymbol2}
-                loading={loading}
-                ariaLabel="denominator"
-              />
-              {symbol2 && (
-                <div className="p-2 bg-accent rounded-md">
-                  <p className="text-xs font-medium">{symbol2}</p>
-                </div>
-              )}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-muted-foreground">
+                  Symbol 2 (Denominator)
+                </label>
+                {symbol2 && (
+                  <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20">
+                    {symbol2}
+                  </Badge>
+                )}
+              </div>
+              <div className="border border-white/10 rounded-xl overflow-hidden bg-background/50 backdrop-blur-sm h-[300px]">
+                <VirtualizedTickerList
+                  tickers={filteredTickers}
+                  selectedSymbol={symbol2}
+                  onSelect={setSymbol2}
+                  loading={loading}
+                  ariaLabel="denominator"
+                />
+              </div>
             </div>
           </div>
 
           {/* Synthetic Pair Preview */}
           {symbol1 && symbol2 && (
-            <div className="p-4 bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-800 rounded-md">
-              <p className="text-sm font-medium text-blue-800 dark:text-blue-200">
-                Synthetic Pair Preview: {extractBaseCurrency(symbol1)} / {extractBaseCurrency(symbol2)}
-              </p>
-              <p className="text-xs text-blue-600 dark:text-blue-300 mt-1">
-                This will show {symbol1} ÷ {symbol2} on the {selectedTimeframe} timeframe
-              </p>
+            <div className="p-6 bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-white/10 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground mb-1">
+                  Synthetic Pair Preview
+                </p>
+                <div className="flex items-center gap-3 text-2xl font-display font-bold">
+                  <span>{extractBaseCurrency(symbol1)}</span>
+                  <span className="text-muted-foreground">/</span>
+                  <span>{extractBaseCurrency(symbol2)}</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">
+                  This will show {symbol1} ÷ {symbol2} on the {selectedTimeframe} timeframe
+                </p>
+              </div>
+
+              <Button
+                onClick={loadSyntheticPairChart}
+                disabled={!symbol1 || !symbol2 || loading}
+                size="lg"
+                className="w-full md:w-auto min-w-[200px] shadow-lg shadow-primary/20"
+              >
+                {loading ? (
+                  'Generating...'
+                ) : (
+                  <>
+                    Generate Chart <ArrowRight className="ml-2 h-4 w-4" />
+                  </>
+                )}
+              </Button>
             </div>
           )}
 
-          {/* Generate Chart Button */}
-          <Button
-            onClick={loadSyntheticPairChart}
-            disabled={!symbol1 || !symbol2 || loading}
-            className="w-full"
-            size="lg"
-          >
-            {loading ? 'Generating Chart...' : 'Generate Synthetic Pair Chart'}
-          </Button>
-
           {/* Error Display */}
           {error && (
-            <div className="p-3 bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-800 rounded-md">
-              <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
+            <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-xl flex items-center gap-3 text-destructive">
+              <AlertCircle className="h-5 w-5" />
+              <p className="text-sm font-medium">{error}</p>
             </div>
           )}
         </CardContent>
@@ -537,40 +598,76 @@ export default function SyntheticPairPage() {
 
       {/* Chart Display */}
       {chartData.length > 0 && syntheticPairSymbol && (
-        <div className="space-y-4">
-          <h2 className="text-3xl font-display font-bold">
-            {syntheticPairSymbol} on {exchanges.find((e) => e.id === selectedExchange)?.name}
-          </h2>
-          <p className="text-muted-foreground">
-            Generated from {symbol1} / {symbol2} • {selectedTimeframe} timeframe • {chartData.length} candles
-          </p>
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
+          <div className="flex items-center justify-between">
+            <h2 className="text-3xl font-display font-bold flex items-center gap-3">
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary to-purple-400">
+                {syntheticPairSymbol}
+              </span>
+              <span className="text-muted-foreground text-lg font-normal">
+                on {exchanges.find((e) => e.id === selectedExchange)?.name}
+              </span>
+            </h2>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-full border border-white/5">
+              <span className="font-mono text-xs">
+                {symbol1} ÷ {symbol2}
+              </span>
+              <span className="w-1 h-1 rounded-full bg-muted-foreground" />
+              <span>{selectedTimeframe}</span>
+              <span className="w-1 h-1 rounded-full bg-muted-foreground" />
+              <span>{chartData.length} candles</span>
+            </div>
+          </div>
 
-          <CandlestickChart
-            data={chartData}
-            timeframe={selectedTimeframe}
-            symbol={syntheticPairSymbol}
-            height={500}
-          />
+          <Card className="glass border-white/5 p-1">
+            <CardContent className="p-0">
+              <CandlestickChart
+                data={chartData}
+                timeframe={selectedTimeframe}
+                symbol={syntheticPairSymbol}
+                height={500}
+              />
+            </CardContent>
+          </Card>
         </div>
       )}
 
       {/* Empty State */}
       {chartData.length === 0 && !loading && !error && (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <TrendingUp className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No Chart Generated</h3>
-            <p className="text-muted-foreground mb-4">
-              Select an exchange, market type, two symbols, and a timeframe, then click "Generate Synthetic Pair Chart"
+        <Card className="glass border-white/5 border-dashed">
+          <CardContent className="py-24 text-center">
+            <div className="w-20 h-20 bg-muted/30 rounded-full flex items-center justify-center mx-auto mb-6">
+              <TrendingUp className="h-10 w-10 text-muted-foreground/50" />
+            </div>
+            <h3 className="text-2xl font-display font-bold mb-3">No Chart Generated</h3>
+            <p className="text-muted-foreground max-w-md mx-auto text-lg font-light mb-8">
+              Select an exchange, market type, two symbols, and a timeframe, then click "Generate
+              Chart"
             </p>
-            <div className="bg-muted p-4 rounded-md max-w-md mx-auto text-left">
-              <p className="text-sm font-medium mb-2">Example Use Case:</p>
-              <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
-                <li>Select Binance Spot</li>
-                <li>Choose BTC/USDT as Symbol 1</li>
-                <li>Choose AVAX/USDT as Symbol 2</li>
-                <li>Select 1h timeframe</li>
-                <li>Generate to see BTC/AVAX ratio chart</li>
+
+            <div className="bg-muted/30 p-6 rounded-xl max-w-md mx-auto text-left border border-white/5">
+              <p className="text-sm font-medium mb-3 flex items-center gap-2">
+                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-[10px] font-bold text-primary">
+                  ?
+                </span>
+                Example Use Case:
+              </p>
+              <ul className="text-sm text-muted-foreground space-y-2 list-disc list-inside ml-2">
+                <li>
+                  Select <strong>Binance Spot</strong>
+                </li>
+                <li>
+                  Choose <strong>BTC/USDT</strong> as Symbol 1
+                </li>
+                <li>
+                  Choose <strong>AVAX/USDT</strong> as Symbol 2
+                </li>
+                <li>
+                  Select <strong>1h</strong> timeframe
+                </li>
+                <li>
+                  Generate to see <strong>BTC/AVAX</strong> ratio chart
+                </li>
               </ul>
             </div>
           </CardContent>
