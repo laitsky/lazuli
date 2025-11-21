@@ -85,11 +85,15 @@ export interface SuperEMAQueryParams {
 }
 
 /**
- * EMA data point with all period values
+ * EMA data point with OHLCV and all period values
  */
 export interface EMADataPoint {
   timestamp: number;
+  open: number;
+  high: number;
+  low: number;
   close: number;
+  volume: number;
   emas: Record<number, number>;
 }
 

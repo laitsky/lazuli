@@ -9,7 +9,7 @@ import { VirtualizedTickerList } from '@/components/virtualized-ticker-list';
 import { LazuliAPI, EMADataPoint, SuperEMAResponse } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker } from '@lazuli/shared';
 import { Search, TrendingUp, ArrowRight, LineChart, AlertCircle, Layers } from 'lucide-react';
-import { createChart, IChartApi, ISeriesApi, LineData, Time } from 'lightweight-charts';
+import { createChart, IChartApi, LineData, CandlestickData, Time } from 'lightweight-charts';
 
 /**
  * SuperEMA Page
@@ -308,18 +308,24 @@ export default function SuperEMAPage() {
 
     chartRef.current = chart;
 
-    // Add price line (candlestick-like)
-    const priceSeries = chart.addLineSeries({
-      color: '#ffffff',
-      lineWidth: 2,
-      priceLineVisible: false,
+    // Add candlestick series for price data
+    const candlestickSeries = chart.addCandlestickSeries({
+      upColor: '#22c55e',
+      downColor: '#ef4444',
+      borderUpColor: '#22c55e',
+      borderDownColor: '#ef4444',
+      wickUpColor: '#22c55e',
+      wickDownColor: '#ef4444',
     });
 
-    const priceData: LineData[] = emaData.data.map((point) => ({
+    const candlestickData: CandlestickData[] = emaData.data.map((point) => ({
       time: (point.timestamp / 1000) as Time,
-      value: point.close,
+      open: point.open,
+      high: point.high,
+      low: point.low,
+      close: point.close,
     }));
-    priceSeries.setData(priceData);
+    candlestickSeries.setData(candlestickData);
 
     // Add EMA lines (sample of key EMAs to avoid overwhelming the chart)
     // Show EMAs: 5, 10, 20, 50, 100, 150, 200, 300, 400
@@ -617,8 +623,9 @@ export default function SuperEMAPage() {
               <span>Long (400)</span>
             </div>
             <div className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded bg-white"></div>
-              <span>Price</span>
+              <div className="w-3 h-3 rounded bg-green-500"></div>
+              <div className="w-3 h-3 rounded bg-red-500 -ml-1"></div>
+              <span>Candles</span>
             </div>
           </div>
 
