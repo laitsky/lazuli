@@ -207,7 +207,7 @@ export default function CustomIndexPage() {
   }, [selectedAssets]);
 
   /**
-   * Add asset with default weight
+   * Add asset and auto-balance all weights equally
    */
   const addAsset = (symbol: string) => {
     if (selectedAssets.length >= 10) {
@@ -216,10 +216,10 @@ export default function CustomIndexPage() {
     }
     if (selectedAssets.some((a) => a.symbol === symbol)) return;
 
-    const remaining = Math.max(0, 100 - totalWeight);
-    const defaultWeight = Math.min(remaining, Math.round(100 / (selectedAssets.length + 1)));
-
-    setSelectedAssets([...selectedAssets, { symbol, weight: defaultWeight }]);
+    // Add new asset and auto-balance all weights equally
+    const newAssets = [...selectedAssets, { symbol, weight: 0 }];
+    const equalWeight = Math.round((100 / newAssets.length) * 10) / 10;
+    setSelectedAssets(newAssets.map((a) => ({ ...a, weight: equalWeight })));
     setError(null);
   };
 
@@ -347,101 +347,90 @@ export default function CustomIndexPage() {
       <div className="grid lg:grid-cols-5 gap-6">
         {/* Left Panel - Configuration */}
         <div className="lg:col-span-3 space-y-6">
-          {/* Exchange Selection - First */}
+          {/* Index Name */}
           <Card className="glass border-white/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Select Exchange</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="flex gap-2 flex-wrap">
-                {exchanges.map((ex) => (
-                  <Button
-                    key={ex.id}
-                    variant={selectedExchange === ex.id ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => {
-                      setSelectedExchange(ex.id);
-                      setSelectedAssets([]);
-                      setIndexResult(null);
-                    }}
-                  >
-                    {ex.name}
-                  </Button>
-                ))}
-              </div>
+            <CardContent className="p-5">
+              <label className="text-sm font-medium text-muted-foreground">Index Name</label>
+              <Input
+                value={indexName}
+                onChange={(e) => setIndexName(e.target.value)}
+                className="mt-1.5 bg-background/50"
+                placeholder="My Custom Index"
+              />
             </CardContent>
           </Card>
 
-          {/* Basic Config */}
-          <Card className="glass border-white/5">
-            <CardContent className="p-5 space-y-4">
-              {/* Index Name */}
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Index Name</label>
-                <Input
-                  value={indexName}
-                  onChange={(e) => setIndexName(e.target.value)}
-                  className="mt-1.5 bg-background/50"
-                  placeholder="My Custom Index"
-                />
-              </div>
-
-              {/* Timeframe */}
-              <div>
-                <label className="text-sm font-medium text-muted-foreground">Timeframe</label>
-                <div className="flex gap-1 mt-1.5 flex-wrap">
-                  {timeframes.map((tf) => (
-                    <Button
-                      key={tf}
-                      variant={selectedTimeframe === tf ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setSelectedTimeframe(tf)}
-                      className="px-2"
-                    >
-                      {tf}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Quick Add */}
-          <Card className="glass border-white/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                Quick Add Popular Assets
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="flex flex-wrap gap-2">
-                {POPULAR_ASSETS.map((asset) => {
-                  const isAdded = selectedAssets.some((a) => a.symbol === `${asset}-USDT`);
-                  return (
-                    <Button
-                      key={asset}
-                      variant={isAdded ? 'secondary' : 'outline'}
-                      size="sm"
-                      onClick={() => !isAdded && quickAddAsset(asset)}
-                      disabled={isAdded || tickersLoading}
-                      className="gap-1"
-                    >
-                      {isAdded ? '✓' : <Plus className="h-3 w-3" />}
-                      {asset}
-                    </Button>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Asset Selection with Dropdown */}
+          {/* Asset Selection - Combined Card */}
           <Card className="glass border-white/5">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm">Add Assets</CardTitle>
             </CardHeader>
-            <CardContent className="pt-0 space-y-3">
+            <CardContent className="pt-0 space-y-4">
+              {/* Exchange & Timeframe in same row */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Exchange</label>
+                  <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                    {exchanges.map((ex) => (
+                      <Button
+                        key={ex.id}
+                        variant={selectedExchange === ex.id ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => {
+                          setSelectedExchange(ex.id);
+                          setSelectedAssets([]);
+                          setIndexResult(null);
+                        }}
+                      >
+                        {ex.name}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Timeframe</label>
+                  <div className="flex gap-1 mt-1.5 flex-wrap">
+                    {timeframes.map((tf) => (
+                      <Button
+                        key={tf}
+                        variant={selectedTimeframe === tf ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setSelectedTimeframe(tf)}
+                        className="px-2"
+                      >
+                        {tf}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Add */}
+              <div>
+                <label className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <Sparkles className="h-3 w-3 text-primary" />
+                  Quick Add
+                </label>
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {POPULAR_ASSETS.map((asset) => {
+                    const isAdded = selectedAssets.some((a) => a.symbol === `${asset}-USDT`);
+                    return (
+                      <Button
+                        key={asset}
+                        variant={isAdded ? 'secondary' : 'outline'}
+                        size="sm"
+                        onClick={() => !isAdded && quickAddAsset(asset)}
+                        disabled={isAdded || tickersLoading}
+                        className="gap-1 h-7 text-xs"
+                      >
+                        {isAdded ? '✓' : <Plus className="h-3 w-3" />}
+                        {asset}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Search Filter */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
