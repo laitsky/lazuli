@@ -5,6 +5,7 @@ import { dataController } from '../controllers/dataController';
 import { docsController } from '../controllers/docsController';
 import { ohlcvController } from '../controllers/ohlcvController';
 import { customPairController } from '../controllers/customPairController';
+import { customIndexController } from '../controllers/customIndexController';
 
 // Create Express router for API v1 endpoints
 const router = Router();
@@ -47,6 +48,11 @@ router.get('/ohlcv/:exchange/:symbol', async (req, res) => {
 // GET /api/v1/custom-pair/:exchange/:symbol1/:symbol2 - Generate custom pair by dividing two ticker prices
 router.get('/custom-pair/:exchange/:symbol1/:symbol2', async (req, res) => {
   await customPairController.getCustomPair(req, res);
+});
+
+// POST /api/v1/custom-index - Calculate custom index performance with weighted assets
+router.post('/custom-index', async (req, res) => {
+  await customIndexController.calculateIndex(req, res);
 });
 
 // POST /api/v1/data/store/:exchange - Store live ticker data for an exchange
