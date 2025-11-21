@@ -684,13 +684,6 @@ export default function CustomIndexPage() {
                     formatter={(value: number) => [`${value.toFixed(2)}%`, '']}
                   />
                   <Legend />
-                  <Line
-                    type="monotone"
-                    dataKey={indexResult.name}
-                    stroke={CHART_COLORS.index}
-                    strokeWidth={3}
-                    dot={false}
-                  />
                   {indexResult.benchmarks.map((b) => {
                     const key = b.symbol.replace('-USDT', '');
                     return (
@@ -705,6 +698,13 @@ export default function CustomIndexPage() {
                       />
                     );
                   })}
+                  <Line
+                    type="monotone"
+                    dataKey={indexResult.name}
+                    stroke={CHART_COLORS.index}
+                    strokeWidth={3}
+                    dot={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>
