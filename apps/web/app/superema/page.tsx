@@ -344,16 +344,13 @@ export default function SuperEMAPage() {
     }));
     candlestickSeries.setData(candlestickData);
 
-    // Add EMA lines (sample of key EMAs to avoid overwhelming the chart)
-    // Show EMAs: 5, 10, 20, 50, 100, 150, 200, 300, 400
-    const keyEMAs = [5, 10, 20, 50, 100, 150, 200, 300, 400];
-
-    for (const period of keyEMAs) {
+    // Add all 400 EMA lines
+    for (let period = 1; period <= 400; period++) {
       const emaSeries = chart.addLineSeries({
         color: getEMAColor(period),
         lineWidth: 1,
         priceLineVisible: false,
-        title: `EMA ${period}`,
+        lastValueVisible: false,
       });
 
       const emaLineData: LineData[] = emaData.data
