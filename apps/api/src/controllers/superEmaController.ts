@@ -62,8 +62,15 @@ export class SuperEmaController {
       }
 
       // Validate limit parameter (need more candles for accurate EMA calculation)
-      // Default to 500 for better EMA accuracy, max 1000
-      const limit = validateInteger(req.query.limit, 500, 100, 1000);
+      // Exchange-specific max limits: Binance=1000, Bybit=1000, OKX=300
+      // Default to max for the exchange
+      const exchangeLimits: Record<string, number> = {
+        binance: 1000,
+        bybit: 1000,
+        okx: 300,
+      };
+      const maxLimit = exchangeLimits[exchangeId] || 1000;
+      const limit = validateInteger(req.query.limit, maxLimit, 100, maxLimit);
 
       // Validate maxPeriod parameter
       const maxPeriod = validateInteger(req.query.maxPeriod, 400, 1, 400);
