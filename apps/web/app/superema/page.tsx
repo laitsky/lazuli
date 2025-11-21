@@ -248,8 +248,8 @@ export default function SuperEMAPage() {
     const g = Math.round(hue2rgb(p, q, hue) * 255);
     const b = Math.round(hue2rgb(p, q, hue - 1/3) * 255);
 
-    // Use rgba with 40% opacity for thinner appearance
-    return `rgba(${r}, ${g}, ${b}, 0.4)`;
+    // Use rgba with 10% opacity for thinner appearance
+    return `rgba(${r}, ${g}, ${b}, 0.1)`;
   };
 
   /**
