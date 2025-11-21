@@ -214,10 +214,18 @@ export default function CustomIndexPage() {
     }
     if (selectedAssets.some((a) => a.symbol === symbol)) return;
 
-    // Add new asset and auto-balance all weights equally
+    // Add new asset and auto-balance all weights to sum exactly 100
     const newAssets = [...selectedAssets, { symbol, weight: 0 }];
-    const equalWeight = Math.round((100 / newAssets.length) * 10) / 10;
-    setSelectedAssets(newAssets.map((a) => ({ ...a, weight: equalWeight })));
+    const count = newAssets.length;
+    const baseWeight = Math.floor((100 / count) * 10) / 10;
+    const remainder = Math.round((100 - baseWeight * count) * 10) / 10;
+
+    setSelectedAssets(
+      newAssets.map((a, i) => ({
+        ...a,
+        weight: i === count - 1 ? baseWeight + remainder : baseWeight,
+      }))
+    );
     setError(null);
   };
 
@@ -257,8 +265,16 @@ export default function CustomIndexPage() {
    */
   const autoBalance = () => {
     if (selectedAssets.length === 0) return;
-    const equalWeight = Math.round((100 / selectedAssets.length) * 10) / 10;
-    setSelectedAssets(selectedAssets.map((a) => ({ ...a, weight: equalWeight })));
+    const count = selectedAssets.length;
+    const baseWeight = Math.floor((100 / count) * 10) / 10;
+    const remainder = Math.round((100 - baseWeight * count) * 10) / 10;
+
+    setSelectedAssets(
+      selectedAssets.map((a, i) => ({
+        ...a,
+        weight: i === count - 1 ? baseWeight + remainder : baseWeight,
+      }))
+    );
   };
 
   /**
