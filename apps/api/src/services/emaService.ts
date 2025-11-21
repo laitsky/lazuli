@@ -6,11 +6,15 @@ import { OHLCV } from '../types';
  */
 
 /**
- * Single EMA data point with all period values
+ * Single EMA data point with OHLCV and all period values
  */
 export interface EMADataPoint {
   timestamp: number;
+  open: number;
+  high: number;
+  low: number;
   close: number;
+  volume: number;
   emas: Record<number, number>; // period -> EMA value
 }
 
@@ -96,7 +100,7 @@ export function calculateSuperEMA(
     allEMAs.set(period, calculateEMA(closes, period));
   }
 
-  // Build result array with all EMA values per timestamp
+  // Build result array with OHLCV and all EMA values per timestamp
   const result: EMADataPoint[] = ohlcvData.map((candle, index) => {
     const emas: Record<number, number> = {};
 
@@ -109,7 +113,11 @@ export function calculateSuperEMA(
 
     return {
       timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
       close: candle.close,
+      volume: candle.volume,
       emas,
     };
   });
