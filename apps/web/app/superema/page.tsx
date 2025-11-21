@@ -226,12 +226,32 @@ export default function SuperEMAPage() {
   /**
    * Generate color for EMA line based on period
    * Uses a gradient from blue (short) to red (long)
+   * Returns hex color for lightweight-charts compatibility
    */
   const getEMAColor = (period: number, maxPeriod: number = 400): string => {
     const ratio = period / maxPeriod;
-    // HSL color transition: blue (240) -> cyan (180) -> green (120) -> yellow (60) -> red (0)
-    const hue = 240 - (ratio * 240);
-    return `hsl(${hue}, 70%, 50%)`;
+    // HSL to RGB conversion for gradient from blue (240°) to red (0°)
+    const hue = (240 - (ratio * 240)) / 360;
+    const s = 0.7;
+    const l = 0.5;
+
+    // HSL to RGB conversion
+    const hue2rgb = (p: number, q: number, t: number) => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1/6) return p + (q - p) * 6 * t;
+      if (t < 1/2) return q;
+      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      return p;
+    };
+
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    const r = Math.round(hue2rgb(p, q, hue + 1/3) * 255);
+    const g = Math.round(hue2rgb(p, q, hue) * 255);
+    const b = Math.round(hue2rgb(p, q, hue - 1/3) * 255);
+
+    return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
   };
 
   /**
