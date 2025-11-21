@@ -14,6 +14,8 @@ import {
   SupportedExchange,
   OHLCVResponse,
   CustomPairResponse,
+  CustomIndexResponse,
+  IndexAsset,
   Timeframe,
 } from '@lazuli/shared';
 
@@ -71,6 +73,17 @@ export interface MultiTimeframeOHLCVQueryParams {
 export interface CustomPairQueryParams {
   timeframe: Timeframe;
   type?: 'spot' | 'perp';
+  limit?: number;
+}
+
+/**
+ * Request parameters for custom index calculation
+ */
+export interface CustomIndexRequest {
+  name: string;
+  exchange: SupportedExchange;
+  timeframe: Timeframe;
+  assets: IndexAsset[];
   limit?: number;
 }
 
@@ -195,6 +208,44 @@ async function apiFetch<T>(
 }
 
 /**
+ * POST fetch wrapper for endpoints that require request body
+ */
+async function apiPost<T>(
+  endpoint: string,
+  body: Record<string, any>,
+  timeout?: number
+): Promise<ApiResponse<T>> {
+  try {
+    const response = await fetchWithTimeout(
+      `${API_BASE_URL}${endpoint}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      },
+      timeout
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data: ApiResponse<T> = await response.json();
+    return data;
+  } catch (error) {
+    return {
+      success: false,
+      data: null as T,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      timestamp: Date.now(),
+    };
+  }
+}
+
+/**
  * API Client class with methods for all endpoints
  */
 export class LazuliAPI {
@@ -294,6 +345,22 @@ export class LazuliAPI {
       `${API_VERSION}/custom-pair/${exchange}/${encodedSymbol1}/${encodedSymbol2}`,
       queryParams,
       60000
+    );
+  }
+
+  /**
+   * Calculate custom index performance with weighted assets
+   * Creates a basket of coins and compares performance to BTC/ETH/SOL benchmarks
+   * Uses extended timeout (120s) as it fetches data for multiple assets
+   */
+  static async calculateCustomIndex(
+    request: CustomIndexRequest
+  ): Promise<ApiResponse<CustomIndexResponse>> {
+    // Use 120s timeout for custom index (fetches multiple assets + benchmarks)
+    return apiPost<CustomIndexResponse>(
+      `${API_VERSION}/custom-index`,
+      request,
+      120000
     );
   }
 }
