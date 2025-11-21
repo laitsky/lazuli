@@ -179,17 +179,15 @@ export default function CustomIndexPage() {
     loadTickers();
   }, [selectedExchange]);
 
-  // Filter tickers for search
+  // Filter tickers for search - show all USDT pairs
   const filteredTickers = useMemo(() => {
-    return tickers
-      .filter((t) => {
-        const matchesSearch =
-          !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
-        const isUSDT = getQuoteCurrency(t.symbol).toUpperCase() === 'USDT';
-        const notSelected = !selectedAssets.some((a) => a.symbol === t.symbol);
-        return matchesSearch && isUSDT && notSelected;
-      })
-      .slice(0, 50); // Limit for performance
+    return tickers.filter((t) => {
+      const matchesSearch =
+        !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+      const isUSDT = getQuoteCurrency(t.symbol).toUpperCase() === 'USDT';
+      const notSelected = !selectedAssets.some((a) => a.symbol === t.symbol);
+      return matchesSearch && isUSDT && notSelected;
+    });
   }, [tickers, searchQuery, selectedAssets]);
 
   // Calculate total weight
