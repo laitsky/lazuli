@@ -347,6 +347,31 @@ export default function CustomIndexPage() {
       <div className="grid lg:grid-cols-5 gap-6">
         {/* Left Panel - Configuration */}
         <div className="lg:col-span-3 space-y-6">
+          {/* Exchange Selection - First */}
+          <Card className="glass border-white/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Select Exchange</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="flex gap-2 flex-wrap">
+                {exchanges.map((ex) => (
+                  <Button
+                    key={ex.id}
+                    variant={selectedExchange === ex.id ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => {
+                      setSelectedExchange(ex.id);
+                      setSelectedAssets([]);
+                      setIndexResult(null);
+                    }}
+                  >
+                    {ex.name}
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Basic Config */}
           <Card className="glass border-white/5">
             <CardContent className="p-5 space-y-4">
@@ -361,42 +386,21 @@ export default function CustomIndexPage() {
                 />
               </div>
 
-              {/* Exchange & Timeframe */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Exchange</label>
-                  <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                    {exchanges.map((ex) => (
-                      <Button
-                        key={ex.id}
-                        variant={selectedExchange === ex.id ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => {
-                          setSelectedExchange(ex.id);
-                          setSelectedAssets([]);
-                          setIndexResult(null);
-                        }}
-                      >
-                        {ex.name}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground">Timeframe</label>
-                  <div className="flex gap-1 mt-1.5 flex-wrap">
-                    {timeframes.map((tf) => (
-                      <Button
-                        key={tf}
-                        variant={selectedTimeframe === tf ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setSelectedTimeframe(tf)}
-                        className="px-2"
-                      >
-                        {tf}
-                      </Button>
-                    ))}
-                  </div>
+              {/* Timeframe */}
+              <div>
+                <label className="text-sm font-medium text-muted-foreground">Timeframe</label>
+                <div className="flex gap-1 mt-1.5 flex-wrap">
+                  {timeframes.map((tf) => (
+                    <Button
+                      key={tf}
+                      variant={selectedTimeframe === tf ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSelectedTimeframe(tf)}
+                      className="px-2"
+                    >
+                      {tf}
+                    </Button>
+                  ))}
                 </div>
               </div>
             </CardContent>
@@ -432,42 +436,51 @@ export default function CustomIndexPage() {
             </CardContent>
           </Card>
 
-          {/* Asset Search & Add */}
+          {/* Asset Selection with Dropdown */}
           <Card className="glass border-white/5">
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Search & Add Assets</CardTitle>
+              <CardTitle className="text-sm">Add Assets</CardTitle>
             </CardHeader>
             <CardContent className="pt-0 space-y-3">
+              {/* Search Filter */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search USDT pairs..."
+                  placeholder="Filter assets..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9 bg-background/50"
                 />
               </div>
-              {searchQuery && (
-                <div className="max-h-40 overflow-y-auto space-y-1 border border-white/5 rounded-lg p-2">
-                  {filteredTickers.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-2">No results</p>
-                  ) : (
-                    filteredTickers.map((t) => (
+
+              {/* Scrollable Asset List */}
+              <div className="h-48 overflow-y-auto border border-white/10 rounded-lg bg-background/30">
+                {tickersLoading ? (
+                  <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                    Loading assets...
+                  </div>
+                ) : filteredTickers.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                    {searchQuery ? 'No matching assets' : 'No assets available'}
+                  </div>
+                ) : (
+                  <div className="p-1">
+                    {filteredTickers.map((t) => (
                       <button
                         key={t.symbol}
-                        onClick={() => {
-                          addAsset(t.symbol);
-                          setSearchQuery('');
-                        }}
-                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-muted/50 flex justify-between items-center"
+                        onClick={() => addAsset(t.symbol)}
+                        className="w-full text-left px-3 py-2 text-sm rounded hover:bg-muted/50 flex justify-between items-center transition-colors"
                       >
                         <span className="font-mono">{parseSymbol(t.symbol).base}</span>
                         <Plus className="h-3 w-3 text-muted-foreground" />
                       </button>
-                    ))
-                  )}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {filteredTickers.length} USDT pairs available
+              </p>
             </CardContent>
           </Card>
 
