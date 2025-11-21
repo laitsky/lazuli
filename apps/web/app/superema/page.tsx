@@ -84,20 +84,17 @@ export default function SuperEMAPage() {
   };
 
   /**
-   * Get candle limit based on timeframe
+   * Get candle limit based on exchange
+   * Uses maximum allowed by each exchange's API
+   * Binance: 1000, Bybit: 1000, OKX: 300
    */
-  const getCandleLimit = (timeframe: Timeframe): number => {
-    const limits: Record<Timeframe, number> = {
-      '1m': 200,
-      '5m': 300,
-      '15m': 400,
-      '1h': 500,
-      '4h': 600,
-      '1d': 800,
-      '3d': 1000,
-      '1w': 1000,
+  const getCandleLimit = (exchange: SupportedExchange): number => {
+    const limits: Record<SupportedExchange, number> = {
+      binance: 1000,
+      bybit: 1000,
+      okx: 300,
     };
-    return limits[timeframe] || 500;
+    return limits[exchange] || 1000;
   };
 
   // Load exchanges on mount
@@ -268,7 +265,7 @@ export default function SuperEMAPage() {
     setEmaData(null);
 
     try {
-      const limit = getCandleLimit(selectedTimeframe);
+      const limit = getCandleLimit(selectedExchange);
       const response = await LazuliAPI.getSuperEMA(selectedExchange, selectedSymbol, {
         timeframe: selectedTimeframe,
         type: marketType,
