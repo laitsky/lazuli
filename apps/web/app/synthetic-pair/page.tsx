@@ -79,21 +79,17 @@ export default function SyntheticPairPage() {
   };
 
   /**
-   * Get appropriate candle limit based on timeframe
-   * Same logic as multi-timeframe page for consistency
+   * Get candle limit based on exchange
+   * Uses maximum allowed by each exchange's API
+   * Binance: 1000, Bybit: 1000, OKX: 300
    */
-  const getCandleLimit = (timeframe: Timeframe): number => {
-    const limits: Record<Timeframe, number> = {
-      '1m': 100, // ~1.6 hours
-      '5m': 150, // ~12.5 hours
-      '15m': 200, // ~2 days
-      '1h': 500, // ~20 days (3 weeks)
-      '4h': 1000, // ~166 days (5.5 months)
-      '1d': 1000, // ~2.7 years
-      '3d': 1000, // ~8 years
-      '1w': 1000, // ~19 years
+  const getCandleLimit = (exchange: SupportedExchange): number => {
+    const limits: Record<SupportedExchange, number> = {
+      binance: 1000,
+      bybit: 1000,
+      okx: 300,
     };
-    return limits[timeframe] || 100;
+    return limits[exchange] || 1000;
   };
 
   /**
@@ -327,7 +323,7 @@ export default function SyntheticPairPage() {
     setChartData([]);
 
     try {
-      const limit = getCandleLimit(selectedTimeframe);
+      const limit = getCandleLimit(selectedExchange);
       const response = await LazuliAPI.getCustomPair(selectedExchange, symbol1, symbol2, {
         timeframe: selectedTimeframe,
         type: marketType,
