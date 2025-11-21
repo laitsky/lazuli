@@ -6,6 +6,18 @@ const nextConfig: NextConfig = {
     // TODO: Fix Link component typing issues with Next.js 16
     ignoreBuildErrors: true,
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'upload.wikimedia.org',
+      },
+      {
+        protocol: 'https',
+        hostname: 'altcoinsbox.com',
+      },
+    ],
+  },
 };
 
 export default nextConfig;
