@@ -327,13 +327,15 @@ export default function SuperEMAPage() {
     chartRef.current = chart;
 
     // Add candlestick series for price data
+    // Using cyan/orange for better visibility under blue-red EMA gradient
+    // Also improves accessibility for colorblind users
     const candlestickSeries = chart.addCandlestickSeries({
-      upColor: '#22c55e',
-      downColor: '#ef4444',
-      borderUpColor: '#22c55e',
-      borderDownColor: '#ef4444',
-      wickUpColor: '#22c55e',
-      wickDownColor: '#ef4444',
+      upColor: '#00d4aa',      // Bright cyan-green
+      downColor: '#ff6b35',    // Bright orange
+      borderUpColor: '#00ffcc', // Lighter cyan border
+      borderDownColor: '#ff8c5a', // Lighter orange border
+      wickUpColor: '#00d4aa',
+      wickDownColor: '#ff6b35',
     });
 
     const candlestickData: CandlestickData[] = emaData.data.map((point) => ({
@@ -640,8 +642,8 @@ export default function SuperEMAPage() {
               <span>Long (400)</span>
             </div>
             <div className="flex items-center gap-1">
-              <div className="w-3 h-3 rounded bg-green-500"></div>
-              <div className="w-3 h-3 rounded bg-red-500 -ml-1"></div>
+              <div className="w-3 h-3 rounded" style={{ backgroundColor: '#00d4aa' }}></div>
+              <div className="w-3 h-3 rounded -ml-1" style={{ backgroundColor: '#ff6b35' }}></div>
               <span>Candles</span>
             </div>
           </div>
