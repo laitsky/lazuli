@@ -684,20 +684,30 @@ export default function CustomIndexPage() {
                     formatter={(value: number) => [`${value.toFixed(2)}%`, '']}
                   />
                   <Legend />
-                  {indexResult.benchmarks.map((b) => {
-                    const key = b.symbol.replace('-USDT', '');
-                    return (
-                      <Line
-                        key={b.symbol}
-                        type="monotone"
-                        dataKey={key}
-                        stroke={CHART_COLORS[key as keyof typeof CHART_COLORS] || '#888'}
-                        strokeWidth={1.5}
-                        dot={false}
-                        strokeDasharray="4 4"
-                      />
-                    );
-                  })}
+                  <Line
+                    type="monotone"
+                    dataKey="BTC"
+                    stroke={CHART_COLORS.BTC}
+                    strokeWidth={1.5}
+                    dot={false}
+                    strokeDasharray="4 4"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="ETH"
+                    stroke={CHART_COLORS.ETH}
+                    strokeWidth={1.5}
+                    dot={false}
+                    strokeDasharray="4 4"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="SOL"
+                    stroke={CHART_COLORS.SOL}
+                    strokeWidth={1.5}
+                    dot={false}
+                    strokeDasharray="4 4"
+                  />
                   <Line
                     type="monotone"
                     dataKey={indexResult.name}
