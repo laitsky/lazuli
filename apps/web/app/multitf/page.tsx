@@ -38,27 +38,16 @@ export default function MultiTFPage() {
    * Get appropriate candle limit based on timeframe
    * Longer timeframes need more candles to show meaningful historical data
    *
-   * Examples of coverage:
-   * - 1m with 100 candles = ~1.6 hours
-   * - 1h with 500 candles = ~20 days (3 weeks)
-   * - 4h with 1000 candles = ~166 days (5.5 months)
-   * - 1d with 1000 candles = ~2.7 years
-   * - 1w with 1000 candles = ~19 years
-   *
-   * Maximum limit per API: 1000 candles
+   * Uses maximum allowed by each exchange's API
+   * Binance: 1000, Bybit: 1000, OKX: 300
    */
-  const getCandleLimit = (timeframe: Timeframe): number => {
-    const limits: Record<Timeframe, number> = {
-      '1m': 100, // ~1.6 hours
-      '5m': 150, // ~12.5 hours
-      '15m': 200, // ~2 days
-      '1h': 500, // ~20 days (3 weeks)
-      '4h': 1000, // ~166 days (5.5 months / half a year)
-      '1d': 1000, // ~2.7 years
-      '3d': 1000, // ~8 years
-      '1w': 1000, // ~19 years (almost 2 decades!)
+  const getCandleLimit = (exchange: SupportedExchange): number => {
+    const limits: Record<SupportedExchange, number> = {
+      binance: 1000,
+      bybit: 1000,
+      okx: 300,
     };
-    return limits[timeframe] || 100;
+    return limits[exchange] || 1000;
   };
 
   /**
@@ -296,7 +285,7 @@ export default function MultiTFPage() {
       // This allows longer timeframes to show more historical data
       const promises = timeframes.map(async (timeframe) => {
         try {
-          const limit = getCandleLimit(timeframe);
+          const limit = getCandleLimit(selectedExchange);
           const response = await LazuliAPI.getOHLCV(selectedExchange, selectedSymbol, {
             timeframe,
             type: marketType,
