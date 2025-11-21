@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,6 +59,9 @@ export default function CustomIndexPage() {
   const [indexName, setIndexName] = useState<string>('My Custom Index');
   const [selectedAssets, setSelectedAssets] = useState<IndexAsset[]>([]);
   const [indexResult, setIndexResult] = useState<CustomIndexResponse | null>(null);
+
+  // Ref for scrolling to results
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   // Available timeframes
   const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
@@ -306,6 +309,10 @@ export default function CustomIndexPage() {
       const response = await LazuliAPI.calculateCustomIndex(request);
       if (response.success && response.data) {
         setIndexResult(response.data);
+        // Scroll to results after a brief delay for render
+        setTimeout(() => {
+          resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
       } else {
         setError(response.error || 'Failed to calculate index');
       }
@@ -627,7 +634,10 @@ export default function CustomIndexPage() {
 
       {/* Results */}
       {indexResult && chartData.length > 0 && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div
+          ref={resultsRef}
+          className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500"
+        >
           <div className="flex items-center justify-between">
             <h2 className="text-2xl font-display font-bold">
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary to-purple-400">
