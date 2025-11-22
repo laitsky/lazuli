@@ -38,6 +38,13 @@ export class ExchangeController {
           hasSpot: true,
           hasPerp: true,
         },
+        {
+          name: 'Hyperliquid',
+          id: 'hyperliquid',
+          supported: true,
+          hasSpot: false,
+          hasPerp: true,
+        },
       ];
 
       return successResponse(res, exchanges);

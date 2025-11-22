@@ -69,7 +69,7 @@ export interface ExchangeInfo {
 /**
  * Supported exchanges
  */
-export type SupportedExchange = 'binance' | 'bybit' | 'okx';
+export type SupportedExchange = 'binance' | 'bybit' | 'okx' | 'hyperliquid';
 
 /**
  * Pagination metadata
