@@ -120,11 +120,11 @@ export function validateBoolean(value: any): boolean | undefined {
  * @param value - Input value
  * @returns Valid exchange ID or null
  */
-export function validateExchange(value: any): 'binance' | 'bybit' | 'okx' | null {
+export function validateExchange(value: any): 'binance' | 'bybit' | 'okx' | 'hyperliquid' | null {
   const normalized = String(value).toLowerCase();
 
-  if (normalized === 'binance' || normalized === 'bybit' || normalized === 'okx') {
-    return normalized as 'binance' | 'bybit' | 'okx';
+  if (normalized === 'binance' || normalized === 'bybit' || normalized === 'okx' || normalized === 'hyperliquid') {
+    return normalized as 'binance' | 'bybit' | 'okx' | 'hyperliquid';
   }
 
   return null;
