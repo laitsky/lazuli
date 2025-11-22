@@ -5,6 +5,7 @@ import { dataController } from '../controllers/dataController';
 import { docsController } from '../controllers/docsController';
 import { ohlcvController } from '../controllers/ohlcvController';
 import { customPairController } from '../controllers/customPairController';
+import { customIndexController } from '../controllers/customIndexController';
 import { superEmaController } from '../controllers/superEmaController';
 
 // Create Express router for API v1 endpoints
@@ -49,6 +50,10 @@ router.get('/ohlcv/:exchange/:symbol', async (req, res) => {
 router.get('/custom-pair/:exchange/:symbol1/:symbol2', async (req, res) => {
   await customPairController.getCustomPair(req, res);
 });
+
+// POST /api/v1/custom-index - Calculate custom index performance with weighted assets
+router.post('/custom-index', async (req, res) => {
+  await customIndexController.calculateIndex(req, res);
 
 // GET /api/v1/superema/:exchange/:symbol - Get SuperEMA data (1-400 EMA periods)
 router.get('/superema/:exchange/:symbol', async (req, res) => {
