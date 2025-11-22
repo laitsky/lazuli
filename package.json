@@ -54,15 +54,15 @@
       "prettier --write"
     ],
     "apps/api/**/*.{ts,tsx,js,jsx}": [
-      "eslint --fix --config apps/api/eslint.config.js",
+      "bunx eslint --fix --config apps/api/eslint.config.js",
       "prettier --write"
     ],
     "packages/**/*.{ts,tsx,js,jsx}": [
-      "eslint --fix",
+      "bunx eslint --fix",
       "prettier --write"
     ],
     "*.{ts,js,jsx}": [
-      "eslint --fix",
+      "bunx eslint --fix",
       "prettier --write"
     ],
     "*.{json,md}": [
