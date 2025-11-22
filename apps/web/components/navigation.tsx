@@ -24,6 +24,7 @@ const navItems = [
   { href: '/multitf', label: 'MultiTF' },
   { href: '/synthetic-pair', label: 'Synthetic Pair' },
   { href: '/custom-index', label: 'Custom Index' },
+  { href: '/superema', label: 'SuperEMA' },
 ]
 
 /**
