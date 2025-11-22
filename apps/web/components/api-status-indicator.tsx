@@ -3,42 +3,42 @@
  * Fetches health status on the client-side to avoid SSR networking issues
  */
 
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { LazuliAPI } from '@/lib/api-client'
-import type { HealthResponse } from '@lazuli/shared'
+import { useEffect, useState } from 'react';
+import { LazuliAPI } from '@/lib/api-client';
+import type { HealthResponse } from '@lazuli/shared';
 
 export function ApiStatusIndicator() {
-  const [health, setHealth] = useState<HealthResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchHealth = async () => {
       try {
-        const response = await LazuliAPI.getHealth()
+        const response = await LazuliAPI.getHealth();
 
         if (response.success) {
-          setHealth(response.data)
-          setError(null)
+          setHealth(response.data);
+          setError(null);
         } else {
-          setError(response.error || 'Unknown error')
+          setError(response.error || 'Unknown error');
         }
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error'
-        setError(errorMsg)
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        setError(errorMsg);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
+    };
 
-    fetchHealth()
+    fetchHealth();
 
     // Poll health status every 30 seconds
-    const interval = setInterval(fetchHealth, 30000)
-    return () => clearInterval(interval)
-  }, [])
+    const interval = setInterval(fetchHealth, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -57,8 +57,8 @@ export function ApiStatusIndicator() {
                 loading
                   ? 'bg-yellow-500 animate-pulse'
                   : health?.status === 'ok'
-                  ? 'bg-green-500'
-                  : 'bg-red-500'
+                    ? 'bg-green-500'
+                    : 'bg-red-500'
               }`}
             />
             <span className="text-lg font-semibold">
@@ -68,11 +68,9 @@ export function ApiStatusIndicator() {
         </div>
         <div className="space-y-2">
           <p className="text-sm font-medium text-muted-foreground">Exchanges</p>
-          <p className="text-lg font-semibold">
-            {health?.exchanges?.length || 3} Supported
-          </p>
+          <p className="text-lg font-semibold">{health?.exchanges?.length || 3} Supported</p>
         </div>
       </div>
     </div>
-  )
+  );
 }

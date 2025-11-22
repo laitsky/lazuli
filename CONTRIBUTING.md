@@ -22,23 +22,27 @@ Thank you for your interest in contributing to Lazuli! This document provides gu
 ### Getting Started
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd lazuli
    ```
 
 2. **Install dependencies**
+
    ```bash
    npm install
    ```
 
 3. **Set up environment variables**
+
    ```bash
    cp .env.example .env
    # Edit .env with your configuration
    ```
 
 4. **Run development servers**
+
    ```bash
    # Run both API and Web
    npm run dev
@@ -70,6 +74,7 @@ lazuli/
 ### Creating a New Feature
 
 1. **Create a feature branch**
+
    ```bash
    git checkout -b feat/your-feature-name
    ```
@@ -80,6 +85,7 @@ lazuli/
    - Update documentation
 
 3. **Run quality checks**
+
    ```bash
    npm run lint        # Lint all packages
    npm run type-check  # TypeScript type checking
@@ -87,6 +93,7 @@ lazuli/
    ```
 
 4. **Commit your changes**
+
    ```bash
    git add .
    git commit -m "feat: add new feature"
@@ -209,6 +216,7 @@ Example: `feat(api): add caching layer`
 1. **Update documentation**: Ensure README and relevant docs are updated
 
 2. **Run all checks**:
+
    ```bash
    npm run build       # Ensure everything builds
    npm run lint        # No linting errors
@@ -265,11 +273,13 @@ describe('CacheService', () => {
 ## Adding a New Package
 
 1. **Create package directory**
+
    ```bash
    mkdir -p packages/your-package/src
    ```
 
 2. **Add package.json**
+
    ```json
    {
      "name": "@lazuli/your-package",

@@ -47,7 +47,18 @@ export default function SuperEMAPage() {
   const parseSymbol = (symbol: string) => {
     if (symbol.endsWith('.P')) {
       const baseQuote = symbol.slice(0, -2);
-      const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD'];
+      const commonQuotes = [
+        'USDT',
+        'USDC',
+        'BUSD',
+        'USD',
+        'BTC',
+        'ETH',
+        'BNB',
+        'TUSD',
+        'DAI',
+        'FDUSD',
+      ];
       for (const quote of commonQuotes) {
         if (baseQuote.endsWith(quote)) {
           const base = baseQuote.slice(0, -quote.length);
@@ -201,7 +212,8 @@ export default function SuperEMAPage() {
   const filteredTickers = useMemo(() => {
     return tickers
       .filter((t) => {
-        const matchesSearch = !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesSearch =
+          !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
         const tickerQuote = getQuoteCurrency(t.symbol).toUpperCase();
         const matchesQuote = tickerQuote === quoteFilter;
         return matchesSearch && matchesQuote;
@@ -228,7 +240,7 @@ export default function SuperEMAPage() {
   const getEMAColor = (period: number, maxPeriod: number = 400): string => {
     const ratio = period / maxPeriod;
     // HSL to RGB conversion for gradient from blue (240°) to red (0°)
-    const hue = (240 - (ratio * 240)) / 360;
+    const hue = (240 - ratio * 240) / 360;
     const s = 0.7;
     const l = 0.5;
 
@@ -236,17 +248,17 @@ export default function SuperEMAPage() {
     const hue2rgb = (p: number, q: number, t: number) => {
       if (t < 0) t += 1;
       if (t > 1) t -= 1;
-      if (t < 1/6) return p + (q - p) * 6 * t;
-      if (t < 1/2) return q;
-      if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
       return p;
     };
 
     const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
     const p = 2 * l - q;
-    const r = Math.round(hue2rgb(p, q, hue + 1/3) * 255);
+    const r = Math.round(hue2rgb(p, q, hue + 1 / 3) * 255);
     const g = Math.round(hue2rgb(p, q, hue) * 255);
-    const b = Math.round(hue2rgb(p, q, hue - 1/3) * 255);
+    const b = Math.round(hue2rgb(p, q, hue - 1 / 3) * 255);
 
     // Use rgba with 10% opacity for thinner appearance
     return `rgba(${r}, ${g}, ${b}, 0.1)`;
@@ -330,8 +342,8 @@ export default function SuperEMAPage() {
     // Using cyan/orange for better visibility under blue-red EMA gradient
     // Also improves accessibility for colorblind users
     const candlestickSeries = chart.addCandlestickSeries({
-      upColor: '#00d4aa',      // Bright cyan-green
-      downColor: '#ff6b35',    // Bright orange
+      upColor: '#00d4aa', // Bright cyan-green
+      downColor: '#ff6b35', // Bright orange
       borderUpColor: '#00ffcc', // Lighter cyan border
       borderDownColor: '#ff8c5a', // Lighter orange border
       wickUpColor: '#00d4aa',
@@ -401,9 +413,7 @@ export default function SuperEMAPage() {
             <Layers className="h-8 w-8" />
           </div>
           <div>
-            <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight">
-              SuperEMA
-            </h1>
+            <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight">SuperEMA</h1>
             <p className="text-lg font-light text-muted-foreground mt-2">
               400 EMA lines for comprehensive trend analysis and support/resistance identification.
             </p>
@@ -562,9 +572,7 @@ export default function SuperEMAPage() {
           {selectedSymbol && (
             <div className="p-6 bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-white/10 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
               <div>
-                <p className="text-sm font-medium text-muted-foreground mb-1">
-                  Ready to Generate
-                </p>
+                <p className="text-sm font-medium text-muted-foreground mb-1">Ready to Generate</p>
                 <div className="flex items-center gap-3 text-2xl font-display font-bold">
                   <span>{parseSymbol(selectedSymbol).base}</span>
                   <span className="text-muted-foreground text-lg">SuperEMA</span>
@@ -609,9 +617,7 @@ export default function SuperEMAPage() {
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary to-cyan-400">
                 {emaData.symbol}
               </span>
-              <span className="text-muted-foreground text-lg font-normal">
-                SuperEMA
-              </span>
+              <span className="text-muted-foreground text-lg font-normal">SuperEMA</span>
             </h2>
             <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-full border border-white/5">
               <span>{emaData.timeframe}</span>
@@ -700,10 +706,18 @@ export default function SuperEMAPage() {
                 What is SuperEMA?
               </p>
               <ul className="text-sm text-muted-foreground space-y-2 list-disc list-inside ml-2">
-                <li>Displays <strong>400 EMA lines</strong> (1-400 periods)</li>
-                <li>Helps identify <strong>support/resistance</strong> zones</li>
-                <li>Shows <strong>trend strength</strong> and direction</li>
-                <li>Useful for <strong>confluence analysis</strong></li>
+                <li>
+                  Displays <strong>400 EMA lines</strong> (1-400 periods)
+                </li>
+                <li>
+                  Helps identify <strong>support/resistance</strong> zones
+                </li>
+                <li>
+                  Shows <strong>trend strength</strong> and direction
+                </li>
+                <li>
+                  Useful for <strong>confluence analysis</strong>
+                </li>
               </ul>
             </div>
           </CardContent>

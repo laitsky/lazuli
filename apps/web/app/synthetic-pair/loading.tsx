@@ -2,7 +2,7 @@
  * Synthetic Pair loading state - Displayed while synthetic pair page loads
  */
 
-import { PageHeaderSkeleton, Skeleton, CardSkeleton } from '@/components/ui/skeleton'
+import { PageHeaderSkeleton, Skeleton, CardSkeleton } from '@/components/ui/skeleton';
 
 export default function Loading() {
   return (
@@ -33,5 +33,5 @@ export default function Loading() {
         <CardSkeleton />
       </div>
     </div>
-  )
+  );
 }

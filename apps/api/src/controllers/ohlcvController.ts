@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { cacheService } from '../services/cacheService';
 import { successResponse, errorResponse } from '../utils/response';
-import { SupportedExchange, Timeframe, OHLCVResponse } from '@lazuli/shared';
+import { Timeframe, OHLCVResponse } from '@lazuli/shared';
 import { validateExchange, validateInteger } from '../utils/validation';
 
 /**
@@ -48,7 +48,7 @@ export class OHLCVController {
 
       // Filter to only include our standard timeframes
       const standardTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
-      const filteredTimeframes = standardTimeframes.filter(tf =>
+      const filteredTimeframes = standardTimeframes.filter((tf) =>
         supportedTimeframes.includes(tf)
       );
 
@@ -196,7 +196,7 @@ export class OHLCVController {
         return errorResponse(res, 'Timeframes query parameter is required', 400);
       }
 
-      const timeframes = timeframesParam.split(',').map(tf => tf.trim()) as Timeframe[];
+      const timeframes = timeframesParam.split(',').map((tf) => tf.trim()) as Timeframe[];
       const validTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
 
       // Validate each timeframe
@@ -278,7 +278,7 @@ export class OHLCVController {
       const results = await Promise.allSettled(promises);
 
       // Extract results and separate successful vs failed timeframes
-      const timeframesData = results.map(result => {
+      const timeframesData = results.map((result) => {
         if (result.status === 'fulfilled') {
           return result.value;
         } else {
@@ -294,8 +294,8 @@ export class OHLCVController {
       });
 
       // Count successful vs failed fetches
-      const successCount = timeframesData.filter(tf => tf.success).length;
-      const failedCount = timeframesData.filter(tf => !tf.success).length;
+      const successCount = timeframesData.filter((tf) => tf.success).length;
+      const failedCount = timeframesData.filter((tf) => !tf.success).length;
 
       // Build response with data for each timeframe
       const response = {

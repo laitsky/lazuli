@@ -1,6 +1,7 @@
 # Lazuli Feature Roadmap
 
 ## ✅ Completed Features
+
 - [x] **Basic REST API structure** - Express.js with TypeScript
 - [x] **CCXT integration** - Binance, Bybit, OKX (spot + perpetual markets)
 - [x] **Exchange integrations** - CCXT library for multiple exchanges
@@ -16,6 +17,7 @@
 ## 🚧 Current System Status
 
 ### Architecture Overview
+
 - **Backend**: Node.js + Express + TypeScript
 - **Exchange Integration**: CCXT (Binance, Bybit, OKX)
 - **Data Types**: Spot + Perpetual futures markets
@@ -23,6 +25,7 @@
 - **Development**: Hot reload, TypeScript strict mode, comprehensive logging
 
 ### Known Limitations & Improvement Areas
+
 - **No Caching**: Every request hits exchange APIs (can cause rate limits)
 - **No Authentication**: Public endpoints only
 - **No Database**: No data persistence or historical storage
@@ -35,6 +38,7 @@
 ## 📋 Suggested Features for Trading Decision Support
 
 ### Data Aggregation & Analysis
+
 - [ ] **Price Comparison**: Compare same asset prices across exchanges
 - [ ] **Arbitrage Detection**: Identify price differences for arbitrage opportunities
 - [ ] **Volume Analysis**: Track 24h volume trends across exchanges
@@ -43,6 +47,7 @@
 - [ ] **Open Interest**: Monitor OI changes for trend analysis
 
 ### Technical Indicators
+
 - [ ] **Moving Averages**: SMA, EMA calculations
 - [ ] **RSI**: Relative Strength Index across timeframes
 - [ ] **MACD**: Moving Average Convergence Divergence
@@ -50,6 +55,7 @@
 - [ ] **Volume Profile**: Volume at price levels
 
 ### Alerts & Notifications
+
 - [ ] **Price Alerts**: Notify when price reaches target
 - [ ] **Volume Spikes**: Alert on unusual volume
 - [ ] **Funding Rate Alerts**: High/low funding notifications
@@ -57,6 +63,7 @@
 - [ ] **Large Order Detection**: Whale activity monitoring
 
 ### Risk Management
+
 - [ ] **Position Calculator**: Calculate position sizes
 - [ ] **Risk/Reward Ratio**: Analyze trade setups
 - [ ] **Correlation Matrix**: Asset correlation analysis
@@ -64,6 +71,7 @@
 - [ ] **Liquidation Calculator**: Calculate liquidation prices
 
 ### Market Intelligence
+
 - [ ] **Market Sentiment**: Aggregate long/short ratios
 - [ ] **Fear & Greed Index**: Custom implementation
 - [ ] **Social Sentiment**: Twitter/Discord mention tracking
@@ -71,6 +79,7 @@
 - [ ] **On-chain Metrics**: DEX volume, TVL changes
 
 ### Advanced Features
+
 - [ ] **Trading Bot Framework**: Basic bot implementation
 - [ ] **Backtesting Engine**: Test strategies on historical data
 - [ ] **WebSocket Support**: Real-time data streaming
@@ -78,12 +87,14 @@
 - [ ] **Custom Screeners**: Filter assets by criteria
 
 ### User Interface Options
+
 - [ ] **CLI Enhancement**: Interactive terminal UI
 - [ ] **Web Dashboard**: React/Next.js frontend
 - [ ] **Telegram Bot**: Trading alerts and commands
 - [ ] **Mobile App**: React Native implementation
 
 ### Performance & Infrastructure
+
 - [ ] **Redis Caching**: Reduce API calls
 - [ ] **Rate Limit Management**: Smart request queuing
 - [ ] **Historical Data Storage**: Time-series database
@@ -91,11 +102,13 @@
 - [ ] **Monitoring Dashboard**: System health metrics
 
 ### Exchange-Specific Features
+
 - [ ] **Binance**: Savings rates, staking yields
 - [ ] **Bybit**: Copy trading stats
 - [ ] **OKX**: Options data integration
 
 ### Compliance & Security
+
 - [ ] **API Key Management**: Secure storage system
 - [ ] **Audit Logging**: Track all operations
 - [ ] **2FA Support**: Enhanced security
@@ -105,6 +118,7 @@
 ## 🎯 Next Sprint Priorities (Recommended Implementation Order)
 
 ### Phase 1: Core Enhancements (Week 1-2)
+
 1. **Error Handling & Validation** - Input validation, better error messages
 2. **Rate Limiting** - Implement request throttling to avoid API bans
 3. **Caching Layer** - Redis/memory cache for ticker data (reduce API calls)
@@ -112,6 +126,7 @@
 5. **API Documentation** - Swagger/OpenAPI spec generation
 
 ### Phase 2: Trading Features (Week 3-4)
+
 6. **Price Comparison** - Compare same asset across exchanges
 7. **Arbitrage Detection** - Identify price discrepancies
 8. **Volume Analysis** - Track unusual volume spikes
@@ -119,6 +134,7 @@
 10. **Basic Alerts** - Price threshold notifications
 
 ### Phase 3: Advanced Features (Month 2)
+
 11. **WebSocket Integration** - Real-time data streaming
 12. **Technical Indicators** - SMA, EMA, RSI calculations
 13. **Historical Data** - Store and retrieve price history
@@ -126,6 +142,7 @@
 15. **CLI Enhancement** - Interactive terminal interface
 
 ### Phase 4: User Interface (Month 3)
+
 16. **Web Dashboard** - React/Next.js frontend
 17. **Authentication** - User accounts and API keys
 18. **Portfolio Tracking** - Multi-exchange portfolio view
@@ -133,6 +150,7 @@
 20. **Mobile Optimization** - Responsive design
 
 ### Phase 5: Advanced Trading (Month 4+)
+
 21. **Trading Bot Framework** - Automated trading strategies
 22. **Backtesting Engine** - Strategy testing on historical data
 23. **Risk Management** - Position sizing, stop-loss automation
@@ -142,6 +160,7 @@
 ## 🧪 Testing & Quality Assurance
 
 ### Testing Strategy (Not Yet Implemented)
+
 - [ ] **Unit Tests** - Jest/Vitest for service and utility functions
 - [ ] **Integration Tests** - API endpoint testing with supertest
 - [ ] **Exchange API Tests** - Mock external API calls for reliable testing
@@ -149,6 +168,7 @@
 - [ ] **Error Scenario Testing** - Test API failures and network issues
 
 ### Code Quality Tools (Recommended)
+
 - [ ] **ESLint** - JavaScript/TypeScript linting rules
 - [ ] **Prettier** - Code formatting consistency
 - [ ] **Husky** - Git hooks for pre-commit checks
@@ -158,6 +178,7 @@
 ## 🚀 Deployment & DevOps
 
 ### Production Readiness Checklist
+
 - [ ] **Environment Configuration** - Production vs development settings
 - [ ] **Docker Containerization** - Container for consistent deployments
 - [ ] **Health Checks** - Enhanced monitoring endpoints
@@ -168,6 +189,7 @@
 - [ ] **Database Migration** - When Supabase integration is added
 
 ### Monitoring & Observability
+
 - [ ] **Application Metrics** - Response times, error rates, throughput
 - [ ] **Business Metrics** - API usage per exchange, popular symbols
 - [ ] **Log Aggregation** - Centralized logging with ELK stack or similar

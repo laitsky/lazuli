@@ -78,12 +78,12 @@ export class TickerController {
 
       // Filter by type (spot/perp)
       if (typeFilter && (typeFilter === 'spot' || typeFilter === 'perp')) {
-        filteredTickers = filteredTickers.filter(t => t.type === typeFilter);
+        filteredTickers = filteredTickers.filter((t) => t.type === typeFilter);
       }
 
       // Filter by search query (symbol)
       if (searchQuery) {
-        filteredTickers = filteredTickers.filter(t =>
+        filteredTickers = filteredTickers.filter((t) =>
           t.symbol.toLowerCase().includes(searchQuery)
         );
       }
@@ -185,7 +185,7 @@ export class TickerController {
       const exchangeId = exchange.toLowerCase() as SupportedExchange;
 
       let ticker;
-      
+
       // Route to appropriate service based on exchange type
       switch (exchangeId) {
         case 'binance':
@@ -266,17 +266,17 @@ export class TickerController {
 
       // Filter by type (spot/perp)
       if (typeFilter && (typeFilter === 'spot' || typeFilter === 'perp')) {
-        filteredMarkets = filteredMarkets.filter(m => m.type === typeFilter);
+        filteredMarkets = filteredMarkets.filter((m) => m.type === typeFilter);
       }
 
       // Filter by active status
       if (activeFilter !== undefined) {
-        filteredMarkets = filteredMarkets.filter(m => m.active === activeFilter);
+        filteredMarkets = filteredMarkets.filter((m) => m.active === activeFilter);
       }
 
       // Filter by search query (symbol)
       if (searchQuery) {
-        filteredMarkets = filteredMarkets.filter(m =>
+        filteredMarkets = filteredMarkets.filter((m) =>
           m.symbol.toLowerCase().includes(searchQuery)
         );
       }

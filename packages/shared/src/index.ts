@@ -7,10 +7,10 @@
  * Standard API response wrapper for all endpoints
  */
 export interface ApiResponse<T = any> {
-  success: boolean
-  data: T
-  error: string | null
-  timestamp: number
+  success: boolean;
+  data: T;
+  error: string | null;
+  timestamp: number;
 }
 
 /**
@@ -21,21 +21,21 @@ export interface ApiResponse<T = any> {
  * - Perpetual markets: BTCUSDT.P, SOLUSDT.P (.P suffix)
  */
 export interface Ticker {
-  symbol: string                    // Trading pair symbol (e.g., BTC-USDT for spot, BTCUSDT.P for perp)
-  exchange: string                  // Exchange identifier
-  type: 'spot' | 'perp'            // Market type
-  bid: number | null                // Highest bid price
-  ask: number | null                // Lowest ask price
-  last: number | null               // Last traded price
-  high24h: number | null            // 24h highest price
-  low24h: number | null             // 24h lowest price
-  volume24h: number | null          // 24h base volume
-  quoteVolume24h: number | null    // 24h quote volume
-  change24h: number | null          // 24h absolute change
-  percentage24h: number | null      // 24h percentage change
-  timestamp: number                 // Data timestamp
-  fundingRate?: number | null       // Perpetual funding rate (perp only)
-  openInterest?: number | null      // Perpetual open interest (perp only)
+  symbol: string; // Trading pair symbol (e.g., BTC-USDT for spot, BTCUSDT.P for perp)
+  exchange: string; // Exchange identifier
+  type: 'spot' | 'perp'; // Market type
+  bid: number | null; // Highest bid price
+  ask: number | null; // Lowest ask price
+  last: number | null; // Last traded price
+  high24h: number | null; // 24h highest price
+  low24h: number | null; // 24h lowest price
+  volume24h: number | null; // 24h base volume
+  quoteVolume24h: number | null; // 24h quote volume
+  change24h: number | null; // 24h absolute change
+  percentage24h: number | null; // 24h percentage change
+  timestamp: number; // Data timestamp
+  fundingRate?: number | null; // Perpetual funding rate (perp only)
+  openInterest?: number | null; // Perpetual open interest (perp only)
 }
 
 /**
@@ -46,83 +46,85 @@ export interface Ticker {
  * - Perpetual markets: BTCUSDT.P, SOLUSDT.P (.P suffix)
  */
 export interface Market {
-  id: string                        // Market identifier
-  symbol: string                    // Trading pair symbol (e.g., BTC-USDT for spot, BTCUSDT.P for perp)
-  base: string                      // Base currency
-  quote: string                     // Quote currency
-  type: 'spot' | 'perp'            // Market type
-  active: boolean                   // Is market active
-  exchange: string                  // Exchange identifier
+  id: string; // Market identifier
+  symbol: string; // Trading pair symbol (e.g., BTC-USDT for spot, BTCUSDT.P for perp)
+  base: string; // Base currency
+  quote: string; // Quote currency
+  type: 'spot' | 'perp'; // Market type
+  active: boolean; // Is market active
+  exchange: string; // Exchange identifier
 }
 
 /**
  * Exchange capabilities information
  */
 export interface ExchangeInfo {
-  name: string                      // Display name
-  id: string                        // Exchange identifier
-  supported: boolean                // Is supported
-  hasSpot: boolean                  // Has spot markets
-  hasPerp: boolean                  // Has perpetual markets
+  name: string; // Display name
+  id: string; // Exchange identifier
+  supported: boolean; // Is supported
+  hasSpot: boolean; // Has spot markets
+  hasPerp: boolean; // Has perpetual markets
 }
 
 /**
  * Supported exchanges
  */
-export type SupportedExchange = 'binance' | 'bybit' | 'okx'
+export type SupportedExchange = 'binance' | 'bybit' | 'okx';
 
 /**
  * Pagination metadata
  */
 export interface PaginationMeta {
-  page: number          // Current page number (1-indexed)
-  limit: number         // Items per page
-  total: number         // Total number of items
-  totalPages: number    // Total number of pages
-  hasNext: boolean      // Has next page
-  hasPrev: boolean      // Has previous page
+  page: number; // Current page number (1-indexed)
+  limit: number; // Items per page
+  total: number; // Total number of items
+  totalPages: number; // Total number of pages
+  hasNext: boolean; // Has next page
+  hasPrev: boolean; // Has previous page
 }
 
 /**
  * Tickers response from /tickers/:exchange
  */
 export interface TickersResponse {
-  exchange: string
-  tickers: Ticker[]
-  count: number
-  pagination?: PaginationMeta  // Optional pagination metadata
-  filters?: {                   // Applied filters
-    type?: 'spot' | 'perp'
-    search?: string
-    sortBy?: string
-    sortOrder?: 'asc' | 'desc'
-  }
+  exchange: string;
+  tickers: Ticker[];
+  count: number;
+  pagination?: PaginationMeta; // Optional pagination metadata
+  filters?: {
+    // Applied filters
+    type?: 'spot' | 'perp';
+    search?: string;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+  };
 }
 
 /**
  * Markets response from /markets/:exchange
  */
 export interface MarketsResponse {
-  exchange: string
-  markets: Market[]
-  count: number
-  pagination?: PaginationMeta  // Optional pagination metadata
-  filters?: {                   // Applied filters
-    type?: 'spot' | 'perp'
-    search?: string
-    active?: boolean
-  }
+  exchange: string;
+  markets: Market[];
+  count: number;
+  pagination?: PaginationMeta; // Optional pagination metadata
+  filters?: {
+    // Applied filters
+    type?: 'spot' | 'perp';
+    search?: string;
+    active?: boolean;
+  };
 }
 
 /**
  * Health check response
  */
 export interface HealthResponse {
-  status: string
-  api: string
-  database: string
-  exchanges: string[]
-  timestamp: number
+  status: string;
+  api: string;
+  database: string;
+  exchanges: string[];
+  timestamp: number;
 }
 
 /**
@@ -130,19 +132,19 @@ export interface HealthResponse {
  * Standard format for chart data across all timeframes
  */
 export interface OHLCV {
-  timestamp: number     // Candle start timestamp in milliseconds
-  open: number          // Opening price
-  high: number          // Highest price in the period
-  low: number           // Lowest price in the period
-  close: number         // Closing price
-  volume: number        // Trading volume in base currency
+  timestamp: number; // Candle start timestamp in milliseconds
+  open: number; // Opening price
+  high: number; // Highest price in the period
+  low: number; // Lowest price in the period
+  close: number; // Closing price
+  volume: number; // Trading volume in base currency
 }
 
 /**
  * Supported timeframes for OHLCV data
  * Maps to standard exchange timeframe formats
  */
-export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '3d' | '1w'
+export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '3d' | '1w';
 
 /**
  * OHLCV response from /ohlcv/:exchange/:symbol
@@ -152,11 +154,11 @@ export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '3d' | '1w'
  * - Perpetual: BTCUSDT.P
  */
 export interface OHLCVResponse {
-  exchange: string        // Exchange identifier
-  symbol: string          // Trading pair symbol (BTC-USDT or BTCUSDT.P)
-  timeframe: Timeframe    // Requested timeframe
-  candles: OHLCV[]       // Array of candlestick data
-  count: number          // Number of candles returned
+  exchange: string; // Exchange identifier
+  symbol: string; // Trading pair symbol (BTC-USDT or BTCUSDT.P)
+  timeframe: Timeframe; // Requested timeframe
+  candles: OHLCV[]; // Array of candlestick data
+  count: number; // Number of candles returned
 }
 
 /**
@@ -164,14 +166,14 @@ export interface OHLCVResponse {
  * Generated by dividing two ticker prices (symbol1 / symbol2)
  */
 export interface CustomPairResponse {
-  exchange: string           // Exchange identifier
-  symbol1: string            // Numerator symbol (e.g., BTC-USDT)
-  symbol2: string            // Denominator symbol (e.g., AVAX-USDT)
-  customPairSymbol: string   // Resulting pair (e.g., BTC/AVAX)
-  timeframe: Timeframe       // Requested timeframe
-  marketType: 'spot' | 'perp' // Market type
-  candles: OHLCV[]          // Array of custom pair candlestick data
-  count: number             // Number of candles returned
+  exchange: string; // Exchange identifier
+  symbol1: string; // Numerator symbol (e.g., BTC-USDT)
+  symbol2: string; // Denominator symbol (e.g., AVAX-USDT)
+  customPairSymbol: string; // Resulting pair (e.g., BTC/AVAX)
+  timeframe: Timeframe; // Requested timeframe
+  marketType: 'spot' | 'perp'; // Market type
+  candles: OHLCV[]; // Array of custom pair candlestick data
+  count: number; // Number of candles returned
 }
 
 /**
@@ -179,8 +181,8 @@ export interface CustomPairResponse {
  * Each asset has a symbol and its weight in the index (as percentage)
  */
 export interface IndexAsset {
-  symbol: string            // Asset symbol (e.g., BTC-USDT)
-  weight: number            // Weight percentage (0-100)
+  symbol: string; // Asset symbol (e.g., BTC-USDT)
+  weight: number; // Weight percentage (0-100)
 }
 
 /**
@@ -188,9 +190,9 @@ export interface IndexAsset {
  * Shows the index value at a specific timestamp
  */
 export interface IndexPerformancePoint {
-  timestamp: number         // Timestamp in milliseconds
-  value: number             // Normalized index value (starts at 100)
-  change: number            // Percentage change from start
+  timestamp: number; // Timestamp in milliseconds
+  value: number; // Normalized index value (starts at 100)
+  change: number; // Percentage change from start
 }
 
 /**
@@ -198,32 +200,32 @@ export interface IndexPerformancePoint {
  * Performance data for USDT/BTC/ETH/SOL benchmarks
  */
 export interface BenchmarkPerformance {
-  symbol: string            // Benchmark symbol
-  name: string              // Display name
-  data: IndexPerformancePoint[]  // Performance data points
+  symbol: string; // Benchmark symbol
+  name: string; // Display name
+  data: IndexPerformancePoint[]; // Performance data points
 }
 
 /**
  * Custom index calculation request
  */
 export interface CustomIndexRequest {
-  name: string              // Index name
-  assets: IndexAsset[]      // Array of assets with weights
-  timeframe: Timeframe      // Timeframe for calculation
-  exchange: SupportedExchange  // Exchange to use
+  name: string; // Index name
+  assets: IndexAsset[]; // Array of assets with weights
+  timeframe: Timeframe; // Timeframe for calculation
+  exchange: SupportedExchange; // Exchange to use
 }
 
 /**
  * Custom index response with performance data
  */
 export interface CustomIndexResponse {
-  name: string              // Index name
-  exchange: string          // Exchange used
-  timeframe: Timeframe      // Timeframe used
-  assets: IndexAsset[]      // Assets in the index
-  performance: IndexPerformancePoint[]  // Index performance data
-  benchmarks: BenchmarkPerformance[]    // Comparison benchmarks
-  startTime: number         // Start timestamp
-  endTime: number           // End timestamp
-  totalReturn: number       // Total percentage return
+  name: string; // Index name
+  exchange: string; // Exchange used
+  timeframe: Timeframe; // Timeframe used
+  assets: IndexAsset[]; // Assets in the index
+  performance: IndexPerformancePoint[]; // Index performance data
+  benchmarks: BenchmarkPerformance[]; // Comparison benchmarks
+  startTime: number; // Start timestamp
+  endTime: number; // End timestamp
+  totalReturn: number; // Total percentage return
 }

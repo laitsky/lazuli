@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Router as RouterType } from 'express';
 import { exchangeController } from '../controllers/exchangeController';
 import { tickerController } from '../controllers/tickerController';
 import { dataController } from '../controllers/dataController';
@@ -9,7 +9,7 @@ import { customIndexController } from '../controllers/customIndexController';
 import { superEmaController } from '../controllers/superEmaController';
 
 // Create Express router for API v1 endpoints
-const router = Router();
+const router: RouterType = Router();
 
 // GET /api/v1/exchanges - List all supported exchanges
 router.get('/exchanges', async (req, res) => {
@@ -54,6 +54,7 @@ router.get('/custom-pair/:exchange/:symbol1/:symbol2', async (req, res) => {
 // POST /api/v1/custom-index - Calculate custom index performance with weighted assets
 router.post('/custom-index', async (req, res) => {
   await customIndexController.calculateIndex(req, res);
+});
 
 // GET /api/v1/superema/:exchange/:symbol - Get SuperEMA data (1-400 EMA periods)
 router.get('/superema/:exchange/:symbol', async (req, res) => {

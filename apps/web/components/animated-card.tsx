@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 /**
  * AnimatedCard component - Card wrapper with beautiful hover animations
@@ -9,12 +9,12 @@
  * - Entrance animation when scrolling into view
  */
 
-import { motion, HTMLMotionProps } from 'framer-motion'
-import { ReactNode } from 'react'
+import { motion, HTMLMotionProps } from 'framer-motion';
+import { ReactNode } from 'react';
 
 interface AnimatedCardProps extends Omit<HTMLMotionProps<'div'>, 'children'> {
-  children: ReactNode
-  delay?: number
+  children: ReactNode;
+  delay?: number;
 }
 
 /**
@@ -40,5 +40,5 @@ export function AnimatedCard({ children, delay = 0, ...props }: AnimatedCardProp
     >
       {children}
     </motion.div>
-  )
+  );
 }

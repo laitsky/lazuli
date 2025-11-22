@@ -52,13 +52,9 @@ export function VirtualizedTickerList({
       aria-label={`${ariaLabel} ticker list`}
     >
       {loading ? (
-        <p className="text-sm text-muted-foreground text-center py-4">
-          Loading tickers...
-        </p>
+        <p className="text-sm text-muted-foreground text-center py-4">Loading tickers...</p>
       ) : tickers.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-4">
-          No tickers found
-        </p>
+        <p className="text-sm text-muted-foreground text-center py-4">No tickers found</p>
       ) : (
         <div
           style={{

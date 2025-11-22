@@ -2,7 +2,7 @@
  * Exchanges loading state - Displayed while exchanges page loads
  */
 
-import { CardSkeleton, PageHeaderSkeleton, TableSkeleton } from '@/components/ui/skeleton'
+import { CardSkeleton, PageHeaderSkeleton, TableSkeleton } from '@/components/ui/skeleton';
 
 export default function Loading() {
   return (
@@ -21,5 +21,5 @@ export default function Loading() {
         </div>
       </div>
     </div>
-  )
+  );
 }

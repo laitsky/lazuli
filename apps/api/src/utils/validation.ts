@@ -20,17 +20,17 @@ export function validateInteger(
   max: number
 ): number {
   // Convert to string first to handle various input types safely
-  const str = String(value)
+  const str = String(value);
 
   // Parse as base-10 integer
-  const parsed = parseInt(str, 10)
+  const parsed = parseInt(str, 10);
 
   // Check if parsing was successful and value is within bounds
   if (isNaN(parsed) || !isFinite(parsed) || parsed < min || parsed > max) {
-    return defaultValue
+    return defaultValue;
   }
 
-  return parsed
+  return parsed;
 }
 
 /**
@@ -43,25 +43,25 @@ export function validateInteger(
  */
 export function validateSearchQuery(value: any, maxLength: number = 50): string | undefined {
   if (value === null || value === undefined || value === '') {
-    return undefined
+    return undefined;
   }
 
   // Convert to string and trim
-  const str = String(value).trim().toLowerCase()
+  const str = String(value).trim().toLowerCase();
 
   // Check length
   if (str.length === 0 || str.length > maxLength) {
-    return undefined
+    return undefined;
   }
 
   // Allow only alphanumeric characters, spaces, hyphens, forward slashes, and periods
   // This is safe for crypto trading pairs like BTC/USDT, BTC-USDT, BTCUSDT.P
-  const validPattern = /^[a-z0-9\s\-\/.]+$/i
+  const validPattern = /^[a-z0-9\s\-\/.]+$/i;
   if (!validPattern.test(str)) {
-    return undefined
+    return undefined;
   }
 
-  return str
+  return str;
 }
 
 /**
@@ -71,9 +71,9 @@ export function validateSearchQuery(value: any, maxLength: number = 50): string 
  */
 export function validateMarketType(value: any): 'spot' | 'perp' | undefined {
   if (value === 'spot' || value === 'perp') {
-    return value
+    return value;
   }
-  return undefined
+  return undefined;
 }
 
 /**
@@ -83,9 +83,9 @@ export function validateMarketType(value: any): 'spot' | 'perp' | undefined {
  */
 export function validateSortOrder(value: any): 'asc' | 'desc' {
   if (value === 'asc') {
-    return 'asc'
+    return 'asc';
   }
-  return 'desc' // Default to descending
+  return 'desc'; // Default to descending
 }
 
 /**
@@ -95,9 +95,9 @@ export function validateSortOrder(value: any): 'asc' | 'desc' {
  */
 export function validateTickerSortBy(value: any): 'volume' | 'price' | 'change' {
   if (value === 'volume' || value === 'price' || value === 'change') {
-    return value
+    return value;
   }
-  return 'volume' // Default to volume
+  return 'volume'; // Default to volume
 }
 
 /**
@@ -107,12 +107,12 @@ export function validateTickerSortBy(value: any): 'volume' | 'price' | 'change' 
  */
 export function validateBoolean(value: any): boolean | undefined {
   if (value === 'true' || value === true) {
-    return true
+    return true;
   }
   if (value === 'false' || value === false) {
-    return false
+    return false;
   }
-  return undefined
+  return undefined;
 }
 
 /**
@@ -121,17 +121,13 @@ export function validateBoolean(value: any): boolean | undefined {
  * @returns Valid exchange ID or null
  */
 export function validateExchange(value: any): 'binance' | 'bybit' | 'okx' | null {
-  const normalized = String(value).toLowerCase()
+  const normalized = String(value).toLowerCase();
 
-  if (
-    normalized === 'binance' ||
-    normalized === 'bybit' ||
-    normalized === 'okx'
-  ) {
-    return normalized as 'binance' | 'bybit' | 'okx'
+  if (normalized === 'binance' || normalized === 'bybit' || normalized === 'okx') {
+    return normalized as 'binance' | 'bybit' | 'okx';
   }
 
-  return null
+  return null;
 }
 
 /**
@@ -157,13 +153,13 @@ export function validateExchange(value: any): 'binance' | 'bybit' | 'okx' | null
 export function convertFromCCXTNotation(ccxtSymbol: string, marketType: 'spot' | 'perp'): string {
   if (marketType === 'spot') {
     // Spot: Convert BTC/USDT to BTC-USDT
-    return ccxtSymbol.replace('/', '-')
+    return ccxtSymbol.replace('/', '-');
   } else {
     // Perpetual: Convert BTC/USDT:USDT to BTCUSDT.P
     // Remove the settlement currency (after colon) and the separators
-    const baseQuote = ccxtSymbol.split(':')[0] // Get "BTC/USDT" from "BTC/USDT:USDT"
-    const combined = baseQuote.replace('/', '') // Combine to "BTCUSDT"
-    return `${combined}.P` // Add .P suffix for perpetual
+    const baseQuote = ccxtSymbol.split(':')[0]; // Get "BTC/USDT" from "BTC/USDT:USDT"
+    const combined = baseQuote.replace('/', ''); // Combine to "BTCUSDT"
+    return `${combined}.P`; // Add .P suffix for perpetual
   }
 }
 
@@ -190,25 +186,36 @@ export function convertFromCCXTNotation(ccxtSymbol: string, marketType: 'spot' |
 export function convertToCCXTNotation(standardSymbol: string, marketType: 'spot' | 'perp'): string {
   if (marketType === 'spot') {
     // Spot: Convert BTC-USDT to BTC/USDT
-    return standardSymbol.replace('-', '/')
+    return standardSymbol.replace('-', '/');
   } else {
     // Perpetual: Convert BTCUSDT.P to BTC/USDT:USDT
-    const baseQuote = standardSymbol.replace('.P', '') // Remove .P suffix
+    const baseQuote = standardSymbol.replace('.P', ''); // Remove .P suffix
 
     // Need to split the combined symbol (BTCUSDT) into base and quote
     // Common quote currencies to check (in order of likelihood)
-    const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD']
+    const commonQuotes = [
+      'USDT',
+      'USDC',
+      'BUSD',
+      'USD',
+      'BTC',
+      'ETH',
+      'BNB',
+      'TUSD',
+      'DAI',
+      'FDUSD',
+    ];
 
     for (const quote of commonQuotes) {
       if (baseQuote.endsWith(quote)) {
-        const base = baseQuote.slice(0, -quote.length)
-        return `${base}/${quote}:${quote}`
+        const base = baseQuote.slice(0, -quote.length);
+        return `${base}/${quote}:${quote}`;
       }
     }
 
     // Fallback: If we can't parse it, return as-is with warning
-    console.warn(`Unable to parse perpetual symbol: ${standardSymbol}`)
-    return standardSymbol.replace('.P', '')
+    console.warn(`Unable to parse perpetual symbol: ${standardSymbol}`);
+    return standardSymbol.replace('.P', '');
   }
 }
 
@@ -227,26 +234,36 @@ export function convertToCCXTNotation(standardSymbol: string, marketType: 'spot'
 export function parseSymbol(symbol: string): { base: string; quote: string } {
   // Handle our perpetual notation (BTCUSDT.P)
   if (symbol.endsWith('.P')) {
-    const baseQuote = symbol.replace('.P', '')
-    const commonQuotes = ['USDT', 'USDC', 'BUSD', 'USD', 'BTC', 'ETH', 'BNB', 'TUSD', 'DAI', 'FDUSD']
+    const baseQuote = symbol.replace('.P', '');
+    const commonQuotes = [
+      'USDT',
+      'USDC',
+      'BUSD',
+      'USD',
+      'BTC',
+      'ETH',
+      'BNB',
+      'TUSD',
+      'DAI',
+      'FDUSD',
+    ];
 
     for (const quote of commonQuotes) {
       if (baseQuote.endsWith(quote)) {
-        const base = baseQuote.slice(0, -quote.length)
-        return { base, quote }
+        const base = baseQuote.slice(0, -quote.length);
+        return { base, quote };
       }
     }
   }
 
   // Handle standard separators (-, /, :)
-  const parts = symbol.split(/[-/:]/)[0]
-  const separator = symbol.match(/[-/:]/)?.[0]
+  const separator = symbol.match(/[-/:]/)?.[0];
 
   if (separator) {
-    const [base, quote] = symbol.split(separator)
-    return { base: base || '', quote: quote?.split(':')[0] || '' }
+    const [base, quote] = symbol.split(separator);
+    return { base: base || '', quote: quote?.split(':')[0] || '' };
   }
 
   // Fallback: return the whole symbol as base
-  return { base: symbol, quote: '' }
+  return { base: symbol, quote: '' };
 }
