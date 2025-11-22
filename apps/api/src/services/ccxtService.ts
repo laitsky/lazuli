@@ -74,6 +74,18 @@ export class CCXTService {
         },
       })
     );
+
+    // Initialize Hyperliquid (perpetual only - no spot markets)
+    // Hyperliquid is a DEX that specializes in perpetual futures trading
+    this.perpExchanges.set(
+      'hyperliquid',
+      new ccxt.hyperliquid({
+        enableRateLimit: true,
+        options: {
+          defaultType: 'swap',
+        },
+      })
+    );
   }
 
   private getExchange(exchangeId: string, marketType: 'spot' | 'perp' = 'spot'): any {
@@ -87,23 +99,60 @@ export class CCXTService {
     return exchange;
   }
 
-  async loadMarkets(exchangeId: string): Promise<void> {
-    const spotExchange = this.getExchange(exchangeId, 'spot');
-    const perpExchange = this.getExchange(exchangeId, 'perp');
+  /**
+   * Check if an exchange has spot markets
+   * @param exchangeId - Exchange identifier
+   * @returns true if exchange has spot markets
+   */
+  hasSpotMarkets(exchangeId: string): boolean {
+    return this.spotExchanges.has(exchangeId);
+  }
 
-    await Promise.all([spotExchange.loadMarkets(), perpExchange.loadMarkets()]);
+  /**
+   * Check if an exchange has perpetual markets
+   * @param exchangeId - Exchange identifier
+   * @returns true if exchange has perpetual markets
+   */
+  hasPerpMarkets(exchangeId: string): boolean {
+    return this.perpExchanges.has(exchangeId);
+  }
+
+  async loadMarkets(exchangeId: string): Promise<void> {
+    const loadPromises: Promise<any>[] = [];
+
+    // Only load spot markets if the exchange supports them
+    if (this.hasSpotMarkets(exchangeId)) {
+      const spotExchange = this.getExchange(exchangeId, 'spot');
+      loadPromises.push(spotExchange.loadMarkets());
+    }
+
+    // Only load perp markets if the exchange supports them
+    if (this.hasPerpMarkets(exchangeId)) {
+      const perpExchange = this.getExchange(exchangeId, 'perp');
+      loadPromises.push(perpExchange.loadMarkets());
+    }
+
+    await Promise.all(loadPromises);
   }
 
   async getAllTickers(exchangeId: string): Promise<Ticker[]> {
     try {
       await this.loadMarkets(exchangeId);
 
-      const [spotTickers, perpTickers] = await Promise.all([
-        this.getTickersByType(exchangeId, 'spot'),
-        this.getTickersByType(exchangeId, 'perp'),
-      ]);
+      const tickerPromises: Promise<Ticker[]>[] = [];
 
-      return [...spotTickers, ...perpTickers];
+      // Only fetch spot tickers if the exchange supports spot markets
+      if (this.hasSpotMarkets(exchangeId)) {
+        tickerPromises.push(this.getTickersByType(exchangeId, 'spot'));
+      }
+
+      // Only fetch perp tickers if the exchange supports perp markets
+      if (this.hasPerpMarkets(exchangeId)) {
+        tickerPromises.push(this.getTickersByType(exchangeId, 'perp'));
+      }
+
+      const tickerArrays = await Promise.all(tickerPromises);
+      return tickerArrays.flat();
     } catch (error) {
       console.error(`Error fetching tickers for ${exchangeId}:`, error);
       throw error;
@@ -151,12 +200,20 @@ export class CCXTService {
     try {
       await this.loadMarkets(exchangeId);
 
-      const [spotMarkets, perpMarkets] = await Promise.all([
-        this.getMarketsByType(exchangeId, 'spot'),
-        this.getMarketsByType(exchangeId, 'perp'),
-      ]);
+      const marketPromises: Promise<Market[]>[] = [];
 
-      return [...spotMarkets, ...perpMarkets];
+      // Only fetch spot markets if the exchange supports them
+      if (this.hasSpotMarkets(exchangeId)) {
+        marketPromises.push(this.getMarketsByType(exchangeId, 'spot'));
+      }
+
+      // Only fetch perp markets if the exchange supports them
+      if (this.hasPerpMarkets(exchangeId)) {
+        marketPromises.push(this.getMarketsByType(exchangeId, 'perp'));
+      }
+
+      const marketArrays = await Promise.all(marketPromises);
+      return marketArrays.flat();
     } catch (error) {
       console.error(`Error fetching markets for ${exchangeId}:`, error);
       throw error;

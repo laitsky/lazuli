@@ -38,4 +38,14 @@ declare module 'ccxt' {
     loadMarkets(): Promise<any>;
     fetchTickers(): Promise<{ [key: string]: any }>;
   }
+
+  export class hyperliquid implements Exchange {
+    id: string;
+    name: string;
+    options: any;
+    markets: { [key: string]: any };
+    constructor(config?: any);
+    loadMarkets(): Promise<any>;
+    fetchTickers(): Promise<{ [key: string]: any }>;
+  }
 }
