@@ -63,45 +63,28 @@ export class CustomIndexService {
 
     // Fetch OHLCV data for all assets in parallel
     const assetDataPromises = assets.map(async (asset) => {
-      const data = await ccxtService.fetchOHLCV(
-        exchange,
-        asset.symbol,
-        timeframe,
-        'spot',
-        limit
-      );
+      const data = await ccxtService.fetchOHLCV(exchange, asset.symbol, timeframe, 'spot', limit);
       return { asset, data };
     });
 
     const assetDataResults = await Promise.all(assetDataPromises);
 
     // Find common timestamps across all assets
-    const commonTimestamps = this.findCommonTimestamps(
-      assetDataResults.map((r) => r.data)
-    );
+    const commonTimestamps = this.findCommonTimestamps(assetDataResults.map((r) => r.data));
 
     if (commonTimestamps.length === 0) {
       throw new Error('No common timestamps found across assets');
     }
 
     // Calculate index performance
-    const performance = this.calculateWeightedPerformance(
-      assetDataResults,
-      commonTimestamps
-    );
+    const performance = this.calculateWeightedPerformance(assetDataResults, commonTimestamps);
 
     // Fetch and calculate benchmark performance
-    const benchmarks = await this.calculateBenchmarks(
-      exchange,
-      timeframe,
-      commonTimestamps,
-      limit
-    );
+    const benchmarks = await this.calculateBenchmarks(exchange, timeframe, commonTimestamps, limit);
 
     const startTime = commonTimestamps[0];
     const endTime = commonTimestamps[commonTimestamps.length - 1];
-    const totalReturn =
-      performance.length > 0 ? performance[performance.length - 1].change : 0;
+    const totalReturn = performance.length > 0 ? performance[performance.length - 1].change : 0;
 
     const response: CustomIndexResponse = {
       name,
@@ -133,9 +116,7 @@ export class CustomIndexService {
 
     // Intersect with timestamps from other assets
     for (let i = 1; i < allData.length; i++) {
-      const assetTimestamps = new Set(
-        allData[i].map((candle) => candle.timestamp)
-      );
+      const assetTimestamps = new Set(allData[i].map((candle) => candle.timestamp));
       for (const ts of timestamps) {
         if (!assetTimestamps.has(ts)) {
           timestamps.delete(ts);
@@ -214,18 +195,10 @@ export class CustomIndexService {
   ): Promise<BenchmarkPerformance[]> {
     const benchmarkPromises = BENCHMARK_SYMBOLS.map(async ({ symbol, name }) => {
       try {
-        const data = await ccxtService.fetchOHLCV(
-          exchange,
-          symbol,
-          timeframe,
-          'spot',
-          limit
-        );
+        const data = await ccxtService.fetchOHLCV(exchange, symbol, timeframe, 'spot', limit);
 
         // Create map for quick lookup
-        const dataMap = new Map(
-          data.map((candle) => [candle.timestamp, candle])
-        );
+        const dataMap = new Map(data.map((candle) => [candle.timestamp, candle]));
 
         // Get starting price
         const startCandle = dataMap.get(timestamps[0]);

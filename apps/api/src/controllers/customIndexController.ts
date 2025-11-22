@@ -46,7 +46,11 @@ export class CustomIndexController {
       // Validate exchange
       const exchangeId = validateExchange(exchange);
       if (!exchangeId) {
-        return errorResponse(res, `Exchange ${exchange} not supported. Use: binance, bybit, okx`, 400);
+        return errorResponse(
+          res,
+          `Exchange ${exchange} not supported. Use: binance, bybit, okx`,
+          400
+        );
       }
 
       // Validate timeframe

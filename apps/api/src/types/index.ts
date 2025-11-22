@@ -68,12 +68,12 @@ export type SupportedExchange = 'binance' | 'bybit' | 'okx';
  * Standard format for chart data across all timeframes
  */
 export interface OHLCV {
-  timestamp: number;     // Candle start timestamp in milliseconds
-  open: number;          // Opening price
-  high: number;          // Highest price in the period
-  low: number;           // Lowest price in the period
-  close: number;         // Closing price
-  volume: number;        // Trading volume in base currency
+  timestamp: number; // Candle start timestamp in milliseconds
+  open: number; // Opening price
+  high: number; // Highest price in the period
+  low: number; // Lowest price in the period
+  close: number; // Closing price
+  volume: number; // Trading volume in base currency
 }
 
 /**
@@ -86,11 +86,11 @@ export type Timeframe = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '3d' | '1w';
  * OHLCV response from /ohlcv/:exchange/:symbol
  */
 export interface OHLCVResponse {
-  exchange: string;        // Exchange identifier
-  symbol: string;          // Trading pair symbol
-  timeframe: Timeframe;    // Requested timeframe
-  candles: OHLCV[];       // Array of candlestick data
-  count: number;          // Number of candles returned
+  exchange: string; // Exchange identifier
+  symbol: string; // Trading pair symbol
+  timeframe: Timeframe; // Requested timeframe
+  candles: OHLCV[]; // Array of candlestick data
+  count: number; // Number of candles returned
 }
 
 /**
@@ -98,8 +98,8 @@ export interface OHLCVResponse {
  * Each asset has a symbol and its weight in the index (as percentage)
  */
 export interface IndexAsset {
-  symbol: string;            // Asset symbol (e.g., BTC-USDT)
-  weight: number;            // Weight percentage (0-100)
+  symbol: string; // Asset symbol (e.g., BTC-USDT)
+  weight: number; // Weight percentage (0-100)
 }
 
 /**
@@ -107,9 +107,9 @@ export interface IndexAsset {
  * Shows the index value at a specific timestamp
  */
 export interface IndexPerformancePoint {
-  timestamp: number;         // Timestamp in milliseconds
-  value: number;             // Normalized index value (starts at 100)
-  change: number;            // Percentage change from start
+  timestamp: number; // Timestamp in milliseconds
+  value: number; // Normalized index value (starts at 100)
+  change: number; // Percentage change from start
 }
 
 /**
@@ -117,22 +117,22 @@ export interface IndexPerformancePoint {
  * Performance data for USDT/BTC/ETH/SOL benchmarks
  */
 export interface BenchmarkPerformance {
-  symbol: string;            // Benchmark symbol
-  name: string;              // Display name
-  data: IndexPerformancePoint[];  // Performance data points
+  symbol: string; // Benchmark symbol
+  name: string; // Display name
+  data: IndexPerformancePoint[]; // Performance data points
 }
 
 /**
  * Custom index response with performance data
  */
 export interface CustomIndexResponse {
-  name: string;              // Index name
-  exchange: string;          // Exchange used
-  timeframe: Timeframe;      // Timeframe used
-  assets: IndexAsset[];      // Assets in the index
-  performance: IndexPerformancePoint[];  // Index performance data
-  benchmarks: BenchmarkPerformance[];    // Comparison benchmarks
-  startTime: number;         // Start timestamp
-  endTime: number;           // End timestamp
-  totalReturn: number;       // Total percentage return
+  name: string; // Index name
+  exchange: string; // Exchange used
+  timeframe: Timeframe; // Timeframe used
+  assets: IndexAsset[]; // Assets in the index
+  performance: IndexPerformancePoint[]; // Index performance data
+  benchmarks: BenchmarkPerformance[]; // Comparison benchmarks
+  startTime: number; // Start timestamp
+  endTime: number; // End timestamp
+  totalReturn: number; // Total percentage return
 }

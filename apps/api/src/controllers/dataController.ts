@@ -6,17 +6,16 @@ import { SupportedExchange } from '../types';
 
 /**
  * Controller for OPTIONAL database storage and historical data endpoints
- * 
+ *
  * NOTE: These endpoints are for advanced features only:
  * - Historical data analysis
  * - Price alerts and notifications
  * - Arbitrage opportunity tracking
- * 
+ *
  * For real-time trading data, use /tickers and /markets endpoints instead.
  * Database setup is required only if you use these /data/* endpoints.
  */
 export class DataController {
-
   /**
    * Store current ticker data for an exchange in the database
    * @param req - Express request with exchange parameter
@@ -43,14 +42,13 @@ export class DataController {
 
       // Store in database
       const storedCount = await databaseService.storeTickers(tickers);
-      
+
       return successResponse(res, {
         exchange: exchangeId,
         tickersStored: storedCount,
         totalTickers: tickers.length,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
-
     } catch (error) {
       console.error('Error in storeLiveTickers:', error);
       return errorResponse(res, `Failed to store ticker data: ${error}`, 500);
@@ -76,8 +74,8 @@ export class DataController {
 
       // Fetch historical data
       const historicalData = await databaseService.getHistoricalTickers(
-        symbol, 
-        exchange as string, 
+        symbol,
+        exchange as string,
         limitNum
       );
 
@@ -86,9 +84,8 @@ export class DataController {
         exchange: exchange || 'all',
         count: historicalData.length,
         limit: limitNum,
-        data: historicalData
+        data: historicalData,
       });
-
     } catch (error) {
       console.error('Error in getHistoricalTickers:', error);
       return errorResponse(res, `Failed to fetch historical data: ${error}`, 500);
@@ -112,7 +109,6 @@ export class DataController {
       }
 
       return successResponse(res, latestTicker);
-
     } catch (error) {
       console.error('Error in getLatestStoredTicker:', error);
       return errorResponse(res, `Failed to fetch latest ticker: ${error}`, 500);
@@ -145,14 +141,13 @@ export class DataController {
 
       // Store in database
       const storedCount = await databaseService.storeMarkets(markets);
-      
+
       return successResponse(res, {
         exchange: exchangeId,
         marketsStored: storedCount,
         totalMarkets: markets.length,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
-
     } catch (error) {
       console.error('Error in storeMarkets:', error);
       return errorResponse(res, `Failed to store market data: ${error}`, 500);
@@ -168,7 +163,7 @@ export class DataController {
   async cleanupOldData(req: Request, res: Response): Promise<Response> {
     try {
       const { days } = req.query;
-      
+
       // Parse days parameter
       const daysToKeep = days ? parseInt(days as string, 10) : 30;
       if (isNaN(daysToKeep) || daysToKeep < 1 || daysToKeep > 365) {
@@ -180,9 +175,8 @@ export class DataController {
       return successResponse(res, {
         deletedRecords: deletedCount,
         daysKept: daysToKeep,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
-
     } catch (error) {
       console.error('Error in cleanupOldData:', error);
       return errorResponse(res, `Failed to cleanup old data: ${error}`, 500);

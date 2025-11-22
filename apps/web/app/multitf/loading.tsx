@@ -2,7 +2,7 @@
  * MultiTF loading state - Displayed while multi-timeframe page loads
  */
 
-import { PageHeaderSkeleton, Skeleton } from '@/components/ui/skeleton'
+import { PageHeaderSkeleton, Skeleton } from '@/components/ui/skeleton';
 
 export default function Loading() {
   return (
@@ -34,5 +34,5 @@ export default function Loading() {
         </div>
       </div>
     </div>
-  )
+  );
 }

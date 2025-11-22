@@ -59,7 +59,10 @@ export async function testDatabaseConnection(): Promise<boolean> {
     return true;
   } catch (error) {
     // Network or connection errors indicate database issues
-    if (error instanceof Error && (error.message.includes('fetch') || error.message.includes('network'))) {
+    if (
+      error instanceof Error &&
+      (error.message.includes('fetch') || error.message.includes('network'))
+    ) {
       console.error('❌ Database connection failed:', error);
       return false;
     }

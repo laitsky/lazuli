@@ -37,6 +37,7 @@ This document explains the monorepo structure, tooling, and best practices for t
 **Purpose**: Build orchestration and caching
 
 **Features**:
+
 - Task pipeline with dependencies
 - Remote caching for CI/CD
 - Parallel execution
@@ -49,6 +50,7 @@ This document explains the monorepo structure, tooling, and best practices for t
 **Purpose**: Dependency management
 
 **Features**:
+
 - Shared dependencies hoisted to root
 - Package linking without `npm link`
 - Workspace protocol for internal packages
@@ -60,6 +62,7 @@ This document explains the monorepo structure, tooling, and best practices for t
 **Purpose**: Git hooks for code quality
 
 **Features**:
+
 - Pre-commit linting and formatting
 - Commit message validation
 - Prevents bad commits from being pushed
@@ -71,6 +74,7 @@ This document explains the monorepo structure, tooling, and best practices for t
 **Purpose**: Code quality and formatting
 
 **Features**:
+
 - Shared configurations across packages
 - Auto-fix on save (IDE)
 - Auto-fix on commit (Husky)
@@ -202,6 +206,7 @@ The `^` symbol means "dependencies first":
 ```
 
 **Execution order**:
+
 1. Build `@lazuli/shared` (no dependencies)
 2. Build `@lazuli/api` (depends on shared)
 3. Build `@lazuli/web` (depends on shared)
@@ -216,6 +221,7 @@ Turborepo caches task outputs:
 - **Cache miss**: Runs build, saves to cache
 
 **Example**:
+
 ```bash
 # First build: ~30s
 npm run build

@@ -8,7 +8,6 @@ import path from 'path';
  * Handles both the interactive documentation UI and OpenAPI spec serving
  */
 export class DocsController {
-  
   /**
    * Serves the Stoplight Elements documentation interface
    * Provides an interactive API documentation and testing interface
@@ -43,7 +42,7 @@ export class DocsController {
   />
 </body>
 </html>`;
-      
+
       // Set CORS headers to allow API testing
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -64,19 +63,22 @@ export class DocsController {
     try {
       // Read the OpenAPI spec file
       const specPath = path.join(__dirname, '../api-spec.yaml');
-      
+
       if (!fs.existsSync(specPath)) {
         errorResponse(res, 'API specification file not found', 404);
         return;
       }
 
       const specContent = fs.readFileSync(specPath, 'utf8');
-      
+
       // Set appropriate headers for YAML content
       res.setHeader('Content-Type', 'application/yaml');
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-      
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Origin, X-Requested-With, Content-Type, Accept'
+      );
+
       res.send(specContent);
     } catch (error) {
       console.error('Error serving API specification:', error);
@@ -91,28 +93,28 @@ export class DocsController {
   static async getDocsInfo(_req: Request, res: Response): Promise<void> {
     try {
       const docsInfo = {
-        title: "Lazuli API Documentation",
-        description: "Interactive API documentation powered by Stoplight Elements",
-        version: "1.0.0",
+        title: 'Lazuli API Documentation',
+        description: 'Interactive API documentation powered by Stoplight Elements',
+        version: '1.0.0',
         endpoints: {
-          docs: "/api/v1/docs",
-          spec: "/api/v1/docs/spec",
-          info: "/api/v1/docs/info"
+          docs: '/api/v1/docs',
+          spec: '/api/v1/docs/spec',
+          info: '/api/v1/docs/info',
         },
         features: [
-          "Interactive API testing",
-          "Real-time request/response examples",
-          "Schema validation",
-          "Code generation examples",
-          "Try It functionality"
+          'Interactive API testing',
+          'Real-time request/response examples',
+          'Schema validation',
+          'Code generation examples',
+          'Try It functionality',
         ],
-        exchanges_supported: ["binance", "bybit", "okx"],
+        exchanges_supported: ['binance', 'bybit', 'okx'],
         api_categories: [
-          "Live ticker data (no database required)",
-          "Market information",
-          "Historical data storage (database required)",
-          "Data management operations"
-        ]
+          'Live ticker data (no database required)',
+          'Market information',
+          'Historical data storage (database required)',
+          'Data management operations',
+        ],
       };
 
       successResponse(res, docsInfo);

@@ -13,12 +13,14 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Configure middleware
-app.use(cors({
-  origin: true, // Allow all origins in development
-  credentials: true, // Enable credentials for Try It functionality
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-})); // Enable Cross-Origin Resource Sharing
+app.use(
+  cors({
+    origin: true, // Allow all origins in development
+    credentials: true, // Enable credentials for Try It functionality
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  })
+); // Enable Cross-Origin Resource Sharing
 app.use(express.json()); // Parse JSON request bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 
@@ -45,12 +47,12 @@ app.get('/health', async (_req, res) => {
   }
 
   // Return health data in standard API response format
-  return successResponse(res, {
+  successResponse(res, {
     status: 'ok',
     api: 'ready',
     database: dbStatus,
     exchanges: ['binance', 'bybit', 'okx'],
-    timestamp: Date.now()
+    timestamp: Date.now(),
   });
 });
 

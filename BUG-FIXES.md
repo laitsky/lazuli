@@ -5,12 +5,14 @@
 **Issue**: When requesting timeframes not supported by an exchange (e.g., "3d" on Bybit), the entire multi-timeframe request would fail with no charts displayed.
 
 **Error Message**:
+
 ```
 BadRequest: bybit {"retCode":10001,"retMsg":"Invalid period!"}
 Error fetching OHLCV for BABYDOGE/USDT on bybit
 ```
 
 **Root Cause**:
+
 - Different exchanges support different timeframes
 - No validation before attempting to fetch
 - No graceful handling of partial failures
@@ -40,6 +42,7 @@ Error fetching OHLCV for BABYDOGE/USDT on bybit
    - Clear messaging about what's supported
 
 **Files Changed**:
+
 - `apps/api/src/services/ccxtService.ts` - Added validation methods
 - `apps/api/src/controllers/ohlcvController.ts` - Added graceful error handling
 - `apps/api/src/routes/index.ts` - Added new endpoint
@@ -52,6 +55,7 @@ Error fetching OHLCV for BABYDOGE/USDT on bybit
 | 3d | ✅ | ❌ | ❌ |
 
 **Testing**:
+
 ```bash
 # Start API server
 npm run dev:api
@@ -68,12 +72,14 @@ npm run dev:api
 **Issue**: Candlestick charts not rendering with error "chart.addCandlestickSeries is not a function"
 
 **Error Message**:
+
 ```
 TypeError: chart.addCandlestickSeries is not a function
     at CandlestickChart.useEffect (components/candlestick-chart.tsx:67:39)
 ```
 
 **Root Cause**:
+
 - `lightweight-charts` v5.0.9 was automatically installed (latest version)
 - v5 is experimental/beta with breaking API changes
 - v5 has incomplete TypeScript types and unstable API
@@ -103,10 +109,12 @@ TypeError: chart.addCandlestickSeries is not a function
    - Proper OHLCV data mapping
 
 **Files Changed**:
+
 - `apps/web/components/candlestick-chart.tsx` - Updated for v4 API
 - `apps/web/package.json` - Downgraded to v4.2.0
 
 **Key Changes**:
+
 ```bash
 # Before (unstable v5)
 npm install lightweight-charts
@@ -118,6 +126,7 @@ npm install lightweight-charts@^4.2.0
 ```
 
 **Why v4 Instead of v5**:
+
 - ✅ v4.2.0 is stable and production-tested
 - ✅ Complete TypeScript definitions
 - ✅ Well-documented API
@@ -127,6 +136,7 @@ npm install lightweight-charts@^4.2.0
 - ❌ v5 API still under active development
 
 **Testing**:
+
 ```bash
 # Start dev server
 npm run dev:web
@@ -141,12 +151,14 @@ npm run dev:web
 ## Summary of All Fixes
 
 ### Commits:
+
 1. `40e148c` - fix: Handle exchange-specific timeframe support and partial failures
 2. `305f32d` - docs: Add comprehensive documentation for timeframe support fix
 3. `be6d0b4` - fix: Update CandlestickChart to be compatible with lightweight-charts v5 (attempted)
 4. `ba5eae3` - fix: Downgrade lightweight-charts to stable v4.2.0 (final solution)
 
 ### Files Modified:
+
 - Backend (API):
   - `apps/api/src/services/ccxtService.ts`
   - `apps/api/src/controllers/ohlcvController.ts`
@@ -161,6 +173,7 @@ npm run dev:web
   - `BUG-FIXES.md` (this file)
 
 ### Testing Checklist:
+
 - [x] Bybit with all 8 timeframes → 7 charts display, 1 warning
 - [x] Binance with all 8 timeframes → 8 charts display, no warnings
 - [x] Charts render with correct candlestick visualization
@@ -171,6 +184,7 @@ npm run dev:web
 - [x] Complete failures show appropriate errors
 
 ### API Changes:
+
 1. **New Endpoint**: `GET /api/v1/ohlcv/timeframes/:exchange`
    - Returns supported timeframes for an exchange
    - Query param: `type` (spot/perp)
@@ -196,6 +210,7 @@ npm run dev:web
    ```
 
 ### User Experience Improvements:
+
 - ✅ Graceful degradation: partial success > complete failure
 - ✅ Clear error messages with actionable information
 - ✅ Visual distinction between warnings (yellow) and errors (red)
@@ -203,6 +218,7 @@ npm run dev:web
 - ✅ Better feedback about what's supported on each exchange
 
 ### Developer Experience Improvements:
+
 - ✅ Comprehensive error logging
 - ✅ Type-safe implementations
 - ✅ Well-documented code with JSDoc comments
@@ -214,6 +230,7 @@ npm run dev:web
 ## Status: ✅ ALL BUGS FIXED
 
 The MultiTF feature is now fully functional with:
+
 - **Graceful error handling** for unsupported timeframes
 - **Compatible charting** with lightweight-charts v5
 - **User-friendly** error messages and warnings

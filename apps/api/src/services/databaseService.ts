@@ -14,7 +14,6 @@ import { Ticker, Market } from '../types';
  * For live trading data, use the direct exchange endpoints instead.
  */
 export class DatabaseService {
-
   /**
    * Store ticker data in the database
    * @param ticker - Ticker object to store
@@ -68,7 +67,7 @@ export class DatabaseService {
     }
 
     try {
-      const tickerData = tickers.map(ticker => ({
+      const tickerData = tickers.map((ticker) => ({
         symbol: ticker.symbol,
         exchange: ticker.exchange,
         type: ticker.type,
@@ -146,7 +145,7 @@ export class DatabaseService {
     }
 
     try {
-      const marketData = markets.map(market => ({
+      const marketData = markets.map((market) => ({
         id: market.id,
         symbol: market.symbol,
         base: market.base,
@@ -204,7 +203,7 @@ export class DatabaseService {
       }
 
       // Transform database records back to Ticker format
-      return (data || []).map(record => ({
+      return (data || []).map((record) => ({
         symbol: record.symbol,
         exchange: record.exchange,
         type: record.type,

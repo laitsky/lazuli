@@ -2,7 +2,7 @@
  * Markets loading state - Displayed while markets page loads
  */
 
-import { PageHeaderSkeleton, TableSkeleton, Skeleton } from '@/components/ui/skeleton'
+import { PageHeaderSkeleton, TableSkeleton, Skeleton } from '@/components/ui/skeleton';
 
 export default function Loading() {
   return (
@@ -29,5 +29,5 @@ export default function Loading() {
         </div>
       </div>
     </div>
-  )
+  );
 }

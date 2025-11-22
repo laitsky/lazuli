@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 /**
  * PageTransition component - Provides smooth page transitions using framer-motion
@@ -9,11 +9,11 @@
  * - Optimized for performance with layout animations
  */
 
-import { motion } from 'framer-motion'
-import { ReactNode } from 'react'
+import { motion } from 'framer-motion';
+import { ReactNode } from 'react';
 
 interface PageTransitionProps {
-  children: ReactNode
+  children: ReactNode;
 }
 
 /**
@@ -33,7 +33,7 @@ const pageVariants = {
     y: 0,
     transition: {
       duration: 0.2,
-      ease: [0.4, 0, 0.2, 1], // Tailwind's ease-out curve
+      ease: [0.4, 0, 0.2, 1] as [number, number, number, number], // Tailwind's ease-out curve
     },
   },
   exit: {
@@ -42,7 +42,7 @@ const pageVariants = {
       duration: 0.15,
     },
   },
-}
+};
 
 /**
  * PageTransition wrapper component
@@ -59,5 +59,5 @@ export function PageTransition({ children }: PageTransitionProps) {
     >
       {children}
     </motion.div>
-  )
+  );
 }

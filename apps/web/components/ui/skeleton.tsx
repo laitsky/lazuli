@@ -3,7 +3,7 @@
  * Used to indicate content is loading and improve perceived performance
  */
 
-import { cn } from '@/lib/utils'
+import { cn } from '@/lib/utils';
 
 interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {}
 
@@ -12,15 +12,7 @@ interface SkeletonProps extends React.HTMLAttributes<HTMLDivElement> {}
  * Can be styled with any className props
  */
 export function Skeleton({ className, ...props }: SkeletonProps) {
-  return (
-    <div
-      className={cn(
-        'animate-pulse rounded-md bg-muted',
-        className
-      )}
-      {...props}
-    />
-  )
+  return <div className={cn('animate-pulse rounded-md bg-muted', className)} {...props} />;
 }
 
 /**
@@ -36,7 +28,7 @@ export function CardSkeleton() {
       <Skeleton className="h-20 w-full" />
       <Skeleton className="h-9 w-full" />
     </div>
-  )
+  );
 }
 
 /**
@@ -62,7 +54,7 @@ export function TableSkeleton({ rows = 5 }: { rows?: number }) {
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 /**
@@ -74,5 +66,5 @@ export function PageHeaderSkeleton() {
       <Skeleton className="h-9 w-1/3" />
       <Skeleton className="h-5 w-1/2" />
     </div>
-  )
+  );
 }

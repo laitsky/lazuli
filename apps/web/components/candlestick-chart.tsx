@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { createChart, ColorType } from 'lightweight-charts';
+import { createChart, ColorType, Time } from 'lightweight-charts';
 import { OHLCV, Timeframe } from '@lazuli/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -56,7 +56,7 @@ export function CandlestickChart({ data, timeframe, symbol, height = 300 }: Cand
 
       // Transform OHLCV data to lightweight-charts format
       const candlestickData = data.map((candle) => ({
-        time: Math.floor(candle.timestamp / 1000), // Convert to Unix timestamp (seconds)
+        time: Math.floor(candle.timestamp / 1000) as Time, // Convert to Unix timestamp (seconds)
         open: candle.open,
         high: candle.high,
         low: candle.low,

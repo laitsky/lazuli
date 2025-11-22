@@ -14,54 +14,72 @@ export class CCXTService {
 
   private initializeExchanges(): void {
     // Initialize spot exchanges
-    this.spotExchanges.set('binance', new ccxt.binance({
-      enableRateLimit: true,
-      options: {
-        defaultType: 'spot',
-      },
-    }));
+    this.spotExchanges.set(
+      'binance',
+      new ccxt.binance({
+        enableRateLimit: true,
+        options: {
+          defaultType: 'spot',
+        },
+      })
+    );
 
-    this.spotExchanges.set('bybit', new ccxt.bybit({
-      enableRateLimit: true,
-      options: {
-        defaultType: 'spot',
-      },
-    }));
+    this.spotExchanges.set(
+      'bybit',
+      new ccxt.bybit({
+        enableRateLimit: true,
+        options: {
+          defaultType: 'spot',
+        },
+      })
+    );
 
-    this.spotExchanges.set('okx', new ccxt.okx({
-      enableRateLimit: true,
-      options: {
-        defaultType: 'spot',
-      },
-    }));
+    this.spotExchanges.set(
+      'okx',
+      new ccxt.okx({
+        enableRateLimit: true,
+        options: {
+          defaultType: 'spot',
+        },
+      })
+    );
 
     // Initialize perpetual/swap exchanges
-    this.perpExchanges.set('binance', new ccxt.binance({
-      enableRateLimit: true,
-      options: {
-        defaultType: 'future',
-      },
-    }));
+    this.perpExchanges.set(
+      'binance',
+      new ccxt.binance({
+        enableRateLimit: true,
+        options: {
+          defaultType: 'future',
+        },
+      })
+    );
 
-    this.perpExchanges.set('bybit', new ccxt.bybit({
-      enableRateLimit: true,
-      options: {
-        defaultType: 'swap',
-      },
-    }));
+    this.perpExchanges.set(
+      'bybit',
+      new ccxt.bybit({
+        enableRateLimit: true,
+        options: {
+          defaultType: 'swap',
+        },
+      })
+    );
 
-    this.perpExchanges.set('okx', new ccxt.okx({
-      enableRateLimit: true,
-      options: {
-        defaultType: 'swap',
-      },
-    }));
+    this.perpExchanges.set(
+      'okx',
+      new ccxt.okx({
+        enableRateLimit: true,
+        options: {
+          defaultType: 'swap',
+        },
+      })
+    );
   }
 
   private getExchange(exchangeId: string, marketType: 'spot' | 'perp' = 'spot'): any {
     const exchangeMap = marketType === 'spot' ? this.spotExchanges : this.perpExchanges;
     const exchange = exchangeMap.get(exchangeId);
-    
+
     if (!exchange) {
       throw new Error(`Exchange ${exchangeId} not supported for ${marketType} markets`);
     }
@@ -72,17 +90,14 @@ export class CCXTService {
   async loadMarkets(exchangeId: string): Promise<void> {
     const spotExchange = this.getExchange(exchangeId, 'spot');
     const perpExchange = this.getExchange(exchangeId, 'perp');
-    
-    await Promise.all([
-      spotExchange.loadMarkets(),
-      perpExchange.loadMarkets(),
-    ]);
+
+    await Promise.all([spotExchange.loadMarkets(), perpExchange.loadMarkets()]);
   }
 
   async getAllTickers(exchangeId: string): Promise<Ticker[]> {
     try {
       await this.loadMarkets(exchangeId);
-      
+
       const [spotTickers, perpTickers] = await Promise.all([
         this.getTickersByType(exchangeId, 'spot'),
         this.getTickersByType(exchangeId, 'perp'),
@@ -122,8 +137,8 @@ export class CCXTService {
           percentage24h: ticker.percentage || null,
           timestamp: ticker.timestamp || Date.now(),
           // Include perpetual-specific data like funding rate and open interest
-          fundingRate: type === 'perp' ? (ticker.info?.fundingRate || null) : undefined,
-          openInterest: type === 'perp' ? (ticker.info?.openInterest || null) : undefined,
+          fundingRate: type === 'perp' ? ticker.info?.fundingRate || null : undefined,
+          openInterest: type === 'perp' ? ticker.info?.openInterest || null : undefined,
         };
       });
     } catch (error) {
@@ -135,7 +150,7 @@ export class CCXTService {
   async getMarkets(exchangeId: string): Promise<Market[]> {
     try {
       await this.loadMarkets(exchangeId);
-      
+
       const [spotMarkets, perpMarkets] = await Promise.all([
         this.getMarketsByType(exchangeId, 'spot'),
         this.getMarketsByType(exchangeId, 'perp'),
@@ -177,7 +192,7 @@ export class CCXTService {
   async getTicker(exchangeId: string, symbol: string): Promise<Ticker | null> {
     try {
       const allTickers = await this.getAllTickers(exchangeId);
-      return allTickers.find(t => t.symbol === symbol) || null;
+      return allTickers.find((t) => t.symbol === symbol) || null;
     } catch (error) {
       console.error(`Error fetching ticker ${symbol} for ${exchangeId}:`, error);
       throw error;
@@ -220,10 +235,7 @@ export class CCXTService {
    * @param marketType - Market type (spot or perp)
    * @returns Array of supported timeframes
    */
-  getSupportedTimeframes(
-    exchangeId: string,
-    marketType: 'spot' | 'perp' = 'spot'
-  ): string[] {
+  getSupportedTimeframes(exchangeId: string, marketType: 'spot' | 'perp' = 'spot'): string[] {
     try {
       const exchange = this.getExchange(exchangeId, marketType);
 
@@ -274,7 +286,7 @@ export class CCXTService {
         const supported = this.getSupportedTimeframes(exchangeId, marketType);
         throw new Error(
           `Timeframe ${timeframe} is not supported by ${exchangeId}. ` +
-          `Supported timeframes: ${supported.join(', ')}`
+            `Supported timeframes: ${supported.join(', ')}`
         );
       }
 
@@ -284,12 +296,12 @@ export class CCXTService {
 
       // Transform CCXT format to our standardized OHLCV format
       return ohlcvData.map((candle: number[]) => ({
-        timestamp: candle[0],     // Timestamp in milliseconds
-        open: candle[1],          // Opening price
-        high: candle[2],          // Highest price
-        low: candle[3],           // Lowest price
-        close: candle[4],         // Closing price
-        volume: candle[5],        // Volume in base currency
+        timestamp: candle[0], // Timestamp in milliseconds
+        open: candle[1], // Opening price
+        high: candle[2], // Highest price
+        low: candle[3], // Lowest price
+        close: candle[4], // Closing price
+        volume: candle[5], // Volume in base currency
       }));
     } catch (error) {
       console.error(`Error fetching OHLCV for ${symbol} on ${exchangeId}:`, error);

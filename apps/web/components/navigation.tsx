@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 /**
  * Navigation component - Responsive sidebar navigation for the application
@@ -11,11 +11,11 @@
  * - Logo at top, Live status at bottom
  */
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { cn } from '@/lib/utils'
-import { useState, useEffect } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { cn } from '@/lib/utils';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const navItems = [
   { href: '/', label: 'Dashboard' },
@@ -25,7 +25,7 @@ const navItems = [
   { href: '/synthetic-pair', label: 'Synthetic Pair' },
   { href: '/custom-index', label: 'Custom Index' },
   { href: '/superema', label: 'SuperEMA' },
-]
+];
 
 /**
  * Animation variants for sidebar
@@ -34,7 +34,7 @@ const sidebarVariants = {
   open: {
     x: 0,
     transition: {
-      type: 'spring',
+      type: 'spring' as const,
       stiffness: 300,
       damping: 30,
     },
@@ -42,12 +42,12 @@ const sidebarVariants = {
   closed: {
     x: '-100%',
     transition: {
-      type: 'spring',
+      type: 'spring' as const,
       stiffness: 300,
       damping: 30,
     },
   },
-}
+};
 
 /**
  * Animation variants for navigation items
@@ -66,14 +66,14 @@ const navItemsContainerVariants = {
       staggerDirection: -1,
     },
   },
-}
+};
 
 const navItemVariants = {
   open: {
     x: 0,
     opacity: 1,
     transition: {
-      type: 'spring',
+      type: 'spring' as const,
       stiffness: 300,
       damping: 24,
     },
@@ -82,12 +82,12 @@ const navItemVariants = {
     x: -20,
     opacity: 0,
     transition: {
-      type: 'spring',
+      type: 'spring' as const,
       stiffness: 300,
       damping: 24,
     },
   },
-}
+};
 
 /**
  * Animation variants for logo
@@ -98,36 +98,36 @@ const logoVariants = {
     scale: 1,
     opacity: 1,
     transition: {
-      type: 'spring',
+      type: 'spring' as const,
       stiffness: 260,
       damping: 20,
     },
   },
-}
+};
 
 export function Navigation() {
-  const pathname = usePathname()
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-  const [isDesktop, setIsDesktop] = useState(false)
+  const pathname = usePathname();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
 
   // Detect desktop screen size on mount and window resize
   // This runs only on client-side to avoid hydration mismatch
   useEffect(() => {
     const checkDesktop = () => {
-      setIsDesktop(window.innerWidth >= 1024)
-    }
+      setIsDesktop(window.innerWidth >= 1024);
+    };
 
     // Set initial state
-    checkDesktop()
+    checkDesktop();
 
     // Listen for resize events
-    window.addEventListener('resize', checkDesktop)
+    window.addEventListener('resize', checkDesktop);
 
-    return () => window.removeEventListener('resize', checkDesktop)
-  }, [])
+    return () => window.removeEventListener('resize', checkDesktop);
+  }, []);
 
   // Determine sidebar state
-  const sidebarState = isDesktop || isMobileMenuOpen ? 'open' : 'closed'
+  const sidebarState = isDesktop || isMobileMenuOpen ? 'open' : 'closed';
 
   return (
     <>
@@ -143,11 +143,7 @@ export function Navigation() {
         <div className="flex flex-col space-y-1.5">
           <motion.span
             className="block h-0.5 w-5 bg-current"
-            animate={
-              isMobileMenuOpen
-                ? { rotate: 45, y: 8 }
-                : { rotate: 0, y: 0 }
-            }
+            animate={isMobileMenuOpen ? { rotate: 45, y: 8 } : { rotate: 0, y: 0 }}
             transition={{ duration: 0.3 }}
           />
           <motion.span
@@ -157,11 +153,7 @@ export function Navigation() {
           />
           <motion.span
             className="block h-0.5 w-5 bg-current"
-            animate={
-              isMobileMenuOpen
-                ? { rotate: -45, y: -8 }
-                : { rotate: 0, y: 0 }
-            }
+            animate={isMobileMenuOpen ? { rotate: -45, y: -8 } : { rotate: 0, y: 0 }}
             transition={{ duration: 0.3 }}
           />
         </div>
@@ -220,7 +212,7 @@ export function Navigation() {
             animate="open"
           >
             {navItems.map((item) => {
-              const isActive = pathname === item.href
+              const isActive = pathname === item.href;
               return (
                 <motion.div key={item.href} variants={navItemVariants}>
                   <Link
@@ -245,7 +237,7 @@ export function Navigation() {
                     </motion.div>
                   </Link>
                 </motion.div>
-              )
+              );
             })}
           </motion.div>
         </div>
@@ -270,12 +262,10 @@ export function Navigation() {
                 ease: 'easeInOut',
               }}
             />
-            <span className="text-sm font-medium text-muted-foreground">
-              Live
-            </span>
+            <span className="text-sm font-medium text-muted-foreground">Live</span>
           </div>
         </motion.div>
       </motion.nav>
     </>
-  )
+  );
 }

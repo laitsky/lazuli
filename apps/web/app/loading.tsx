@@ -2,7 +2,7 @@
  * Root loading state - Displayed while homepage loads
  */
 
-import { CardSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton'
+import { CardSkeleton, PageHeaderSkeleton } from '@/components/ui/skeleton';
 
 export default function Loading() {
   return (
@@ -33,5 +33,5 @@ export default function Loading() {
         </div>
       </div>
     </div>
-  )
+  );
 }

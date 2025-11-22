@@ -66,11 +66,13 @@ bun run dev
 **Option 2: Run individually**
 
 API only (port 3000):
+
 ```bash
 bun run dev:api
 ```
 
 Web only (port 3001):
+
 ```bash
 bun run dev:web
 ```
@@ -78,6 +80,7 @@ bun run dev:web
 ### Environment Configuration
 
 **Backend API:**
+
 ```bash
 cd apps/api
 cp .env.example .env
@@ -85,6 +88,7 @@ cp .env.example .env
 ```
 
 **Frontend Web:**
+
 ```bash
 cd apps/web
 cp .env.example .env.local
@@ -95,30 +99,32 @@ cp .env.example .env.local
 
 From the root directory:
 
-| Command | Description |
-|---------|-------------|
-| `bun run dev` | Run both API and Web in development mode |
-| `bun run dev:api` | Run API only |
-| `bun run dev:web` | Run Web only |
-| `bun run build` | Build all workspaces |
-| `bun run build:api` | Build API only |
-| `bun run build:web` | Build Web only |
-| `bun run lint` | Lint all workspaces |
-| `bun run type-check` | Type check all workspaces |
-| `bun run format` | Format all code |
-| `bun run clean` | Clean all build artifacts |
+| Command              | Description                              |
+| -------------------- | ---------------------------------------- |
+| `bun run dev`        | Run both API and Web in development mode |
+| `bun run dev:api`    | Run API only                             |
+| `bun run dev:web`    | Run Web only                             |
+| `bun run build`      | Build all workspaces                     |
+| `bun run build:api`  | Build API only                           |
+| `bun run build:web`  | Build Web only                           |
+| `bun run lint`       | Lint all workspaces                      |
+| `bun run type-check` | Type check all workspaces                |
+| `bun run format`     | Format all code                          |
+| `bun run clean`      | Clean all build artifacts                |
 
 ## API Endpoints
 
 Base URL: `http://localhost:3000/api/v1`
 
 ### Core Endpoints (Live Data - No DB Required)
+
 - `GET /exchanges` - List all supported exchanges
 - `GET /tickers/:exchange` - Get all tickers for an exchange
 - `GET /tickers/:exchange/:symbol` - Get specific ticker data
 - `GET /markets/:exchange` - Get all available markets
 
 ### Optional Database Endpoints
+
 - `POST /data/store/:exchange` - Store live ticker data
 - `GET /data/history/:symbol` - Get historical data
 - `GET /data/latest/:exchange/:symbol` - Get latest stored ticker
@@ -129,12 +135,14 @@ Base URL: `http://localhost:3000/api/v1`
 Access the web interface at `http://localhost:3001`
 
 **Pages:**
+
 - **/** - Dashboard with system status and exchange overview
 - **/exchanges** - List of all supported exchanges
 - **/tickers** - Live price data with search and filtering
 - **/markets** - Browse all available trading pairs
 
 **Features:**
+
 - 🔍 Advanced search and filtering
 - 📊 Sortable tables by price, volume, and change
 - 🌙 Dark mode support
@@ -164,6 +172,7 @@ Lazuli uses **Turborepo** with **Bun workspaces** for monorepo management:
 ## Tech Stack
 
 ### Backend (apps/api)
+
 - **Runtime**: Bun with native TypeScript support
 - **Framework**: Express.js
 - **Exchange APIs**: CCXT (Binance, Bybit, OKX)
@@ -172,6 +181,7 @@ Lazuli uses **Turborepo** with **Bun workspaces** for monorepo management:
 - **Dev Mode**: Built-in watch mode with `bun --watch`
 
 ### Frontend (apps/web)
+
 - **Framework**: Next.js 16 (App Router)
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS v4
@@ -180,6 +190,7 @@ Lazuli uses **Turborepo** with **Bun workspaces** for monorepo management:
 - **State**: React Hooks
 
 ### Shared (packages/shared)
+
 - TypeScript interfaces
 - API response types
 - Common type definitions
@@ -211,6 +222,7 @@ Lazuli has migrated from Node.js/npm to Bun for significant performance improvem
 - 🛠️ **All-in-one tool** - package manager, bundler, and runtime combined
 
 To migrate from npm to Bun:
+
 1. Install Bun: `curl -fsSL https://bun.sh/install | bash`
 2. Remove `node_modules` and `package-lock.json`
 3. Run `bun install` to generate `bun.lockb`

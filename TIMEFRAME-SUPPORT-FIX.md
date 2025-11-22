@@ -5,12 +5,14 @@
 **Error**: The MultiTF feature was failing when requesting timeframes not supported by specific exchanges.
 
 **Example Error**:
+
 ```
 Error fetching OHLCV for BABYDOGE/USDT on bybit:
 BadRequest: bybit {"retCode":10001,"retMsg":"Invalid period!","result":{},"retExtInfo":{},"time":1762877810221}
 ```
 
 **Root Cause**:
+
 - The feature assumed all exchanges support all 8 timeframes (1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w)
 - Different exchanges support different timeframes
 - When requesting an unsupported timeframe (e.g., "3d" on Bybit), the entire request failed
@@ -31,6 +33,7 @@ getSupportedTimeframes(exchangeId, marketType): string[]
 ```
 
 **How it works**:
+
 - Queries the CCXT exchange instance for its `timeframes` property
 - Validates requested timeframe against the exchange's supported list
 - Returns clear error message with supported alternatives if validation fails
@@ -38,18 +41,21 @@ getSupportedTimeframes(exchangeId, marketType): string[]
 ### 2. **Graceful Degradation for Multi-Timeframe Requests**
 
 **Before** (❌ Failed completely):
+
 ```
 Request: [1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w]
 Result: Error - entire request fails because "3d" unsupported
 ```
 
 **After** (✅ Partial success):
+
 ```
 Request: [1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w]
 Result: Success for [1m, 5m, 15m, 1h, 4h, 1d, 1w] + Warning about "3d"
 ```
 
 **Implementation**:
+
 - Use `Promise.allSettled()` instead of `Promise.all()`
 - Each timeframe request wrapped in try-catch
 - Return `{success: true/false, error: string}` per timeframe
@@ -63,6 +69,7 @@ GET /api/v1/ohlcv/timeframes/:exchange?type=spot|perp
 ```
 
 **Response**:
+
 ```json
 {
   "success": true,
@@ -78,6 +85,7 @@ GET /api/v1/ohlcv/timeframes/:exchange?type=spot|perp
 ```
 
 **Purpose**:
+
 - Query supported timeframes before making requests
 - Display available timeframes in UI
 - Help users understand exchange limitations
@@ -85,17 +93,20 @@ GET /api/v1/ohlcv/timeframes/:exchange?type=spot|perp
 ### 4. **Enhanced Frontend Error Handling**
 
 **Warning Display** (Yellow):
+
 ```
 ⚠️ Some timeframes are not supported by this exchange:
 3d (Timeframe 3d is not supported by bybit. Supported timeframes: 1m, 5m, 15m, 1h, 4h, 1d, 1w)
 ```
 
 **Error Display** (Red):
+
 ```
 ❌ Failed to fetch data for all timeframes
 ```
 
 **Behavior**:
+
 - Yellow warning: Some charts load successfully
 - Red error: No charts could be loaded
 - Charts only displayed for successful timeframes
@@ -104,12 +115,13 @@ GET /api/v1/ohlcv/timeframes/:exchange?type=spot|perp
 ## 📊 Exchange Timeframe Support Matrix
 
 ### Standard Timeframes (Our App)
+
 Our app supports these 8 timeframes: `1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w`
 
 ### Exchange Support by Platform
 
 | Timeframe | Binance | Bybit | OKX | Hyperliquid |
-|-----------|---------|-------|-----|-------------|
+| --------- | ------- | ----- | --- | ----------- |
 | **1m**    | ✅      | ✅    | ✅  | ✅          |
 | **5m**    | ✅      | ✅    | ✅  | ✅          |
 | **15m**   | ✅      | ✅    | ✅  | ✅          |
@@ -120,6 +132,7 @@ Our app supports these 8 timeframes: `1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w`
 | **1w**    | ✅      | ✅    | ✅  | ✅          |
 
 **Notes**:
+
 - ✅ = Supported
 - ❌ = Not supported
 - **Binance**: Supports all standard timeframes + additional ones (3m, 30m, 2h, 6h, 8h, 12h, 1M)
@@ -130,50 +143,63 @@ Our app supports these 8 timeframes: `1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w`
 ### Full Exchange Timeframe Lists
 
 **Binance (Spot & Perp)**:
+
 ```
 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M
 ```
 
 **Bybit (Spot & Perp)**:
+
 ```
 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h, 1d, 1w, 1M
 ```
-*Missing: 3d*
+
+_Missing: 3d_
 
 **OKX (Spot & Perp)**:
+
 ```
 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 12h, 1d, 1w, 1M, 3M
 ```
-*Missing: 3d*
+
+_Missing: 3d_
 
 **Hyperliquid (Perp only)**:
+
 ```
 1m, 5m, 15m, 1h, 4h, 1d, 1w
 ```
-*Missing: 3d (and others)*
+
+_Missing: 3d (and others)_
 
 ## 🔍 Testing
 
 ### Test Case 1: Bybit with All Timeframes
+
 **Request**: Load charts for BTC/USDT on Bybit with all 8 timeframes
 
 **Expected Result**:
+
 - 7 charts display successfully (1m, 5m, 15m, 1h, 4h, 1d, 1w)
 - Yellow warning banner shows: "Some timeframes are not supported: 3d"
 - Charts are functional and show data
 
 ### Test Case 2: Binance with All Timeframes
+
 **Request**: Load charts for BTC/USDT on Binance with all 8 timeframes
 
 **Expected Result**:
+
 - All 8 charts display successfully
 - No warning banner
 - All timeframes work perfectly
 
 ### Test Case 3: Invalid Symbol
+
 **Request**: Load charts for INVALID/SYMBOL on any exchange
 
 **Expected Result**:
+
 - No charts display
 - Red error banner shows: "Failed to fetch data for all timeframes"
 - Clear error message about symbol not found
@@ -217,6 +243,7 @@ Our app supports these 8 timeframes: `1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w`
 ```
 
 **New Fields**:
+
 - `success` (per timeframe): Boolean indicating if fetch succeeded
 - `error` (per timeframe): Error message if fetch failed
 - `summary`: Object with total/successful/failed counts
@@ -224,21 +251,25 @@ Our app supports these 8 timeframes: `1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w`
 ## 🚀 Benefits
 
 ### 1. **Better User Experience**
+
 - Partial success is better than complete failure
 - Users see available data even if some timeframes don't work
 - Clear communication about what's supported
 
 ### 2. **Exchange Flexibility**
+
 - Works correctly with any exchange's timeframe limitations
 - No hardcoded assumptions about support
 - Future-proof for new exchanges
 
 ### 3. **Debugging & Monitoring**
+
 - Clear error messages for unsupported timeframes
 - Summary statistics for success/failure rates
 - Detailed logging for troubleshooting
 
 ### 4. **Graceful Degradation**
+
 - System remains functional with partial data
 - Doesn't block users from seeing available information
 - Progressive enhancement approach
@@ -246,12 +277,14 @@ Our app supports these 8 timeframes: `1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w`
 ## 🔄 Migration Notes
 
 **For Frontend Consumers**:
+
 - Response format now includes `success` and `error` fields per timeframe
 - Check `tf.success` before accessing `tf.candles`
 - Handle partial failures appropriately
 - New `summary` object provides quick overview
 
 **For API Users**:
+
 - Multi-timeframe endpoint now returns 200 even with partial failures
 - Returns 500 only if ALL timeframes fail
 - Check individual timeframe `success` fields

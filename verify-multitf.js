@@ -53,11 +53,14 @@ async function testEndpoint(name, url, expectedStatus = 200) {
           log(`   📊 Candles: ${data.data.candles.length}`, 'blue');
           if (data.data.candles.length > 0) {
             const firstCandle = data.data.candles[0];
-            log(`   💹 First candle: O:${firstCandle.open} H:${firstCandle.high} L:${firstCandle.low} C:${firstCandle.close}`, 'blue');
+            log(
+              `   💹 First candle: O:${firstCandle.open} H:${firstCandle.high} L:${firstCandle.low} C:${firstCandle.close}`,
+              'blue'
+            );
           }
         } else if (data.data.timeframes) {
           log(`   📊 Timeframes: ${data.data.timeframes.length}`, 'blue');
-          data.data.timeframes.forEach(tf => {
+          data.data.timeframes.forEach((tf) => {
             log(`      ${tf.timeframe}: ${tf.count} candles`, 'blue');
           });
         }
@@ -75,75 +78,113 @@ async function testEndpoint(name, url, expectedStatus = 200) {
 
 async function runTests() {
   log('\n🚀 Starting MultiTF Feature Verification\n', 'cyan');
-  log('=' .repeat(60), 'cyan');
+  log('='.repeat(60), 'cyan');
 
   let passed = 0;
   let failed = 0;
 
   // Test 1: Single timeframe endpoint - Valid request
-  if (await testEndpoint(
-    'Single Timeframe OHLCV (Binance BTC/USDT 1h)',
-    `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT?timeframe=1h&type=spot&limit=10`
-  )) passed++; else failed++;
+  if (
+    await testEndpoint(
+      'Single Timeframe OHLCV (Binance BTC/USDT 1h)',
+      `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT?timeframe=1h&type=spot&limit=10`
+    )
+  )
+    passed++;
+  else failed++;
 
   // Test 2: Single timeframe endpoint - Different timeframe
-  if (await testEndpoint(
-    'Single Timeframe OHLCV (Binance BTC/USDT 1d)',
-    `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT?timeframe=1d&type=spot&limit=5`
-  )) passed++; else failed++;
+  if (
+    await testEndpoint(
+      'Single Timeframe OHLCV (Binance BTC/USDT 1d)',
+      `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT?timeframe=1d&type=spot&limit=5`
+    )
+  )
+    passed++;
+  else failed++;
 
   // Test 3: Multi-timeframe endpoint
-  if (await testEndpoint(
-    'Multi-Timeframe OHLCV (Binance BTC/USDT)',
-    `${API_BASE_URL}/ohlcv/multi/binance/BTC%2FUSDT?timeframes=1m,5m,15m,1h&type=spot&limit=10`
-  )) passed++; else failed++;
+  if (
+    await testEndpoint(
+      'Multi-Timeframe OHLCV (Binance BTC/USDT)',
+      `${API_BASE_URL}/ohlcv/multi/binance/BTC%2FUSDT?timeframes=1m,5m,15m,1h&type=spot&limit=10`
+    )
+  )
+    passed++;
+  else failed++;
 
   // Test 4: Different exchange (Bybit)
-  if (await testEndpoint(
-    'Single Timeframe OHLCV (Bybit BTC/USDT 1h)',
-    `${API_BASE_URL}/ohlcv/bybit/BTC%2FUSDT?timeframe=1h&type=spot&limit=10`
-  )) passed++; else failed++;
+  if (
+    await testEndpoint(
+      'Single Timeframe OHLCV (Bybit BTC/USDT 1h)',
+      `${API_BASE_URL}/ohlcv/bybit/BTC%2FUSDT?timeframe=1h&type=spot&limit=10`
+    )
+  )
+    passed++;
+  else failed++;
 
   // Test 5: Perpetual market
-  if (await testEndpoint(
-    'Single Timeframe OHLCV (Binance Perp BTC/USDT:USDT 1h)',
-    `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT%3AUSDT?timeframe=1h&type=perp&limit=10`
-  )) passed++; else failed++;
+  if (
+    await testEndpoint(
+      'Single Timeframe OHLCV (Binance Perp BTC/USDT:USDT 1h)',
+      `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT%3AUSDT?timeframe=1h&type=perp&limit=10`
+    )
+  )
+    passed++;
+  else failed++;
 
   // Test 6: Error case - Missing timeframe
-  if (await testEndpoint(
-    'Error: Missing timeframe parameter',
-    `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT?type=spot`,
-    400
-  )) passed++; else failed++;
+  if (
+    await testEndpoint(
+      'Error: Missing timeframe parameter',
+      `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT?type=spot`,
+      400
+    )
+  )
+    passed++;
+  else failed++;
 
   // Test 7: Error case - Invalid timeframe
-  if (await testEndpoint(
-    'Error: Invalid timeframe',
-    `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT?timeframe=2h&type=spot`,
-    400
-  )) passed++; else failed++;
+  if (
+    await testEndpoint(
+      'Error: Invalid timeframe',
+      `${API_BASE_URL}/ohlcv/binance/BTC%2FUSDT?timeframe=2h&type=spot`,
+      400
+    )
+  )
+    passed++;
+  else failed++;
 
   // Test 8: Error case - Invalid exchange
-  if (await testEndpoint(
-    'Error: Invalid exchange',
-    `${API_BASE_URL}/ohlcv/kraken/BTC%2FUSDT?timeframe=1h&type=spot`,
-    400
-  )) passed++; else failed++;
+  if (
+    await testEndpoint(
+      'Error: Invalid exchange',
+      `${API_BASE_URL}/ohlcv/kraken/BTC%2FUSDT?timeframe=1h&type=spot`,
+      400
+    )
+  )
+    passed++;
+  else failed++;
 
   // Test 9: All timeframes
-  if (await testEndpoint(
-    'Multi-Timeframe OHLCV (All 8 timeframes)',
-    `${API_BASE_URL}/ohlcv/multi/binance/BTC%2FUSDT?timeframes=1m,5m,15m,1h,4h,1d,3d,1w&type=spot&limit=5`
-  )) passed++; else failed++;
+  if (
+    await testEndpoint(
+      'Multi-Timeframe OHLCV (All 8 timeframes)',
+      `${API_BASE_URL}/ohlcv/multi/binance/BTC%2FUSDT?timeframes=1m,5m,15m,1h,4h,1d,3d,1w&type=spot&limit=5`
+    )
+  )
+    passed++;
+  else failed++;
 
   // Print summary
   log('\n' + '='.repeat(60), 'cyan');
   log('\n📊 Test Summary:', 'cyan');
   log(`   ✅ Passed: ${passed}`, 'green');
   log(`   ❌ Failed: ${failed}`, failed > 0 ? 'red' : 'green');
-  log(`   📈 Success Rate: ${((passed / (passed + failed)) * 100).toFixed(1)}%`,
-    failed === 0 ? 'green' : 'yellow');
+  log(
+    `   📈 Success Rate: ${((passed / (passed + failed)) * 100).toFixed(1)}%`,
+    failed === 0 ? 'green' : 'yellow'
+  );
 
   if (failed === 0) {
     log('\n✨ All tests passed! MultiTF feature is working correctly.', 'green');
@@ -169,7 +210,10 @@ async function checkApiHealth() {
       return false;
     }
   } catch (error) {
-    log('❌ Cannot connect to API. Make sure the API server is running on http://localhost:3000', 'red');
+    log(
+      '❌ Cannot connect to API. Make sure the API server is running on http://localhost:3000',
+      'red'
+    );
     log(`   Error: ${error.message}\n`, 'red');
     return false;
   }

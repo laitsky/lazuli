@@ -91,7 +91,7 @@ export class CustomPairController {
         // Fetch OHLCV data for both symbols in parallel
         const [candles1, candles2] = await Promise.all([
           this.fetchOHLCVForSymbol(exchangeId, symbol1, timeframe, marketType, limit),
-          this.fetchOHLCVForSymbol(exchangeId, symbol2, timeframe, marketType, limit)
+          this.fetchOHLCVForSymbol(exchangeId, symbol2, timeframe, marketType, limit),
         ]);
 
         // Validate that we got data for both symbols
@@ -167,13 +167,7 @@ export class CustomPairController {
         case 'binance':
         case 'bybit':
         case 'okx':
-          candles = await ccxtService.fetchOHLCV(
-            exchangeId,
-            symbol,
-            timeframe,
-            marketType,
-            limit
-          );
+          candles = await ccxtService.fetchOHLCV(exchangeId, symbol, timeframe, marketType, limit);
           break;
       }
 
@@ -201,7 +195,7 @@ export class CustomPairController {
   private calculateCustomPair(candles1: OHLCV[], candles2: OHLCV[]): OHLCV[] {
     // Create a map of candles2 by timestamp for efficient lookup
     const candles2Map = new Map<number, OHLCV>();
-    candles2.forEach(candle => {
+    candles2.forEach((candle) => {
       candles2Map.set(candle.timestamp, candle);
     });
 
@@ -217,8 +211,16 @@ export class CustomPairController {
       }
 
       // Validate both candles for zero or null values (division by zero protection)
-      if (!candle1.open || !candle1.high || !candle1.low || !candle1.close ||
-          !candle2.open || !candle2.high || !candle2.low || !candle2.close) {
+      if (
+        !candle1.open ||
+        !candle1.high ||
+        !candle1.low ||
+        !candle1.close ||
+        !candle2.open ||
+        !candle2.high ||
+        !candle2.low ||
+        !candle2.close
+      ) {
         continue;
       }
 
@@ -237,7 +239,9 @@ export class CustomPairController {
 
     // Log warning if no matching timestamps were found
     if (customPairCandles.length === 0) {
-      console.warn('No matching timestamps found between the two symbols. This may indicate data misalignment.');
+      console.warn(
+        'No matching timestamps found between the two symbols. This may indicate data misalignment.'
+      );
     }
 
     return customPairCandles;

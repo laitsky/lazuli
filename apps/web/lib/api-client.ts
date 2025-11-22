@@ -85,6 +85,9 @@ export interface CustomIndexRequest {
   timeframe: Timeframe;
   assets: IndexAsset[];
   limit?: number;
+}
+
+/**
  * Query parameters for SuperEMA endpoint
  */
 export interface SuperEMAQueryParams {
@@ -390,13 +393,10 @@ export class LazuliAPI {
     request: CustomIndexRequest
   ): Promise<ApiResponse<CustomIndexResponse>> {
     // Use 120s timeout for custom index (fetches multiple assets + benchmarks)
-    return apiPost<CustomIndexResponse>(
-      `${API_VERSION}/custom-index`,
-      request,
-      120000
-     
-      
- 
+    return apiPost<CustomIndexResponse>(`${API_VERSION}/custom-index`, request, 120000);
+  }
+
+  /**
    * Get SuperEMA data (1-400 EMA periods) for a specific symbol
    * Uses extended timeout (90s) due to heavy computation
    */

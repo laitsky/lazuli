@@ -67,7 +67,7 @@ function calculateEMA(prices: number[], period: number): (number | null)[] {
 
   // Calculate subsequent EMA values
   for (let i = period; i < prices.length; i++) {
-    const currentEMA = (prices[i] * multiplier) + (previousEMA * (1 - multiplier));
+    const currentEMA = prices[i] * multiplier + previousEMA * (1 - multiplier);
     emaValues.push(currentEMA);
     previousEMA = currentEMA;
   }
@@ -82,16 +82,13 @@ function calculateEMA(prices: number[], period: number): (number | null)[] {
  * @param maxPeriod - Maximum EMA period to calculate (default: 400)
  * @returns Array of data points with all EMA values
  */
-export function calculateSuperEMA(
-  ohlcvData: OHLCV[],
-  maxPeriod: number = 400
-): EMADataPoint[] {
+export function calculateSuperEMA(ohlcvData: OHLCV[], maxPeriod: number = 400): EMADataPoint[] {
   if (ohlcvData.length === 0) {
     return [];
   }
 
   // Extract closing prices
-  const closes = ohlcvData.map(candle => candle.close);
+  const closes = ohlcvData.map((candle) => candle.close);
 
   // Pre-calculate all EMAs (1 to maxPeriod)
   const allEMAs: Map<number, (number | null)[]> = new Map();
@@ -133,16 +130,13 @@ export function calculateSuperEMA(
  * @param periods - Array of specific EMA periods to calculate
  * @returns Array of data points with selected EMA values
  */
-export function calculateSelectedEMAs(
-  ohlcvData: OHLCV[],
-  periods: number[]
-): EMADataPoint[] {
+export function calculateSelectedEMAs(ohlcvData: OHLCV[], periods: number[]): EMADataPoint[] {
   if (ohlcvData.length === 0 || periods.length === 0) {
     return [];
   }
 
   // Extract closing prices
-  const closes = ohlcvData.map(candle => candle.close);
+  const closes = ohlcvData.map((candle) => candle.close);
 
   // Calculate only the requested EMAs
   const selectedEMAs: Map<number, (number | null)[]> = new Map();
@@ -166,7 +160,11 @@ export function calculateSelectedEMAs(
 
     return {
       timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
       close: candle.close,
+      volume: candle.volume,
       emas,
     };
   });
