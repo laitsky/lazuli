@@ -21,6 +21,9 @@ export function ExchangeLogo({ exchangeId, className, ...props }: ExchangeLogoPr
   } else if (id === 'okx') {
     src = 'https://altcoinsbox.com/wp-content/uploads/2023/03/okx-logo-300x300.webp';
     alt = 'OKX Logo';
+  } else if (id === 'hyperliquid') {
+    src = 'https://avatars.githubusercontent.com/u/125463758?s=200&v=4';
+    alt = 'Hyperliquid Logo';
   } else {
     // Fallback for unknown exchanges
     return (
