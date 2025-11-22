@@ -92,3 +92,47 @@ export interface OHLCVResponse {
   candles: OHLCV[];       // Array of candlestick data
   count: number;          // Number of candles returned
 }
+
+/**
+ * Asset weight configuration for custom index
+ * Each asset has a symbol and its weight in the index (as percentage)
+ */
+export interface IndexAsset {
+  symbol: string;            // Asset symbol (e.g., BTC-USDT)
+  weight: number;            // Weight percentage (0-100)
+}
+
+/**
+ * Custom index performance data point
+ * Shows the index value at a specific timestamp
+ */
+export interface IndexPerformancePoint {
+  timestamp: number;         // Timestamp in milliseconds
+  value: number;             // Normalized index value (starts at 100)
+  change: number;            // Percentage change from start
+}
+
+/**
+ * Comparison benchmark data
+ * Performance data for USDT/BTC/ETH/SOL benchmarks
+ */
+export interface BenchmarkPerformance {
+  symbol: string;            // Benchmark symbol
+  name: string;              // Display name
+  data: IndexPerformancePoint[];  // Performance data points
+}
+
+/**
+ * Custom index response with performance data
+ */
+export interface CustomIndexResponse {
+  name: string;              // Index name
+  exchange: string;          // Exchange used
+  timeframe: Timeframe;      // Timeframe used
+  assets: IndexAsset[];      // Assets in the index
+  performance: IndexPerformancePoint[];  // Index performance data
+  benchmarks: BenchmarkPerformance[];    // Comparison benchmarks
+  startTime: number;         // Start timestamp
+  endTime: number;           // End timestamp
+  totalReturn: number;       // Total percentage return
+}
