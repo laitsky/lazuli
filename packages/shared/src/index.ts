@@ -310,14 +310,26 @@ export interface AltScreenerRequest {
 }
 
 /**
+ * Base currency prices in USD for client-side calculations
+ * Allows instant switching between comparison bases without API refetch
+ */
+export interface BaseCurrencyPrices {
+  USD: 1; // Always 1 (USD is the reference)
+  BTC: number; // BTC price in USD
+  ETH: number; // ETH price in USD
+  SOL: number; // SOL price in USD
+}
+
+/**
  * Response from alt screener endpoint
  */
 export interface AltScreenerResponse {
   exchange: string; // Exchange identifier
-  baseCurrency: BaseCurrency; // Comparison base used
-  basePrice: number; // Current price of base currency in USD
+  baseCurrency: BaseCurrency; // Comparison base used (initial/default)
+  basePrice: number; // Current price of base currency in USD (for backwards compat)
+  basePrices: BaseCurrencyPrices; // All base currency prices for client-side switching
   period: PerformancePeriod; // Performance period used
-  altcoins: AltcoinPerformance[]; // Array of altcoin data
+  altcoins: AltcoinPerformance[]; // Array of altcoin data (prices in USD)
   count: number; // Number of altcoins returned
   timestamp: number; // Response timestamp
   stats: {
