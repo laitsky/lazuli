@@ -525,28 +525,41 @@ interface AltcoinCardProps {
 
 function AltcoinCard({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProps) {
   const displayPrice = baseCurrency === 'USD' ? altcoin.price : altcoin.priceInBase;
-  const priceLabel =
-    baseCurrency === 'USD'
-      ? formatCurrency(displayPrice)
-      : `${displayPrice.toFixed(8)} ${baseCurrency}`;
+
+  // Smart price formatting based on value magnitude
+  const formatBasePrice = (price: number): string => {
+    if (price >= 1) return price.toFixed(4);
+    if (price >= 0.0001) return price.toFixed(6);
+    return price.toFixed(8);
+  };
+
+  const formatUsdPrice = (price: number): string => {
+    if (price >= 1000) return `$${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    if (price >= 1) return `$${price.toFixed(2)}`;
+    if (price >= 0.01) return `$${price.toFixed(4)}`;
+    return `$${price.toFixed(6)}`;
+  };
 
   return (
     <Card className="glass border-white/5 hover:border-primary/30 transition-all duration-200 overflow-hidden group">
       <CardContent className="p-3">
         {/* Header */}
         <div className="flex items-start justify-between mb-2">
-          <div>
+          <div className="min-w-0 flex-1 mr-2">
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground/50 font-mono">#{rank}</span>
               <span className="font-bold">{altcoin.base}</span>
             </div>
-            <div className="text-xs text-muted-foreground font-mono">
-              {priceLabel}
-              {/* Show USD equivalent when not in USD mode */}
-              {baseCurrency !== 'USD' && (
-                <span className="text-muted-foreground/60 ml-1">
-                  (${altcoin.price < 1 ? altcoin.price.toFixed(4) : altcoin.price.toFixed(2)})
-                </span>
+            <div className="text-xs text-muted-foreground font-mono truncate">
+              {baseCurrency === 'USD' ? (
+                formatUsdPrice(displayPrice)
+              ) : (
+                <>
+                  {formatBasePrice(displayPrice)} {baseCurrency}{' '}
+                  <span className="text-muted-foreground/60">
+                    ({formatUsdPrice(altcoin.price)})
+                  </span>
+                </>
               )}
             </div>
           </div>
@@ -592,10 +605,20 @@ function AltcoinCard({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProp
  */
 function AltcoinListItem({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProps) {
   const displayPrice = baseCurrency === 'USD' ? altcoin.price : altcoin.priceInBase;
-  const priceLabel =
-    baseCurrency === 'USD'
-      ? formatCurrency(displayPrice)
-      : `${displayPrice.toFixed(8)} ${baseCurrency}`;
+
+  // Smart price formatting based on value magnitude
+  const formatBasePrice = (price: number): string => {
+    if (price >= 1) return price.toFixed(4);
+    if (price >= 0.0001) return price.toFixed(6);
+    return price.toFixed(8);
+  };
+
+  const formatUsdPrice = (price: number): string => {
+    if (price >= 1000) return `$${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    if (price >= 1) return `$${price.toFixed(2)}`;
+    if (price >= 0.01) return `$${price.toFixed(4)}`;
+    return `$${price.toFixed(6)}`;
+  };
 
   return (
     <Card className="glass border-white/5 hover:border-primary/30 transition-all duration-200">
@@ -624,12 +647,16 @@ function AltcoinListItem({ altcoin, baseCurrency, basePrice, rank }: AltcoinCard
           </div>
 
           {/* Price */}
-          <div className="text-right min-w-[100px]">
-            <div className="font-mono text-sm">{priceLabel}</div>
+          <div className="text-right min-w-[120px]">
+            <div className="font-mono text-sm">
+              {baseCurrency === 'USD'
+                ? formatUsdPrice(displayPrice)
+                : `${formatBasePrice(displayPrice)} ${baseCurrency}`}
+            </div>
             {/* Show USD equivalent when not in USD mode */}
             {baseCurrency !== 'USD' && (
               <div className="text-xs text-muted-foreground/60">
-                ${altcoin.price < 1 ? altcoin.price.toFixed(4) : altcoin.price.toFixed(2)}
+                {formatUsdPrice(altcoin.price)}
               </div>
             )}
           </div>

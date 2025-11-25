@@ -370,7 +370,7 @@ function AltcoinMiniChartComponent({
           {/* Tooltip */}
           {interactive && isHovering && hover && (
             <div
-              className="absolute z-50 pointer-events-none bg-popover/95 backdrop-blur-sm border border-border rounded-lg shadow-lg px-2 py-1.5 text-xs"
+              className="absolute z-50 pointer-events-none bg-popover/95 backdrop-blur-sm border border-border rounded-lg shadow-lg px-2.5 py-1.5 text-xs whitespace-nowrap min-w-max"
               style={{
                 left: `${hover.x * 100}%`,
                 top: '-4px',
@@ -383,14 +383,13 @@ function AltcoinMiniChartComponent({
               </div>
 
               {/* Price in base currency */}
-              <div className="font-mono font-medium">
-                {baseCurrency !== 'USD' && (
-                  <span className="text-foreground">
+              <div className="font-mono font-medium text-foreground">
+                {baseCurrency !== 'USD' ? (
+                  <>
                     {formatPrice(hover.price / basePrice, baseCurrency)} {baseCurrency}
-                  </span>
-                )}
-                {baseCurrency === 'USD' && (
-                  <span className="text-foreground">{formatPrice(hover.price, 'USD')}</span>
+                  </>
+                ) : (
+                  formatPrice(hover.price, 'USD')
                 )}
               </div>
 
