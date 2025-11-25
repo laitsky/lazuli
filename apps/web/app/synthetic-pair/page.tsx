@@ -169,6 +169,16 @@ export default function SyntheticPairPage() {
     loadExchanges();
   }, []);
 
+  // Auto-switch to 'perp' for Hyperliquid (which only supports perpetual markets)
+  useEffect(() => {
+    if (selectedExchange === 'hyperliquid' && marketType === 'spot') {
+      setMarketType('perp');
+      setSymbol1('');
+      setSymbol2('');
+      setChartData([]);
+    }
+  }, [selectedExchange]);
+
   // Load tickers when exchange or market type changes
   useEffect(() => {
     async function loadTickers() {
@@ -417,6 +427,12 @@ export default function SyntheticPairPage() {
                     setChartData([]);
                   }}
                   className="rounded-md"
+                  disabled={selectedExchange === 'hyperliquid'}
+                  title={
+                    selectedExchange === 'hyperliquid'
+                      ? 'Hyperliquid only supports perpetual markets'
+                      : ''
+                  }
                 >
                   Spot
                 </Button>
