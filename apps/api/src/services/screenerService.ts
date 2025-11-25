@@ -69,6 +69,21 @@ const PERIOD_CANDLE_LIMITS: Record<PerformancePeriod, number> = {
   '30d': 30,
 };
 
+/**
+ * Performance optimization constants
+ * Tuned for balance between speed and rate limit compliance
+ */
+const PERFORMANCE_CONFIG = {
+  // Batch size for parallel OHLCV requests (increased from 10 for faster loading)
+  BATCH_SIZE: 25,
+  // Delay between batches in ms (reduced from 100ms)
+  BATCH_DELAY_MS: 50,
+  // Screener response cache TTL in ms (increased from 30s for better cache hits)
+  SCREENER_CACHE_TTL_MS: 60000, // 60 seconds
+  // OHLCV data cache TTL in ms (increased from 60s - chart data doesn't change rapidly)
+  OHLCV_CACHE_TTL_MS: 180000, // 3 minutes
+};
+
 export class ScreenerService {
   /**
    * Get all altcoins with performance data and mini charts
@@ -151,8 +166,8 @@ export class ScreenerService {
         stats,
       };
 
-      // Cache the full response for 30 seconds
-      cacheService.set(cacheKey, response, 30000);
+      // Cache the full response (60 seconds for better cache hits)
+      cacheService.set(cacheKey, response, PERFORMANCE_CONFIG.SCREENER_CACHE_TTL_MS);
 
       // Apply sorting and filtering
       return this.applySortAndFilter(response, sortBy, sortOrder, limit, filters);
@@ -208,8 +223,9 @@ export class ScreenerService {
     const timeframe = PERIOD_TIMEFRAMES[period] as any;
     const candleLimit = PERIOD_CANDLE_LIMITS[period];
 
-    // Process in batches of 10 to avoid rate limiting
-    const BATCH_SIZE = 10;
+    // Process in batches to avoid rate limiting
+    // Using larger batch size (25) for faster loading while staying within rate limits
+    const { BATCH_SIZE, BATCH_DELAY_MS } = PERFORMANCE_CONFIG;
     const results: AltcoinPerformance[] = [];
 
     for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
@@ -231,8 +247,8 @@ export class ScreenerService {
                 'spot',
                 candleLimit
               );
-              // Cache for 1 minute
-              cacheService.set(ohlcvCacheKey, ohlcv, 60000);
+              // Cache OHLCV data for 3 minutes (chart data doesn't change rapidly)
+              cacheService.set(ohlcvCacheKey, ohlcv, PERFORMANCE_CONFIG.OHLCV_CACHE_TTL_MS);
             }
 
             // Parse symbol to get base and quote
@@ -289,9 +305,9 @@ export class ScreenerService {
 
       results.push(...batchResults);
 
-      // Small delay between batches to respect rate limits
+      // Small delay between batches to respect rate limits (50ms, reduced from 100ms)
       if (i + BATCH_SIZE < tickers.length) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
       }
     }
 

@@ -16,7 +16,7 @@
  * potential opportunities based on relative performance.
  */
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { AltcoinMiniChart } from './altcoin-mini-chart';
 import { formatCurrency, formatVolume, formatPercentage, getChangeColor } from '@/lib/api-client';
 import { AltcoinPerformance, BaseCurrency, ScreenerSortBy } from '@lazuli/shared';
+
 import {
   Search,
   ArrowUpDown,
@@ -38,6 +39,16 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-react';
+
+/**
+ * Animation delay constants - optimized for performance
+ * Using smaller delays and capping max delay to prevent long animation queues
+ */
+const ANIMATION_CONFIG = {
+  grid: { delay: 0.005, maxDelay: 0.15, duration: 0.15 },
+  list: { delay: 0.003, maxDelay: 0.1, duration: 0.15 },
+  heatmap: { delay: 0.002, maxDelay: 0.08, duration: 0.08 },
+} as const;
 
 /**
  * Props for the AltcoinGrid component
@@ -123,6 +134,23 @@ export function AltcoinGrid({
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [showFilters, setShowFilters] = useState(false);
 
+  // Memoize volume thresholds separately to avoid recalculating on every filter change
+  // This is O(n log n) so we only want to do it when altcoins array changes
+  const volumeThresholds = useMemo(() => {
+    if (altcoins.length === 0) return { highVolume: 0, lowCap: Infinity };
+
+    const volumes = altcoins.map((a) => a.volume24h || 0);
+    const sortedDesc = [...volumes].sort((a, b) => b - a);
+    const sortedAsc = [...volumes].sort((a, b) => a - b);
+
+    return {
+      // Top 20% by volume
+      highVolume: sortedDesc[Math.floor(altcoins.length * 0.2)] || 0,
+      // Bottom 50% by volume
+      lowCap: sortedAsc[Math.floor(altcoins.length * 0.5)] || Infinity,
+    };
+  }, [altcoins]);
+
   // Filter and sort altcoins
   const filteredAltcoins = useMemo(() => {
     let result = [...altcoins];
@@ -135,7 +163,7 @@ export function AltcoinGrid({
       );
     }
 
-    // Apply quick filters
+    // Apply quick filters (using pre-computed thresholds)
     switch (quickFilter) {
       case 'gainers':
         result = result.filter((a) => (a.change24h || 0) > 0);
@@ -144,20 +172,10 @@ export function AltcoinGrid({
         result = result.filter((a) => (a.change24h || 0) < 0);
         break;
       case 'high_volume':
-        // Top 20% by volume
-        const volumeThreshold =
-          altcoins.map((a) => a.volume24h || 0).sort((a, b) => b - a)[
-            Math.floor(altcoins.length * 0.2)
-          ] || 0;
-        result = result.filter((a) => (a.volume24h || 0) >= volumeThreshold);
+        result = result.filter((a) => (a.volume24h || 0) >= volumeThresholds.highVolume);
         break;
       case 'low_cap':
-        // Bottom 50% by volume (smaller altcoins)
-        const lowCapThreshold =
-          altcoins.map((a) => a.volume24h || 0).sort((a, b) => a - b)[
-            Math.floor(altcoins.length * 0.5)
-          ] || Infinity;
-        result = result.filter((a) => (a.volume24h || 0) <= lowCapThreshold);
+        result = result.filter((a) => (a.volume24h || 0) <= volumeThresholds.lowCap);
         break;
     }
 
@@ -195,7 +213,7 @@ export function AltcoinGrid({
     });
 
     return result;
-  }, [altcoins, searchQuery, quickFilter, sortBy, sortOrder, baseCurrency]);
+  }, [altcoins, searchQuery, quickFilter, sortBy, sortOrder, baseCurrency, volumeThresholds]);
 
   // Toggle sort order
   const toggleSortOrder = useCallback(() => {
@@ -420,13 +438,18 @@ export function AltcoinGrid({
             {filteredAltcoins.map((altcoin, index) => (
               <motion.div
                 key={altcoin.symbol}
-                initial={{ opacity: 0, scale: 0.9 }}
+                initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ duration: 0.2, delay: index * 0.02 }}
-                layout
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{
+                  duration: ANIMATION_CONFIG.grid.duration,
+                  delay: Math.min(
+                    index * ANIMATION_CONFIG.grid.delay,
+                    ANIMATION_CONFIG.grid.maxDelay
+                  ),
+                }}
               >
-                <AltcoinCard altcoin={altcoin} baseCurrency={baseCurrency} rank={index + 1} />
+                <AltcoinCardMemo altcoin={altcoin} baseCurrency={baseCurrency} rank={index + 1} />
               </motion.div>
             ))}
           </AnimatePresence>
@@ -439,13 +462,22 @@ export function AltcoinGrid({
             {filteredAltcoins.map((altcoin, index) => (
               <motion.div
                 key={altcoin.symbol}
-                initial={{ opacity: 0, x: -20 }}
+                initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                transition={{ duration: 0.2, delay: index * 0.01 }}
-                layout
+                exit={{ opacity: 0, x: 10 }}
+                transition={{
+                  duration: ANIMATION_CONFIG.list.duration,
+                  delay: Math.min(
+                    index * ANIMATION_CONFIG.list.delay,
+                    ANIMATION_CONFIG.list.maxDelay
+                  ),
+                }}
               >
-                <AltcoinListItem altcoin={altcoin} baseCurrency={baseCurrency} rank={index + 1} />
+                <AltcoinListItemMemo
+                  altcoin={altcoin}
+                  baseCurrency={baseCurrency}
+                  rank={index + 1}
+                />
               </motion.div>
             ))}
           </AnimatePresence>
@@ -454,20 +486,10 @@ export function AltcoinGrid({
 
       {viewMode === 'heatmap' && (
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 xl:grid-cols-12 gap-1">
-          <AnimatePresence mode="popLayout">
-            {filteredAltcoins.map((altcoin, index) => (
-              <motion.div
-                key={altcoin.symbol}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.1, delay: index * 0.005 }}
-                layout
-              >
-                <HeatmapCell altcoin={altcoin} />
-              </motion.div>
-            ))}
-          </AnimatePresence>
+          {/* Heatmap uses simple divs without AnimatePresence for maximum performance */}
+          {filteredAltcoins.map((altcoin) => (
+            <HeatmapCellMemo key={altcoin.symbol} altcoin={altcoin} />
+          ))}
         </div>
       )}
 
@@ -619,3 +641,33 @@ function HeatmapCell({ altcoin }: { altcoin: AltcoinPerformance }) {
     </div>
   );
 }
+
+/**
+ * Memoized components to prevent unnecessary re-renders
+ * These only re-render when their specific props change
+ */
+const AltcoinCardMemo = memo(AltcoinCard, (prev, next) => {
+  return (
+    prev.altcoin.symbol === next.altcoin.symbol &&
+    prev.altcoin.price === next.altcoin.price &&
+    prev.altcoin.change24h === next.altcoin.change24h &&
+    prev.baseCurrency === next.baseCurrency &&
+    prev.rank === next.rank
+  );
+});
+
+const AltcoinListItemMemo = memo(AltcoinListItem, (prev, next) => {
+  return (
+    prev.altcoin.symbol === next.altcoin.symbol &&
+    prev.altcoin.price === next.altcoin.price &&
+    prev.altcoin.change24h === next.altcoin.change24h &&
+    prev.baseCurrency === next.baseCurrency &&
+    prev.rank === next.rank
+  );
+});
+
+const HeatmapCellMemo = memo(HeatmapCell, (prev, next) => {
+  return (
+    prev.altcoin.symbol === next.altcoin.symbol && prev.altcoin.change24h === next.altcoin.change24h
+  );
+});
