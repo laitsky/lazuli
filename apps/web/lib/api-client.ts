@@ -17,6 +17,11 @@ import {
   CustomIndexResponse,
   IndexAsset,
   Timeframe,
+  AltScreenerResponse,
+  BaseCurrency,
+  PerformancePeriod,
+  ScreenerSortBy,
+  ScreenerFilters,
 } from '@lazuli/shared';
 
 // API base URL - defaults to localhost in development
@@ -96,6 +101,23 @@ export interface SuperEMAQueryParams {
   type?: 'spot' | 'perp';
   limit?: number;
   maxPeriod?: number;
+}
+
+/**
+ * Query parameters for Alt Screener endpoint
+ */
+export interface AltScreenerQueryParams {
+  base?: BaseCurrency; // Comparison base currency (USD, BTC, ETH, SOL)
+  period?: PerformancePeriod; // Performance period (1h, 4h, 24h, 7d, 30d)
+  sortBy?: ScreenerSortBy; // Sort field (performance, volume, price, name)
+  sortOrder?: 'asc' | 'desc'; // Sort direction
+  limit?: number; // Maximum number of results
+  minVolume?: number; // Minimum 24h volume filter
+  maxVolume?: number; // Maximum 24h volume filter
+  minChange?: number; // Minimum percentage change filter
+  maxChange?: number; // Maximum percentage change filter
+  type?: 'spot' | 'perp'; // Market type filter
+  search?: string; // Symbol search query
 }
 
 /**
@@ -412,6 +434,37 @@ export class LazuliAPI {
       `${API_VERSION}/superema/${exchange}/${encodedSymbol}`,
       queryParams,
       90000
+    );
+  }
+
+  /**
+   * Get all altcoins with performance data for Alt Screener
+   * Scans all altcoins (excluding BTC) and returns performance metrics
+   * Uses extended timeout (120s) due to fetching data for many symbols
+   */
+  static async getAltScreener(
+    exchange: SupportedExchange,
+    queryParams?: AltScreenerQueryParams
+  ): Promise<ApiResponse<AltScreenerResponse>> {
+    // Use 120s timeout for screener (fetches many symbols with OHLCV)
+    return apiFetch<AltScreenerResponse>(
+      `${API_VERSION}/screener/${exchange}`,
+      queryParams,
+      120000
+    );
+  }
+
+  /**
+   * Get quick stats for Alt Screener
+   * Lightweight endpoint for summary statistics
+   */
+  static async getAltScreenerStats(
+    exchange: SupportedExchange
+  ): Promise<
+    ApiResponse<{ exchange: string; stats: AltScreenerResponse['stats']; timestamp: number }>
+  > {
+    return apiFetch<{ exchange: string; stats: AltScreenerResponse['stats']; timestamp: number }>(
+      `${API_VERSION}/screener/${exchange}/stats`
     );
   }
 }

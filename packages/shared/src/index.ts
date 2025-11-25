@@ -229,3 +229,104 @@ export interface CustomIndexResponse {
   endTime: number; // End timestamp
   totalReturn: number; // Total percentage return
 }
+
+// ============================================================================
+// Alt Screener Types
+// ============================================================================
+
+/**
+ * Base currency for comparing altcoin performance
+ * USD = absolute price, BTC/ETH/SOL = relative to that asset
+ */
+export type BaseCurrency = 'USD' | 'BTC' | 'ETH' | 'SOL';
+
+/**
+ * Time period for performance calculation
+ */
+export type PerformancePeriod = '1h' | '4h' | '24h' | '7d' | '30d';
+
+/**
+ * Sort options for the alt screener
+ */
+export type ScreenerSortBy = 'performance' | 'volume' | 'name' | 'price';
+
+/**
+ * Performance data for a single altcoin
+ * Includes OHLCV data and calculated metrics
+ */
+export interface AltcoinPerformance {
+  symbol: string; // Trading pair symbol (e.g., SOL-USDT)
+  base: string; // Base currency (e.g., SOL)
+  quote: string; // Quote currency (e.g., USDT)
+  exchange: string; // Exchange identifier
+  type: 'spot' | 'perp'; // Market type
+  price: number; // Current price in USD
+  priceInBase: number; // Current price in selected base currency
+  change1h: number | null; // 1 hour percentage change
+  change4h: number | null; // 4 hour percentage change
+  change24h: number | null; // 24 hour percentage change
+  change7d: number | null; // 7 day percentage change (if available)
+  volume24h: number | null; // 24 hour volume in quote currency
+  high24h: number | null; // 24 hour high price
+  low24h: number | null; // 24 hour low price
+  ohlcv: OHLCV[]; // Recent OHLCV data for mini chart
+  rank?: number; // Rank by selected sort criteria
+  timestamp: number; // Data timestamp
+}
+
+/**
+ * Heatmap color intensity based on performance
+ */
+export interface HeatmapData {
+  symbol: string;
+  value: number; // Performance value for color calculation
+  intensity: number; // Normalized intensity (0-1)
+  color: 'green' | 'red' | 'neutral';
+}
+
+/**
+ * Filter options for the alt screener
+ */
+export interface ScreenerFilters {
+  minVolume?: number; // Minimum 24h volume in USD
+  maxVolume?: number; // Maximum 24h volume in USD
+  minChange?: number; // Minimum percentage change
+  maxChange?: number; // Maximum percentage change
+  type?: 'spot' | 'perp'; // Market type filter
+  search?: string; // Symbol search query
+}
+
+/**
+ * Request parameters for alt screener endpoint
+ */
+export interface AltScreenerRequest {
+  exchange: SupportedExchange; // Exchange to fetch from
+  baseCurrency: BaseCurrency; // Comparison base currency
+  period: PerformancePeriod; // Performance calculation period
+  sortBy: ScreenerSortBy; // Sort field
+  sortOrder: 'asc' | 'desc'; // Sort direction
+  limit?: number; // Maximum number of results
+  filters?: ScreenerFilters; // Optional filters
+}
+
+/**
+ * Response from alt screener endpoint
+ */
+export interface AltScreenerResponse {
+  exchange: string; // Exchange identifier
+  baseCurrency: BaseCurrency; // Comparison base used
+  basePrice: number; // Current price of base currency in USD
+  period: PerformancePeriod; // Performance period used
+  altcoins: AltcoinPerformance[]; // Array of altcoin data
+  count: number; // Number of altcoins returned
+  timestamp: number; // Response timestamp
+  stats: {
+    // Aggregate statistics
+    totalAltcoins: number; // Total altcoins scanned
+    gainers: number; // Count of gainers
+    losers: number; // Count of losers
+    avgChange: number; // Average percentage change
+    topGainer: string; // Best performing symbol
+    topLoser: string; // Worst performing symbol
+  };
+}
