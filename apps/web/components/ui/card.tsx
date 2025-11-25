@@ -2,14 +2,15 @@ import * as React from 'react';
 import { cn } from '@/lib/utils';
 
 /**
- * Card component - Container with border and shadow
+ * Card component - Container with glassmorphism styling
+ * Enhanced with better hover states and transitions
  */
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
-        'rounded-xl glass text-card-foreground transition-all duration-300 hover:shadow-lg hover:border-white/20',
+        'relative rounded-2xl glass text-card-foreground transition-all duration-300 hover:shadow-xl hover:shadow-primary/5 hover:border-white/20 overflow-hidden',
         className
       )}
       {...props}

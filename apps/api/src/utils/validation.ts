@@ -116,6 +116,35 @@ export function validateBoolean(value: any): boolean | undefined {
 }
 
 /**
+ * Validate quote currency filter
+ * Allows filtering tickers by quote currency (e.g., USDT, BTC, ETH)
+ *
+ * @param value - Input value
+ * @returns Uppercase quote currency or undefined if invalid
+ */
+export function validateQuoteCurrency(value: any): string | undefined {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+
+  // Convert to string, trim, and uppercase
+  const str = String(value).trim().toUpperCase();
+
+  // Check length (quote currencies are typically 3-5 characters)
+  if (str.length < 2 || str.length > 10) {
+    return undefined;
+  }
+
+  // Allow only alphanumeric characters
+  const validPattern = /^[A-Z0-9]+$/;
+  if (!validPattern.test(str)) {
+    return undefined;
+  }
+
+  return str;
+}
+
+/**
  * Validate exchange ID
  * @param value - Input value
  * @returns Valid exchange ID or null

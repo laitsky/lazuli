@@ -50,8 +50,8 @@ export default function RootLayout({
       <body className="antialiased font-sans min-h-screen">
         <Navigation />
         {/* Main content area with left margin to account for sidebar on desktop */}
-        {/* Mobile: full width, Desktop (lg): 256px left margin for sidebar */}
-        <main className="min-h-screen px-4 py-8 lg:ml-64 lg:px-8 relative z-10">
+        {/* Mobile: full width with top padding for hamburger, Desktop (lg): 288px (w-72) left margin for sidebar */}
+        <main className="min-h-screen px-4 pt-20 pb-8 lg:pt-8 lg:ml-72 lg:px-8 relative z-10">
           <div className="mx-auto max-w-7xl">{children}</div>
         </main>
       </body>
