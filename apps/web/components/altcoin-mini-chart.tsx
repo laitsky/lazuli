@@ -17,6 +17,7 @@
  */
 
 import { useMemo, memo, useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { OHLCV, BaseCurrency } from '@lazuli/shared';
 
 /**
@@ -145,12 +146,15 @@ function ChartSkeleton({ height, isPositive }: { height: number; isPositive: boo
 
 /**
  * Hover state for interactive chart
+ * Includes screen coordinates for portal-based tooltip positioning
  */
 interface HoverState {
   x: number; // Mouse X position (0-1 normalized)
   dataIndex: number; // Index into OHLCV data
   price: number; // Price at this point (USD)
   timestamp: number; // Timestamp at this point
+  screenX: number; // Absolute screen X for tooltip portal
+  screenY: number; // Absolute screen Y for tooltip portal
 }
 
 /**
@@ -252,11 +256,17 @@ function AltcoinMiniChartComponent({
       const candle = sortedOhlcv[dataIndex];
 
       if (candle) {
+        // Calculate screen coordinates for portal tooltip
+        const screenX = rect.left + clampedX * rect.width;
+        const screenY = rect.top;
+
         setHover({
           x: clampedX,
           dataIndex,
           price: candle.close,
           timestamp: candle.timestamp,
+          screenX,
+          screenY,
         });
       }
     },
@@ -367,51 +377,58 @@ function AltcoinMiniChartComponent({
             )}
           </svg>
 
-          {/* Tooltip */}
-          {interactive && isHovering && hover && (
-            <div
-              className="absolute z-50 pointer-events-none bg-popover/95 backdrop-blur-sm border border-border rounded-lg shadow-lg px-2.5 py-1.5 text-xs whitespace-nowrap min-w-max"
-              style={{
-                left: `${hover.x * 100}%`,
-                top: '-4px',
-                transform: `translate(${hover.x > 0.7 ? '-100%' : hover.x < 0.3 ? '0%' : '-50%'}, -100%)`,
-              }}
-            >
-              {/* Time */}
-              <div className="text-muted-foreground text-[10px] mb-0.5">
-                {formatTime(hover.timestamp)}
-              </div>
+          {/* Tooltip - rendered via portal to escape overflow:hidden containers */}
+          {interactive &&
+            isHovering &&
+            hover &&
+            typeof document !== 'undefined' &&
+            createPortal(
+              <div
+                className="fixed z-[9999] pointer-events-none bg-popover/95 backdrop-blur-sm border border-border rounded-lg shadow-lg px-2.5 py-1.5 text-xs whitespace-nowrap"
+                style={{
+                  left: hover.screenX,
+                  top: hover.screenY - 8,
+                  transform: `translate(${hover.x > 0.7 ? '-100%' : hover.x < 0.3 ? '0%' : '-50%'}, -100%)`,
+                }}
+              >
+                {/* Time */}
+                <div className="text-muted-foreground text-[10px] mb-0.5">
+                  {formatTime(hover.timestamp)}
+                </div>
 
-              {/* Price in base currency */}
-              <div className="font-mono font-medium text-foreground">
-                {baseCurrency !== 'USD' ? (
-                  <>
-                    {formatPrice(hover.price / basePrice, baseCurrency)} {baseCurrency}
-                  </>
-                ) : (
-                  formatPrice(hover.price, 'USD')
+                {/* Price in base currency */}
+                <div className="font-mono font-medium text-foreground">
+                  {baseCurrency !== 'USD' ? (
+                    <>
+                      {formatPrice(hover.price / basePrice, baseCurrency)} {baseCurrency}
+                    </>
+                  ) : (
+                    formatPrice(hover.price, 'USD')
+                  )}
+                </div>
+
+                {/* USD equivalent when not in USD mode */}
+                {baseCurrency !== 'USD' && (
+                  <div className="text-muted-foreground text-[10px]">
+                    ≈ {formatPrice(hover.price, 'USD')}
+                  </div>
                 )}
-              </div>
 
-              {/* USD equivalent when not in USD mode */}
-              {baseCurrency !== 'USD' && (
-                <div className="text-muted-foreground text-[10px]">
-                  ≈ {formatPrice(hover.price, 'USD')}
-                </div>
-              )}
-
-              {/* Change from first candle */}
-              {sortedOhlcv.length > 0 && (
-                <div
-                  className={`text-[10px] ${hover.price >= sortedOhlcv[0].close ? 'text-green-500' : 'text-red-500'}`}
-                >
-                  {hover.price >= sortedOhlcv[0].close ? '↑' : '↓'}{' '}
-                  {(((hover.price - sortedOhlcv[0].close) / sortedOhlcv[0].close) * 100).toFixed(2)}
-                  %
-                </div>
-              )}
-            </div>
-          )}
+                {/* Change from first candle */}
+                {sortedOhlcv.length > 0 && (
+                  <div
+                    className={`text-[10px] ${hover.price >= sortedOhlcv[0].close ? 'text-green-500' : 'text-red-500'}`}
+                  >
+                    {hover.price >= sortedOhlcv[0].close ? '↑' : '↓'}{' '}
+                    {(((hover.price - sortedOhlcv[0].close) / sortedOhlcv[0].close) * 100).toFixed(
+                      2
+                    )}
+                    %
+                  </div>
+                )}
+              </div>,
+              document.body
+            )}
         </>
       )}
     </div>
