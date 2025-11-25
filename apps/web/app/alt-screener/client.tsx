@@ -12,7 +12,7 @@
  * It wraps the AltcoinGrid component and manages state for user interactions.
  */
 
-import { useState, useCallback, useTransition } from 'react';
+import { useState, useCallback, useTransition, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { AltcoinGrid } from '@/components/altcoin-grid';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,13 @@ export function AltScreenerClient({ initialData, exchange, initialBase }: AltScr
   const [data, setData] = useState<AltScreenerResponse>(initialData);
   const [baseCurrency, setBaseCurrency] = useState<BaseCurrency>(initialBase);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  // Use null initially to avoid hydration mismatch with Date
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  // Set initial timestamp on client mount to avoid hydration mismatch
+  useEffect(() => {
+    setLastUpdated(new Date().toLocaleTimeString());
+  }, []);
 
   /**
    * Handle base currency change
@@ -68,7 +74,7 @@ export function AltScreenerClient({ initialData, exchange, initialBase }: AltScr
 
         if (response.success && response.data) {
           setData(response.data);
-          setLastUpdated(new Date());
+          setLastUpdated(new Date().toLocaleTimeString());
         }
       } catch (error) {
         console.error('Error fetching data with new base currency:', error);
@@ -93,7 +99,7 @@ export function AltScreenerClient({ initialData, exchange, initialBase }: AltScr
 
       if (response.success && response.data) {
         setData(response.data);
-        setLastUpdated(new Date());
+        setLastUpdated(new Date().toLocaleTimeString());
       }
     } catch (error) {
       console.error('Error refreshing data:', error);
@@ -107,7 +113,7 @@ export function AltScreenerClient({ initialData, exchange, initialBase }: AltScr
       {/* Last Updated & Refresh */}
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
-          Last updated: {lastUpdated.toLocaleTimeString()}
+          Last updated: {lastUpdated ?? 'Loading...'}
           {isPending && ' (updating URL...)'}
         </span>
         <Button
