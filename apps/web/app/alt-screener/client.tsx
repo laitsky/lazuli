@@ -4,20 +4,28 @@
  * Alt Screener Client Component
  *
  * This client component handles the interactive functionality of the Alt Screener:
- * - Base currency switching with URL updates
+ * - Base currency switching (instant, no API refetch!)
  * - Client-side filtering and sorting
  * - View mode toggling (grid, list, heatmap)
  * - Real-time updates via re-fetching
  *
- * It wraps the AltcoinGrid component and manages state for user interactions.
+ * Performance optimization: Base currency switching is done client-side by
+ * dividing USD prices by the base currency price. This avoids slow API calls
+ * when users switch between USD/BTC/ETH/SOL comparisons.
  */
 
-import { useState, useCallback, useTransition, useEffect } from 'react';
+import { useState, useCallback, useTransition, useEffect, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { AltcoinGrid } from '@/components/altcoin-grid';
 import { Button } from '@/components/ui/button';
 import { LazuliAPI } from '@/lib/api-client';
-import { AltScreenerResponse, BaseCurrency, SupportedExchange } from '@lazuli/shared';
+import {
+  AltScreenerResponse,
+  AltcoinPerformance,
+  BaseCurrency,
+  BaseCurrencyPrices,
+  SupportedExchange,
+} from '@lazuli/shared';
 import { RefreshCw } from 'lucide-react';
 
 interface AltScreenerClientProps {
@@ -29,17 +37,52 @@ interface AltScreenerClientProps {
   initialBase: BaseCurrency;
 }
 
+/**
+ * Default base currency prices (fallback if API doesn't provide them)
+ */
+const DEFAULT_BASE_PRICES: BaseCurrencyPrices = {
+  USD: 1,
+  BTC: 0,
+  ETH: 0,
+  SOL: 0,
+};
+
 export function AltScreenerClient({ initialData, exchange, initialBase }: AltScreenerClientProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
 
-  // Local state
+  // Local state - store raw USD data and base currency prices
   const [data, setData] = useState<AltScreenerResponse>(initialData);
   const [baseCurrency, setBaseCurrency] = useState<BaseCurrency>(initialBase);
   const [isRefreshing, setIsRefreshing] = useState(false);
   // Use null initially to avoid hydration mismatch with Date
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+
+  // Get base currency prices (from API response or default)
+  const basePrices = useMemo(() => data.basePrices ?? DEFAULT_BASE_PRICES, [data.basePrices]);
+
+  // Calculate the current base price for display
+  const currentBasePrice = useMemo(() => basePrices[baseCurrency] ?? 1, [basePrices, baseCurrency]);
+
+  /**
+   * Calculate altcoin prices in the selected base currency
+   * This is done client-side for instant switching without API calls
+   */
+  const altcoinsInBaseCurrency = useMemo(() => {
+    const basePrice = basePrices[baseCurrency];
+
+    // If USD or base price unavailable, return original data
+    if (baseCurrency === 'USD' || !basePrice || basePrice === 0) {
+      return data.altcoins;
+    }
+
+    // Recalculate priceInBase for each altcoin
+    return data.altcoins.map((altcoin) => ({
+      ...altcoin,
+      priceInBase: altcoin.price / basePrice,
+    }));
+  }, [data.altcoins, baseCurrency, basePrices]);
 
   // Set initial timestamp on client mount to avoid hydration mismatch
   useEffect(() => {
@@ -48,50 +91,34 @@ export function AltScreenerClient({ initialData, exchange, initialBase }: AltScr
 
   /**
    * Handle base currency change
-   * Updates URL and fetches new data with the selected base currency
+   * INSTANT - no API call needed! Just recalculates prices client-side
    */
   const handleBaseCurrencyChange = useCallback(
-    async (newBase: BaseCurrency) => {
+    (newBase: BaseCurrency) => {
       if (newBase === baseCurrency) return;
 
+      // Instant update - no API call!
       setBaseCurrency(newBase);
 
-      // Update URL without full page reload
+      // Update URL without full page reload (for bookmarking/sharing)
       startTransition(() => {
         router.push(`${pathname}?exchange=${exchange}&base=${newBase}`, {
           scroll: false,
         });
       });
-
-      // Fetch new data with the new base currency
-      try {
-        const response = await LazuliAPI.getAltScreener(exchange, {
-          base: newBase,
-          limit: 200,
-          sortBy: 'performance',
-          sortOrder: 'desc',
-        });
-
-        if (response.success && response.data) {
-          setData(response.data);
-          setLastUpdated(new Date().toLocaleTimeString());
-        }
-      } catch (error) {
-        console.error('Error fetching data with new base currency:', error);
-      }
     },
     [baseCurrency, exchange, pathname, router]
   );
 
   /**
-   * Refresh data manually
+   * Refresh data manually - fetches fresh data from API
    */
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
 
     try {
       const response = await LazuliAPI.getAltScreener(exchange, {
-        base: baseCurrency,
+        base: 'USD', // Always fetch USD data, client handles conversion
         limit: 200,
         sortBy: 'performance',
         sortOrder: 'desc',
@@ -106,7 +133,7 @@ export function AltScreenerClient({ initialData, exchange, initialBase }: AltScr
     } finally {
       setIsRefreshing(false);
     }
-  }, [exchange, baseCurrency]);
+  }, [exchange]);
 
   return (
     <div className="space-y-4">
@@ -128,12 +155,12 @@ export function AltScreenerClient({ initialData, exchange, initialBase }: AltScr
         </Button>
       </div>
 
-      {/* Altcoin Grid */}
+      {/* Altcoin Grid - uses pre-calculated prices in base currency */}
       <AltcoinGrid
-        altcoins={data.altcoins}
+        altcoins={altcoinsInBaseCurrency}
         baseCurrency={baseCurrency}
         onBaseCurrencyChange={handleBaseCurrencyChange}
-        basePrice={data.basePrice}
+        basePrice={currentBasePrice}
         isLoading={isRefreshing}
       />
     </div>

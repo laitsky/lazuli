@@ -23,6 +23,7 @@ import {
   AltcoinPerformance,
   AltScreenerResponse,
   BaseCurrency,
+  BaseCurrencyPrices,
   PerformancePeriod,
   ScreenerSortBy,
   ScreenerFilters,
@@ -115,8 +116,9 @@ export class ScreenerService {
     filters?: ScreenerFilters
   ): Promise<AltScreenerResponse> {
     try {
-      // Check cache first for the screener results
-      const cacheKey = `screener:${exchangeId}:${baseCurrency}:${period}`;
+      // Cache key no longer includes baseCurrency - we always return USD prices
+      // and include all base currency prices for client-side switching
+      const cacheKey = `screener:${exchangeId}:${period}`;
       const cachedResult = cacheService.get<AltScreenerResponse>(cacheKey);
 
       if (cachedResult) {
@@ -124,8 +126,11 @@ export class ScreenerService {
         return this.applySortAndFilter(cachedResult, sortBy, sortOrder, limit, filters);
       }
 
-      // Fetch all tickers from exchange
-      const allTickers = await ccxtService.getAllTickers(exchangeId);
+      // Fetch all tickers and base currency prices in parallel for speed
+      const [allTickers, basePrices] = await Promise.all([
+        ccxtService.getAllTickers(exchangeId),
+        this.getAllBaseCurrencyPrices(exchangeId),
+      ]);
 
       // Filter to get only USDT spot pairs (altcoins)
       const altcoinTickers = allTickers.filter((ticker) => {
@@ -139,26 +144,26 @@ export class ScreenerService {
         );
       });
 
-      // Get base currency price for relative calculations
-      const basePrice = await this.getBaseCurrencyPrice(exchangeId, baseCurrency);
-
       // Fetch mini OHLCV data for each altcoin (batched for performance)
+      // Always use USD prices - client will calculate other bases from basePrices
       const altcoinsWithOHLCV = await this.fetchAltcoinsWithOHLCV(
         exchangeId,
         altcoinTickers,
-        baseCurrency,
-        basePrice,
         period
       );
 
       // Calculate aggregate statistics
       const stats = this.calculateStats(altcoinsWithOHLCV);
 
-      // Build response
+      // Get the requested base price for backwards compatibility
+      const basePrice = basePrices[baseCurrency];
+
+      // Build response with all base currency prices for client-side switching
       const response: AltScreenerResponse = {
         exchange: exchangeId,
         baseCurrency,
         basePrice,
+        basePrices, // Include all prices so client can switch instantly
         period,
         altcoins: altcoinsWithOHLCV,
         count: altcoinsWithOHLCV.length,
@@ -178,46 +183,53 @@ export class ScreenerService {
   }
 
   /**
-   * Get the current price of a base currency in USD
+   * Fetch all base currency prices in parallel
+   * Used for client-side base currency switching without API refetch
    *
    * @param exchangeId - Exchange to fetch from
-   * @param baseCurrency - Base currency to get price for
-   * @returns Price in USD (1.0 for USD base)
+   * @returns Object with all base currency prices in USD
    */
-  private async getBaseCurrencyPrice(
-    exchangeId: SupportedExchange,
-    baseCurrency: BaseCurrency
-  ): Promise<number> {
-    if (baseCurrency === 'USD') {
-      return 1.0;
-    }
+  private async getAllBaseCurrencyPrices(
+    exchangeId: SupportedExchange
+  ): Promise<BaseCurrencyPrices> {
+    // Check cache first
+    const cacheKey = `basePrices:${exchangeId}`;
+    const cached = cacheService.get<BaseCurrencyPrices>(cacheKey);
+    if (cached) return cached;
 
-    const symbol = BASE_CURRENCY_SYMBOLS[baseCurrency];
-    const ticker = await ccxtService.getTicker(exchangeId, symbol);
+    // Fetch BTC, ETH, SOL prices in parallel
+    const [btcTicker, ethTicker, solTicker] = await Promise.all([
+      ccxtService.getTicker(exchangeId, 'BTC-USDT'),
+      ccxtService.getTicker(exchangeId, 'ETH-USDT'),
+      ccxtService.getTicker(exchangeId, 'SOL-USDT'),
+    ]);
 
-    if (!ticker || ticker.last === null) {
-      throw new Error(`Could not fetch ${baseCurrency} price`);
-    }
+    const basePrices: BaseCurrencyPrices = {
+      USD: 1 as const,
+      BTC: btcTicker?.last ?? 0,
+      ETH: ethTicker?.last ?? 0,
+      SOL: solTicker?.last ?? 0,
+    };
 
-    return ticker.last;
+    // Cache base prices for 30 seconds (prices update frequently)
+    cacheService.set(cacheKey, basePrices, 30000);
+
+    return basePrices;
   }
 
   /**
    * Fetch OHLCV data for all altcoins and calculate performance
    * Processes in batches to avoid rate limiting
+   * Always returns prices in USD - client handles base currency conversion
    *
    * @param exchangeId - Exchange to fetch from
    * @param tickers - Array of ticker data
-   * @param baseCurrency - Base currency for comparison
-   * @param basePrice - Current price of base currency
    * @param period - Performance period
-   * @returns Array of altcoin performance data with OHLCV
+   * @returns Array of altcoin performance data with OHLCV (USD prices)
    */
   private async fetchAltcoinsWithOHLCV(
     exchangeId: SupportedExchange,
     tickers: Ticker[],
-    baseCurrency: BaseCurrency,
-    basePrice: number,
     period: PerformancePeriod
   ): Promise<AltcoinPerformance[]> {
     const timeframe = PERIOD_TIMEFRAMES[period] as any;
@@ -254,11 +266,11 @@ export class ScreenerService {
             // Parse symbol to get base and quote
             const { base, quote } = parseSymbol(ticker.symbol);
 
-            // Calculate price relative to base currency
-            const priceInBase = baseCurrency === 'USD' ? ticker.last! : ticker.last! / basePrice;
+            // Always use USD price - client calculates other base currencies from basePrices
+            const priceInUSD = ticker.last!;
 
-            // Calculate performance changes
-            const changes = this.calculatePerformanceChanges(ohlcv, priceInBase, baseCurrency);
+            // Calculate performance changes based on USD price
+            const changes = this.calculatePerformanceChanges(ohlcv, priceInUSD);
 
             return {
               symbol: ticker.symbol,
@@ -266,8 +278,8 @@ export class ScreenerService {
               quote,
               exchange: exchangeId,
               type: ticker.type,
-              price: ticker.last!,
-              priceInBase,
+              price: priceInUSD,
+              priceInBase: priceInUSD, // Same as price - client recalculates for other bases
               change1h: changes.change1h,
               change4h: changes.change4h,
               change24h: ticker.percentage24h,
@@ -281,14 +293,15 @@ export class ScreenerService {
           } catch (error) {
             // Return ticker with empty OHLCV on error
             const { base, quote } = parseSymbol(ticker.symbol);
+            const priceInUSD = ticker.last!;
             return {
               symbol: ticker.symbol,
               base,
               quote,
               exchange: exchangeId,
               type: ticker.type,
-              price: ticker.last!,
-              priceInBase: baseCurrency === 'USD' ? ticker.last! : ticker.last! / basePrice,
+              price: priceInUSD,
+              priceInBase: priceInUSD,
               change1h: null,
               change4h: null,
               change24h: ticker.percentage24h,
@@ -324,8 +337,7 @@ export class ScreenerService {
    */
   private calculatePerformanceChanges(
     ohlcv: OHLCV[],
-    currentPrice: number,
-    _baseCurrency: BaseCurrency
+    currentPrice: number
   ): { change1h: number | null; change4h: number | null; change7d: number | null } {
     if (!ohlcv || ohlcv.length === 0) {
       return { change1h: null, change4h: null, change7d: null };
