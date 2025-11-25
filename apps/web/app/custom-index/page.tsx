@@ -189,9 +189,12 @@ export default function CustomIndexPage() {
   }, []);
 
   // Auto-switch to 'perp' for Hyperliquid (which only supports perpetual markets)
+  // Also set quoteFilter state if we add it, but for now custom-index hardcodes USDT filter
   useEffect(() => {
-    if (selectedExchange === 'hyperliquid' && marketType === 'spot') {
-      setMarketType('perp');
+    if (selectedExchange === 'hyperliquid') {
+      if (marketType === 'spot') {
+        setMarketType('perp');
+      }
       setSelectedAssets([]);
       setIndexResult(null);
     }
@@ -238,16 +241,18 @@ export default function CustomIndexPage() {
     loadTickers();
   }, [selectedExchange, marketType]);
 
-  // Filter tickers for search - show all USDT pairs
+  // Filter tickers for search - show USDT pairs (or USDC for Hyperliquid)
   const filteredTickers = useMemo(() => {
+    // Hyperliquid uses USDC, other exchanges use USDT
+    const targetQuote = selectedExchange === 'hyperliquid' ? 'USDC' : 'USDT';
     return tickers.filter((t) => {
       const matchesSearch =
         !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
-      const isUSDT = getQuoteCurrency(t.symbol).toUpperCase() === 'USDT';
+      const matchesQuote = getQuoteCurrency(t.symbol).toUpperCase() === targetQuote;
       const notSelected = !selectedAssets.some((a) => a.symbol === t.symbol);
-      return matchesSearch && isUSDT && notSelected;
+      return matchesSearch && matchesQuote && notSelected;
     });
-  }, [tickers, searchQuery, selectedAssets]);
+  }, [tickers, searchQuery, selectedAssets, selectedExchange]);
 
   // Calculate total weight
   const totalWeight = useMemo(() => {
@@ -292,8 +297,10 @@ export default function CustomIndexPage() {
    * Quick-add popular asset
    */
   const quickAddAsset = (base: string) => {
-    // Use correct symbol format based on market type
-    const symbol = marketType === 'spot' ? `${base}-USDT` : `${base}USDT.P`;
+    // Use correct symbol format based on market type and exchange
+    // Hyperliquid uses USDC, other exchanges use USDT
+    const quote = selectedExchange === 'hyperliquid' ? 'USDC' : 'USDT';
+    const symbol = marketType === 'spot' ? `${base}-${quote}` : `${base}${quote}.P`;
     const ticker = tickers.find((t) => t.symbol === symbol);
     if (ticker) {
       addAsset(symbol);
@@ -626,8 +633,10 @@ export default function CustomIndexPage() {
                 </label>
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {POPULAR_ASSETS.map((asset) => {
-                    // Check using correct symbol format based on market type
-                    const symbol = marketType === 'spot' ? `${asset}-USDT` : `${asset}USDT.P`;
+                    // Check using correct symbol format based on market type and exchange
+                    const quote = selectedExchange === 'hyperliquid' ? 'USDC' : 'USDT';
+                    const symbol =
+                      marketType === 'spot' ? `${asset}-${quote}` : `${asset}${quote}.P`;
                     const isAdded = selectedAssets.some((a) => a.symbol === symbol);
                     return (
                       <Button
@@ -683,7 +692,8 @@ export default function CustomIndexPage() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                {filteredTickers.length} USDT pairs available
+                {filteredTickers.length} {selectedExchange === 'hyperliquid' ? 'USDC' : 'USDT'}{' '}
+                pairs available
               </p>
             </CardContent>
           </Card>

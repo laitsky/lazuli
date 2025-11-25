@@ -123,10 +123,13 @@ export default function SuperEMAPage() {
     loadExchanges();
   }, []);
 
-  // Auto-switch to 'perp' for Hyperliquid (which only supports perpetual markets)
+  // Auto-switch to 'perp' and USDC for Hyperliquid (perpetual-only, USDC quote)
   useEffect(() => {
-    if (selectedExchange === 'hyperliquid' && marketType === 'spot') {
-      setMarketType('perp');
+    if (selectedExchange === 'hyperliquid') {
+      if (marketType === 'spot') {
+        setMarketType('perp');
+      }
+      setQuoteFilter('USDC');
       setSelectedSymbol('');
       setEmaData(null);
     }
