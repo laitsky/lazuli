@@ -46,6 +46,7 @@ export default function MultiTFPage() {
       binance: 1000,
       bybit: 1000,
       okx: 300,
+      hyperliquid: 1000,
     };
     return limits[exchange] || 1000;
   };

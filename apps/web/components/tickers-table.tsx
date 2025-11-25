@@ -1,6 +1,18 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+/**
+ * TickersTable - Advanced data table for displaying cryptocurrency tickers
+ * Features:
+ * - Sortable columns with visual indicators
+ * - Market type filtering (Spot/Perp)
+ * - Quote currency filtering with smart ordering
+ * - Search functionality with debouncing
+ * - Paginated results with smooth transitions
+ * - Interactive row hover states
+ * - Responsive design with mobile-optimized formatting
+ */
+
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Table,
   TableBody,
@@ -26,6 +38,8 @@ import {
   BarChart3,
   ArrowUpRight,
   ArrowDownRight,
+  X,
+  Sparkles,
 } from 'lucide-react';
 import { Ticker } from '@lazuli/shared';
 import { formatCurrency, formatVolume, formatPercentage, getChangeColor } from '@/lib/api-client';
@@ -45,7 +59,13 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [quoteFilter, setQuoteFilter] = useState<string>('USDT');
   const [marketType, setMarketType] = useState<'spot' | 'perp'>('spot');
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const itemsPerPage = 20;
+
+  // Clear search handler
+  const clearSearch = useCallback(() => {
+    setSearchQuery('');
+  }, []);
 
   // Reset pagination when filters change
   useEffect(() => {
@@ -184,56 +204,107 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   };
 
   return (
-    <Card className="glass border-white/5 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <CardHeader className="border-b border-white/5 bg-white/5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <BarChart3 className="h-5 w-5 text-primary" />
-            Market Data
-            <Badge variant="outline" className="ml-2 bg-primary/10 text-primary border-primary/20">
-              {filteredAndSortedTickers.length} Pairs
-            </Badge>
-          </CardTitle>
+    <Card className="glass border-white/10 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <CardHeader className="border-b border-white/10 bg-gradient-to-r from-white/5 to-transparent">
+        <div className="flex flex-col gap-4">
+          {/* Title Row */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <CardTitle className="flex items-center gap-3 text-xl">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <BarChart3 className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <span className="font-display">Market Data</span>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <Badge
+                    variant="outline"
+                    className="text-xs bg-primary/10 text-primary border-primary/20 font-mono"
+                  >
+                    {filteredAndSortedTickers.length} Pairs
+                  </Badge>
+                  <span className="text-xs text-muted-foreground capitalize">{exchange}</span>
+                </div>
+              </div>
+            </CardTitle>
 
+            {/* Search Input - Enhanced */}
+            <div className="relative group">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+              <Input
+                placeholder="Search symbol..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-10 w-full sm:w-[240px] h-11 bg-background/50 border-white/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20 rounded-xl transition-all"
+              />
+              {searchQuery && (
+                <button
+                  onClick={clearSearch}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 h-5 w-5 rounded-full bg-muted-foreground/20 hover:bg-muted-foreground/30 flex items-center justify-center transition-colors"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3 w-3 text-muted-foreground" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Filters Row */}
           <div className="flex flex-col sm:flex-row gap-3">
-            {/* Market Type Filter */}
-            <div className="flex gap-1">
+            {/* Market Type Filter - Enhanced */}
+            <div className="flex gap-1 p-1 bg-white/5 rounded-xl">
               <Button
-                variant={marketType === 'spot' ? 'default' : 'ghost'}
+                variant="ghost"
                 size="sm"
                 onClick={() => setMarketType('spot')}
-                className={`h-8 px-3 text-xs ${marketType === 'spot' ? 'bg-primary text-primary-foreground' : 'hover:bg-white/5'}`}
+                className={`h-9 px-4 text-xs rounded-lg transition-all ${
+                  marketType === 'spot'
+                    ? 'bg-green-500/20 text-green-500 hover:bg-green-500/30 shadow-sm'
+                    : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+                }`}
               >
+                <TrendingUp className="h-3.5 w-3.5 mr-1.5" />
                 Spot
               </Button>
               <Button
-                variant={marketType === 'perp' ? 'default' : 'ghost'}
+                variant="ghost"
                 size="sm"
                 onClick={() => setMarketType('perp')}
-                className={`h-8 px-3 text-xs ${marketType === 'perp' ? 'bg-primary text-primary-foreground' : 'hover:bg-white/5'}`}
+                className={`h-9 px-4 text-xs rounded-lg transition-all ${
+                  marketType === 'perp'
+                    ? 'bg-blue-500/20 text-blue-500 hover:bg-blue-500/30 shadow-sm'
+                    : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+                }`}
               >
-                Perp
+                <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                Perpetual
               </Button>
             </div>
 
-            {/* Quote Currency Filter */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 no-scrollbar max-w-full">
-              <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div className="flex gap-1">
+            {/* Quote Currency Filter - Enhanced */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 no-scrollbar flex-1">
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+                <Filter className="h-3.5 w-3.5" />
+                <span>Quote:</span>
+              </div>
+              <div className="flex gap-1 p-1 bg-white/5 rounded-xl">
                 {availableQuotes.slice(0, 5).map((quote) => (
                   <Button
                     key={quote}
-                    variant={quoteFilter === quote ? 'default' : 'ghost'}
+                    variant="ghost"
                     size="sm"
                     onClick={() => setQuoteFilter(quote)}
-                    className={`h-8 px-3 text-xs ${quoteFilter === quote ? 'bg-primary text-primary-foreground' : 'hover:bg-white/5'}`}
+                    className={`h-8 px-3 text-xs rounded-lg transition-all ${
+                      quoteFilter === quote
+                        ? 'bg-primary text-primary-foreground shadow-sm'
+                        : 'text-muted-foreground hover:bg-white/10 hover:text-foreground'
+                    }`}
                   >
                     {quote}
                   </Button>
                 ))}
                 {availableQuotes.length > 5 && (
                   <select
-                    className="h-8 px-2 text-xs bg-transparent border border-white/10 rounded-md focus:outline-none focus:ring-1 focus:ring-primary text-muted-foreground"
+                    className="h-8 px-3 text-xs bg-transparent border-0 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/50 text-muted-foreground cursor-pointer hover:bg-white/10 transition-colors"
                     value={
                       availableQuotes.includes(quoteFilter) &&
                       !availableQuotes.slice(0, 5).includes(quoteFilter)
@@ -254,17 +325,6 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                 )}
               </div>
             </div>
-
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search symbol..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 w-full sm:w-[200px] bg-background/50 border-white/10 focus:border-primary/50 transition-all"
-              />
-            </div>
           </div>
         </div>
       </CardHeader>
@@ -272,13 +332,13 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-white/5">
-              <TableRow className="hover:bg-transparent border-white/5">
+            <TableHeader className="bg-white/5 sticky top-0 z-10">
+              <TableRow className="hover:bg-transparent border-white/10">
                 <TableHead className="w-[200px]">
                   <Button
                     variant="ghost"
                     onClick={() => handleSort('symbol')}
-                    className="hover:bg-transparent hover:text-primary p-0 font-semibold"
+                    className="hover:bg-white/5 hover:text-primary px-2 py-1 -ml-2 font-semibold rounded-lg transition-colors"
                   >
                     Symbol <SortIcon field="symbol" />
                   </Button>
@@ -287,7 +347,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                   <Button
                     variant="ghost"
                     onClick={() => handleSort('price')}
-                    className="hover:bg-transparent hover:text-primary p-0 font-semibold ml-auto"
+                    className="hover:bg-white/5 hover:text-primary px-2 py-1 font-semibold ml-auto rounded-lg transition-colors"
                   >
                     Price <SortIcon field="price" />
                   </Button>
@@ -296,7 +356,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                   <Button
                     variant="ghost"
                     onClick={() => handleSort('change')}
-                    className="hover:bg-transparent hover:text-primary p-0 font-semibold ml-auto"
+                    className="hover:bg-white/5 hover:text-primary px-2 py-1 font-semibold ml-auto rounded-lg transition-colors"
                   >
                     24h Change <SortIcon field="change" />
                   </Button>
@@ -305,7 +365,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                   <Button
                     variant="ghost"
                     onClick={() => handleSort('volume')}
-                    className="hover:bg-transparent hover:text-primary p-0 font-semibold ml-auto"
+                    className="hover:bg-white/5 hover:text-primary px-2 py-1 font-semibold ml-auto rounded-lg transition-colors"
                   >
                     24h Volume <SortIcon field="volume" />
                   </Button>
@@ -315,41 +375,88 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
             <TableBody>
               {paginatedTickers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="h-32 text-center text-muted-foreground">
-                    No tickers found matching your criteria
+                  <TableCell colSpan={4} className="h-48 text-center">
+                    <div className="flex flex-col items-center justify-center gap-3">
+                      <div className="h-16 w-16 rounded-2xl bg-muted/30 flex items-center justify-center">
+                        <Search className="h-8 w-8 text-muted-foreground/50" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">No tickers found</p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Try adjusting your search or filters
+                        </p>
+                      </div>
+                      {searchQuery && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={clearSearch}
+                          className="mt-2 rounded-lg"
+                        >
+                          Clear search
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : (
-                paginatedTickers.map((ticker) => {
+                paginatedTickers.map((ticker, index) => {
                   const percentage = ticker.percentage24h || 0;
                   const isPositive = percentage >= 0;
                   const changeColor = getChangeColor(percentage);
+                  const isHovered = hoveredRow === ticker.symbol;
 
                   return (
                     <TableRow
                       key={ticker.symbol}
-                      className="hover:bg-white/5 border-white/5 transition-colors"
+                      className={`border-white/5 transition-all duration-200 cursor-pointer ${
+                        isHovered ? 'bg-white/10' : 'hover:bg-white/5'
+                      }`}
+                      onMouseEnter={() => setHoveredRow(ticker.symbol)}
+                      onMouseLeave={() => setHoveredRow(null)}
+                      style={{ animationDelay: `${index * 20}ms` }}
                     >
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center text-xs font-bold text-primary border border-white/5">
+                      <TableCell className="font-medium py-4">
+                        <div className="flex items-center gap-3">
+                          <div
+                            className={`w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center text-sm font-bold text-primary border border-white/10 transition-all duration-200 ${
+                              isHovered ? 'scale-110 shadow-lg shadow-primary/20' : ''
+                            }`}
+                          >
                             {ticker.symbol.substring(0, 1)}
                           </div>
                           <div>
-                            <div className="font-bold text-foreground">{ticker.symbol}</div>
-                            <div className="text-xs text-muted-foreground hidden sm:block">
-                              {exchange} • {ticker.type === 'spot' ? 'Spot' : 'Perp'}
+                            <div className="font-bold text-foreground flex items-center gap-2">
+                              {ticker.symbol}
+                              {isHovered && (
+                                <ArrowUpRight className="h-3.5 w-3.5 text-primary animate-in fade-in slide-in-from-left-1 duration-200" />
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground hidden sm:flex items-center gap-1.5 mt-0.5">
+                              <span className="capitalize">{exchange}</span>
+                              <span className="text-white/20">•</span>
+                              <span
+                                className={
+                                  ticker.type === 'spot' ? 'text-green-500' : 'text-blue-500'
+                                }
+                              >
+                                {ticker.type === 'spot' ? 'Spot' : 'Perp'}
+                              </span>
                             </div>
                           </div>
                         </div>
                       </TableCell>
-                      <TableCell className="text-right font-mono font-medium">
-                        {formatCurrency(ticker.last)}
+                      <TableCell className="text-right font-mono font-medium text-base py-4">
+                        <span className={isHovered ? 'text-primary' : ''}>
+                          {formatCurrency(ticker.last)}
+                        </span>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right py-4">
                         <Badge
                           variant="outline"
-                          className={`${changeColor} border-current/20 bg-current/5 font-mono`}
+                          className={`${changeColor} border-current/20 bg-current/10 font-mono px-2.5 py-1 transition-all ${
+                            isHovered ? 'scale-105' : ''
+                          }`}
                         >
                           {isPositive ? (
                             <ArrowUpRight className="h-3 w-3 mr-1" />
@@ -359,7 +466,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                           {formatPercentage(percentage)}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right font-mono text-muted-foreground">
+                      <TableCell className="text-right font-mono text-muted-foreground py-4">
                         <span className="hidden sm:inline">
                           {formatVolume(ticker.quoteVolume24h)}
                         </span>
@@ -375,10 +482,10 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           </Table>
         </div>
 
-        {/* Pagination */}
+        {/* Pagination - Enhanced */}
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-4 border-t border-white/5 bg-white/5">
-            <div className="text-sm text-muted-foreground hidden sm:block">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-5 border-t border-white/10 bg-gradient-to-r from-white/5 to-transparent">
+            <div className="text-sm text-muted-foreground">
               Showing{' '}
               <span className="font-medium text-foreground">
                 {(currentPage - 1) * itemsPerPage + 1}
@@ -392,48 +499,53 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
               results
             </div>
 
-            <div className="flex items-center gap-2 mx-auto sm:mx-0">
+            <div className="flex items-center gap-1.5 p-1 bg-white/5 rounded-xl">
               <Button
-                variant="outline"
+                variant="ghost"
                 size="icon"
-                className="h-8 w-8 bg-transparent border-white/10 hover:bg-white/10"
+                className="h-9 w-9 rounded-lg hover:bg-white/10 disabled:opacity-30"
                 onClick={() => setCurrentPage(1)}
                 disabled={currentPage === 1}
+                aria-label="Go to first page"
               >
                 <ChevronsLeft className="h-4 w-4" />
               </Button>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="icon"
-                className="h-8 w-8 bg-transparent border-white/10 hover:bg-white/10"
+                className="h-9 w-9 rounded-lg hover:bg-white/10 disabled:opacity-30"
                 onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                 disabled={currentPage === 1}
+                aria-label="Go to previous page"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
 
-              <div className="flex items-center gap-1 mx-2">
-                <span className="text-sm font-medium bg-primary/10 text-primary px-2 py-1 rounded-md min-w-[2rem] text-center">
+              <div className="flex items-center gap-2 px-3">
+                <span className="text-sm font-bold bg-primary text-primary-foreground px-3 py-1.5 rounded-lg min-w-[2.5rem] text-center shadow-sm">
                   {currentPage}
                 </span>
-                <span className="text-sm text-muted-foreground">/ {totalPages}</span>
+                <span className="text-sm text-muted-foreground">/</span>
+                <span className="text-sm text-muted-foreground font-medium">{totalPages}</span>
               </div>
 
               <Button
-                variant="outline"
+                variant="ghost"
                 size="icon"
-                className="h-8 w-8 bg-transparent border-white/10 hover:bg-white/10"
+                className="h-9 w-9 rounded-lg hover:bg-white/10 disabled:opacity-30"
                 onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                 disabled={currentPage === totalPages}
+                aria-label="Go to next page"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="icon"
-                className="h-8 w-8 bg-transparent border-white/10 hover:bg-white/10"
+                className="h-9 w-9 rounded-lg hover:bg-white/10 disabled:opacity-30"
                 onClick={() => setCurrentPage(totalPages)}
                 disabled={currentPage === totalPages}
+                aria-label="Go to last page"
               >
                 <ChevronsRight className="h-4 w-4" />
               </Button>
