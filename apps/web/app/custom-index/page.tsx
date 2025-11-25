@@ -231,7 +231,10 @@ export default function CustomIndexPage() {
           currentPage++;
         }
 
-        setTickers(allTickers);
+        // Deduplicate tickers by symbol to prevent React key errors
+        // This is especially important for Hyperliquid which may return duplicates
+        const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
+        setTickers(uniqueTickers);
       } catch {
         setError('Failed to load tickers');
       } finally {

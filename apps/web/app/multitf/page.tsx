@@ -182,7 +182,9 @@ export default function MultiTFPage() {
           }
         }
 
-        setTickers(allTickers);
+        // Deduplicate tickers by symbol to prevent React key errors
+        const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
+        setTickers(uniqueTickers);
       } catch (err) {
         setError('Failed to load tickers');
       } finally {

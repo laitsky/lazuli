@@ -59,10 +59,14 @@ async function fetchAllTickers(exchange: SupportedExchange) {
     }
   }
 
+  // Deduplicate tickers by symbol to prevent React key errors
+  // This is especially important for Hyperliquid which may return duplicates
+  const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
+
   return {
     exchange,
-    tickers: allTickers,
-    count: allTickers.length,
+    tickers: uniqueTickers,
+    count: uniqueTickers.length,
   };
 }
 

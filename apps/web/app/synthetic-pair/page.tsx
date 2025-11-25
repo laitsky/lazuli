@@ -223,7 +223,9 @@ export default function SyntheticPairPage() {
           }
         }
 
-        setTickers(allTickers);
+        // Deduplicate tickers by symbol to prevent React key errors
+        const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
+        setTickers(uniqueTickers);
 
         // Warn if we hit the page limit
         if (currentPage > MAX_PAGES) {
