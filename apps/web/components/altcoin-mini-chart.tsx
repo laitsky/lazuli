@@ -8,14 +8,16 @@
  * - Pure SVG implementation (no external charting library)
  * - No watermarks or branding
  * - Lazy loading with Intersection Observer (only renders when visible)
+ * - Interactive hover tracking with tooltip
+ * - Dual price display (USD + base currency) when not in USD mode
  * - Lightweight and fast rendering
  * - Color-coded based on performance (green for gains, red for losses)
  * - Smooth area fill with gradient
  * - Responsive sizing
  */
 
-import { useMemo, memo, useState, useEffect, useRef } from 'react';
-import { OHLCV } from '@lazuli/shared';
+import { useMemo, memo, useState, useEffect, useRef, useCallback } from 'react';
+import { OHLCV, BaseCurrency } from '@lazuli/shared';
 
 /**
  * Props for the AltcoinMiniChart component
@@ -31,6 +33,43 @@ interface AltcoinMiniChartProps {
   width?: 'full' | number;
   /** Enable lazy loading (default: true) */
   lazy?: boolean;
+  /** Current base currency for display */
+  baseCurrency?: BaseCurrency;
+  /** Base currency price in USD (for conversion display) */
+  basePrice?: number;
+  /** Symbol name for tooltip display */
+  symbol?: string;
+  /** Enable interactive hover tracking (default: false for performance) */
+  interactive?: boolean;
+}
+
+/**
+ * Format price with appropriate decimal places
+ */
+function formatPrice(price: number, baseCurrency: BaseCurrency = 'USD'): string {
+  if (baseCurrency === 'USD') {
+    if (price >= 1000) return `$${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    if (price >= 1) return `$${price.toFixed(2)}`;
+    if (price >= 0.01) return `$${price.toFixed(4)}`;
+    return `$${price.toFixed(6)}`;
+  }
+  // For crypto base currencies, show more precision
+  if (price >= 1) return price.toFixed(4);
+  if (price >= 0.0001) return price.toFixed(6);
+  return price.toFixed(8);
+}
+
+/**
+ * Format date/time for tooltip
+ */
+function formatTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 /**
@@ -105,7 +144,17 @@ function ChartSkeleton({ height, isPositive }: { height: number; isPositive: boo
 }
 
 /**
- * Custom SVG Sparkline component with lazy loading
+ * Hover state for interactive chart
+ */
+interface HoverState {
+  x: number; // Mouse X position (0-1 normalized)
+  dataIndex: number; // Index into OHLCV data
+  price: number; // Price at this point (USD)
+  timestamp: number; // Timestamp at this point
+}
+
+/**
+ * Custom SVG Sparkline component with lazy loading and hover tracking
  * Renders a smooth area chart without any external dependencies
  * Uses Intersection Observer to only render when visible in viewport
  */
@@ -115,10 +164,17 @@ function AltcoinMiniChartComponent({
   height = 40,
   width = 'full',
   lazy = true,
+  baseCurrency = 'USD',
+  basePrice = 1,
+  symbol,
+  interactive = false,
 }: AltcoinMiniChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
   const [isVisible, setIsVisible] = useState(!lazy);
   const [hasBeenVisible, setHasBeenVisible] = useState(!lazy);
+  const [hover, setHover] = useState<HoverState | null>(null);
+  const [isHovering, setIsHovering] = useState(false);
 
   // Determine chart colors based on performance
   const isPositive = change !== null && change >= 0;
@@ -157,15 +213,19 @@ function AltcoinMiniChartComponent({
   }, [lazy, hasBeenVisible]);
 
   // Process OHLCV data into chart points (only when visible)
-  const chartData = useMemo(() => {
-    if (!isVisible || !data || data.length === 0) return [];
+  // Also keep the sorted OHLCV data for hover info
+  const { chartData, sortedOhlcv } = useMemo(() => {
+    if (!isVisible || !data || data.length === 0) {
+      return { chartData: [], sortedOhlcv: [] };
+    }
 
     // Sort by timestamp and extract close prices
     const sorted = [...data].sort((a, b) => a.timestamp - b.timestamp);
-    return sorted.map((candle, index) => ({
+    const points = sorted.map((candle, index) => ({
       x: index,
       y: candle.close,
     }));
+    return { chartData: points, sortedOhlcv: sorted };
   }, [data, isVisible]);
 
   // Generate SVG paths (only when visible)
@@ -178,6 +238,40 @@ function AltcoinMiniChartComponent({
     return generateSparklinePath(chartData, chartWidth, height);
   }, [chartData, width, height, isVisible]);
 
+  // Handle mouse move for hover tracking
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      if (!interactive || sortedOhlcv.length === 0 || !svgRef.current) return;
+
+      const rect = svgRef.current.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width;
+      const clampedX = Math.max(0, Math.min(1, x));
+
+      // Map X position to data index
+      const dataIndex = Math.round(clampedX * (sortedOhlcv.length - 1));
+      const candle = sortedOhlcv[dataIndex];
+
+      if (candle) {
+        setHover({
+          x: clampedX,
+          dataIndex,
+          price: candle.close,
+          timestamp: candle.timestamp,
+        });
+      }
+    },
+    [interactive, sortedOhlcv]
+  );
+
+  const handleMouseEnter = useCallback(() => {
+    if (interactive) setIsHovering(true);
+  }, [interactive]);
+
+  const handleMouseLeave = useCallback(() => {
+    setIsHovering(false);
+    setHover(null);
+  }, []);
+
   // Show placeholder if no data
   if (!data || data.length === 0) {
     return (
@@ -189,39 +283,137 @@ function AltcoinMiniChartComponent({
 
   // Calculate viewBox based on width
   const viewBoxWidth = typeof width === 'number' ? width : 200;
+  const padding = 2;
+
+  // Calculate hover point position in SVG coordinates
+  const hoverPoint = useMemo(() => {
+    if (!hover || chartData.length === 0) return null;
+
+    const chartWidth = viewBoxWidth - padding * 2;
+    const chartHeight = height - padding * 2;
+
+    const values = chartData.map((d) => d.y);
+    const minValue = Math.min(...values);
+    const maxValue = Math.max(...values);
+    const valueRange = maxValue - minValue || 1;
+
+    const x = padding + hover.x * chartWidth;
+    const y = padding + chartHeight - ((hover.price - minValue) / valueRange) * chartHeight;
+
+    return { x, y };
+  }, [hover, chartData, viewBoxWidth, height]);
 
   return (
-    <div ref={containerRef} style={{ height }} className="w-full">
+    <div ref={containerRef} style={{ height }} className="w-full relative">
       {!isVisible ? (
         <ChartSkeleton height={height} isPositive={isPositive} />
       ) : (
-        <svg
-          className="w-full animate-in fade-in duration-300"
-          style={{ height }}
-          viewBox={`0 0 ${viewBoxWidth} ${height}`}
-          preserveAspectRatio="none"
-        >
-          {/* Gradient definition for area fill */}
-          <defs>
-            <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor={lineColor} stopOpacity={isPositive ? 0.3 : 0.25} />
-              <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
-            </linearGradient>
-          </defs>
+        <>
+          <svg
+            ref={svgRef}
+            className={`w-full animate-in fade-in duration-300 ${interactive ? 'cursor-crosshair' : ''}`}
+            style={{ height }}
+            viewBox={`0 0 ${viewBoxWidth} ${height}`}
+            preserveAspectRatio="none"
+            onMouseMove={handleMouseMove}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+          >
+            {/* Gradient definition for area fill */}
+            <defs>
+              <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor={lineColor} stopOpacity={isPositive ? 0.3 : 0.25} />
+                <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
+              </linearGradient>
+            </defs>
 
-          {/* Area fill */}
-          <path d={paths.areaPath} fill={`url(#${gradientId})`} />
+            {/* Area fill */}
+            <path d={paths.areaPath} fill={`url(#${gradientId})`} />
 
-          {/* Line stroke */}
-          <path
-            d={paths.linePath}
-            fill="none"
-            stroke={lineColor}
-            strokeWidth={1.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
+            {/* Line stroke */}
+            <path
+              d={paths.linePath}
+              fill="none"
+              stroke={lineColor}
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+
+            {/* Hover indicator */}
+            {interactive && isHovering && hover && hoverPoint && (
+              <>
+                {/* Vertical line */}
+                <line
+                  x1={hoverPoint.x}
+                  y1={padding}
+                  x2={hoverPoint.x}
+                  y2={height - padding}
+                  stroke={lineColor}
+                  strokeWidth={1}
+                  strokeDasharray="2,2"
+                  opacity={0.5}
+                />
+                {/* Point indicator */}
+                <circle
+                  cx={hoverPoint.x}
+                  cy={hoverPoint.y}
+                  r={3}
+                  fill={lineColor}
+                  stroke="white"
+                  strokeWidth={1.5}
+                />
+              </>
+            )}
+          </svg>
+
+          {/* Tooltip */}
+          {interactive && isHovering && hover && (
+            <div
+              className="absolute z-50 pointer-events-none bg-popover/95 backdrop-blur-sm border border-border rounded-lg shadow-lg px-2 py-1.5 text-xs"
+              style={{
+                left: `${hover.x * 100}%`,
+                top: '-4px',
+                transform: `translate(${hover.x > 0.7 ? '-100%' : hover.x < 0.3 ? '0%' : '-50%'}, -100%)`,
+              }}
+            >
+              {/* Time */}
+              <div className="text-muted-foreground text-[10px] mb-0.5">
+                {formatTime(hover.timestamp)}
+              </div>
+
+              {/* Price in base currency */}
+              <div className="font-mono font-medium">
+                {baseCurrency !== 'USD' && (
+                  <span className="text-foreground">
+                    {formatPrice(hover.price / basePrice, baseCurrency)} {baseCurrency}
+                  </span>
+                )}
+                {baseCurrency === 'USD' && (
+                  <span className="text-foreground">{formatPrice(hover.price, 'USD')}</span>
+                )}
+              </div>
+
+              {/* USD equivalent when not in USD mode */}
+              {baseCurrency !== 'USD' && (
+                <div className="text-muted-foreground text-[10px]">
+                  ≈ {formatPrice(hover.price, 'USD')}
+                </div>
+              )}
+
+              {/* Change from first candle */}
+              {sortedOhlcv.length > 0 && (
+                <div
+                  className={`text-[10px] ${hover.price >= sortedOhlcv[0].close ? 'text-green-500' : 'text-red-500'}`}
+                >
+                  {hover.price >= sortedOhlcv[0].close ? '↑' : '↓'}{' '}
+                  {(((hover.price - sortedOhlcv[0].close) / sortedOhlcv[0].close) * 100).toFixed(2)}
+                  %
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

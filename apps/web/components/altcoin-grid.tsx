@@ -449,7 +449,12 @@ export function AltcoinGrid({
                   ),
                 }}
               >
-                <AltcoinCardMemo altcoin={altcoin} baseCurrency={baseCurrency} rank={index + 1} />
+                <AltcoinCardMemo
+                  altcoin={altcoin}
+                  baseCurrency={baseCurrency}
+                  basePrice={basePrice}
+                  rank={index + 1}
+                />
               </motion.div>
             ))}
           </AnimatePresence>
@@ -476,6 +481,7 @@ export function AltcoinGrid({
                 <AltcoinListItemMemo
                   altcoin={altcoin}
                   baseCurrency={baseCurrency}
+                  basePrice={basePrice}
                   rank={index + 1}
                 />
               </motion.div>
@@ -513,10 +519,11 @@ export function AltcoinGrid({
 interface AltcoinCardProps {
   altcoin: AltcoinPerformance;
   baseCurrency: BaseCurrency;
+  basePrice: number;
   rank: number;
 }
 
-function AltcoinCard({ altcoin, baseCurrency, rank }: AltcoinCardProps) {
+function AltcoinCard({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProps) {
   const displayPrice = baseCurrency === 'USD' ? altcoin.price : altcoin.priceInBase;
   const priceLabel =
     baseCurrency === 'USD'
@@ -533,7 +540,15 @@ function AltcoinCard({ altcoin, baseCurrency, rank }: AltcoinCardProps) {
               <span className="text-xs text-muted-foreground/50 font-mono">#{rank}</span>
               <span className="font-bold">{altcoin.base}</span>
             </div>
-            <div className="text-xs text-muted-foreground font-mono">{priceLabel}</div>
+            <div className="text-xs text-muted-foreground font-mono">
+              {priceLabel}
+              {/* Show USD equivalent when not in USD mode */}
+              {baseCurrency !== 'USD' && (
+                <span className="text-muted-foreground/60 ml-1">
+                  (${altcoin.price < 1 ? altcoin.price.toFixed(4) : altcoin.price.toFixed(2)})
+                </span>
+              )}
+            </div>
           </div>
           <Badge
             variant="secondary"
@@ -547,9 +562,17 @@ function AltcoinCard({ altcoin, baseCurrency, rank }: AltcoinCardProps) {
           </Badge>
         </div>
 
-        {/* Mini Chart */}
+        {/* Mini Chart - interactive with hover tracking */}
         <div className="mb-2">
-          <AltcoinMiniChart data={altcoin.ohlcv} change={altcoin.change24h} height={50} />
+          <AltcoinMiniChart
+            data={altcoin.ohlcv}
+            change={altcoin.change24h}
+            height={50}
+            baseCurrency={baseCurrency}
+            basePrice={basePrice}
+            symbol={altcoin.symbol}
+            interactive={true}
+          />
         </div>
 
         {/* Footer */}
@@ -567,7 +590,7 @@ function AltcoinCard({ altcoin, baseCurrency, rank }: AltcoinCardProps) {
 /**
  * AltcoinListItem - Individual altcoin row for list view
  */
-function AltcoinListItem({ altcoin, baseCurrency, rank }: AltcoinCardProps) {
+function AltcoinListItem({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProps) {
   const displayPrice = baseCurrency === 'USD' ? altcoin.price : altcoin.priceInBase;
   const priceLabel =
     baseCurrency === 'USD'
@@ -587,14 +610,28 @@ function AltcoinListItem({ altcoin, baseCurrency, rank }: AltcoinCardProps) {
             <div className="text-xs text-muted-foreground">{altcoin.symbol}</div>
           </div>
 
-          {/* Mini Chart */}
+          {/* Mini Chart - interactive in list view too */}
           <div className="w-24 hidden sm:block">
-            <AltcoinMiniChart data={altcoin.ohlcv} change={altcoin.change24h} height={30} />
+            <AltcoinMiniChart
+              data={altcoin.ohlcv}
+              change={altcoin.change24h}
+              height={30}
+              baseCurrency={baseCurrency}
+              basePrice={basePrice}
+              symbol={altcoin.symbol}
+              interactive={true}
+            />
           </div>
 
           {/* Price */}
           <div className="text-right min-w-[100px]">
             <div className="font-mono text-sm">{priceLabel}</div>
+            {/* Show USD equivalent when not in USD mode */}
+            {baseCurrency !== 'USD' && (
+              <div className="text-xs text-muted-foreground/60">
+                ${altcoin.price < 1 ? altcoin.price.toFixed(4) : altcoin.price.toFixed(2)}
+              </div>
+            )}
           </div>
 
           {/* Volume */}
@@ -650,8 +687,10 @@ const AltcoinCardMemo = memo(AltcoinCard, (prev, next) => {
   return (
     prev.altcoin.symbol === next.altcoin.symbol &&
     prev.altcoin.price === next.altcoin.price &&
+    prev.altcoin.priceInBase === next.altcoin.priceInBase &&
     prev.altcoin.change24h === next.altcoin.change24h &&
     prev.baseCurrency === next.baseCurrency &&
+    prev.basePrice === next.basePrice &&
     prev.rank === next.rank
   );
 });
@@ -660,8 +699,10 @@ const AltcoinListItemMemo = memo(AltcoinListItem, (prev, next) => {
   return (
     prev.altcoin.symbol === next.altcoin.symbol &&
     prev.altcoin.price === next.altcoin.price &&
+    prev.altcoin.priceInBase === next.altcoin.priceInBase &&
     prev.altcoin.change24h === next.altcoin.change24h &&
     prev.baseCurrency === next.baseCurrency &&
+    prev.basePrice === next.basePrice &&
     prev.rank === next.rank
   );
 });
