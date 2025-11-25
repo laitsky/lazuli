@@ -7,13 +7,14 @@
  * for each altcoin in the screener grid. Features:
  * - Pure SVG implementation (no external charting library)
  * - No watermarks or branding
+ * - Lazy loading with Intersection Observer (only renders when visible)
  * - Lightweight and fast rendering
  * - Color-coded based on performance (green for gains, red for losses)
  * - Smooth area fill with gradient
  * - Responsive sizing
  */
 
-import { useMemo, memo } from 'react';
+import { useMemo, memo, useState, useEffect, useRef } from 'react';
 import { OHLCV } from '@lazuli/shared';
 
 /**
@@ -28,6 +29,8 @@ interface AltcoinMiniChartProps {
   height?: number;
   /** Chart width - 'full' for 100% or specific pixel value */
   width?: 'full' | number;
+  /** Enable lazy loading (default: true) */
+  lazy?: boolean;
 }
 
 /**
@@ -84,23 +87,78 @@ function generateSparklinePath(
 }
 
 /**
- * Custom SVG Sparkline component
+ * Skeleton placeholder for chart while loading
+ */
+function ChartSkeleton({ height, isPositive }: { height: number; isPositive: boolean }) {
+  const baseColor = isPositive ? 'bg-green-500/10' : 'bg-red-500/10';
+
+  return (
+    <div className={`w-full rounded ${baseColor} animate-pulse`} style={{ height }}>
+      {/* Simple animated line to indicate loading */}
+      <div className="h-full flex items-center justify-center">
+        <div
+          className={`h-[2px] w-3/4 rounded ${isPositive ? 'bg-green-500/30' : 'bg-red-500/30'}`}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Custom SVG Sparkline component with lazy loading
  * Renders a smooth area chart without any external dependencies
+ * Uses Intersection Observer to only render when visible in viewport
  */
 function AltcoinMiniChartComponent({
   data,
   change,
   height = 40,
   width = 'full',
+  lazy = true,
 }: AltcoinMiniChartProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(!lazy);
+  const [hasBeenVisible, setHasBeenVisible] = useState(!lazy);
+
   // Determine chart colors based on performance
   const isPositive = change !== null && change >= 0;
   const lineColor = isPositive ? '#22c55e' : '#ef4444';
-  const gradientId = useMemo(() => `gradient-${Math.random().toString(36).substring(7)}`, []);
 
-  // Process OHLCV data into chart points
+  // Use a stable gradient ID based on a counter instead of random
+  const gradientId = useRef(`gradient-${Math.random().toString(36).substring(7)}`).current;
+
+  // Set up Intersection Observer for lazy loading
+  useEffect(() => {
+    if (!lazy || hasBeenVisible) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsVisible(true);
+            setHasBeenVisible(true);
+            // Once visible, we don't need to observe anymore
+            observer.disconnect();
+          }
+        });
+      },
+      {
+        // Start loading slightly before the element comes into view
+        rootMargin: '100px',
+        threshold: 0,
+      }
+    );
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [lazy, hasBeenVisible]);
+
+  // Process OHLCV data into chart points (only when visible)
   const chartData = useMemo(() => {
-    if (!data || data.length === 0) return [];
+    if (!isVisible || !data || data.length === 0) return [];
 
     // Sort by timestamp and extract close prices
     const sorted = [...data].sort((a, b) => a.timestamp - b.timestamp);
@@ -108,14 +166,17 @@ function AltcoinMiniChartComponent({
       x: index,
       y: candle.close,
     }));
-  }, [data]);
+  }, [data, isVisible]);
 
-  // Generate SVG paths
+  // Generate SVG paths (only when visible)
   const paths = useMemo(() => {
+    if (!isVisible || chartData.length === 0) {
+      return { linePath: '', areaPath: '' };
+    }
     // Use a fixed width for calculations, CSS will handle responsiveness
     const chartWidth = typeof width === 'number' ? width : 200;
     return generateSparklinePath(chartData, chartWidth, height);
-  }, [chartData, width, height]);
+  }, [chartData, width, height, isVisible]);
 
   // Show placeholder if no data
   if (!data || data.length === 0) {
@@ -130,33 +191,39 @@ function AltcoinMiniChartComponent({
   const viewBoxWidth = typeof width === 'number' ? width : 200;
 
   return (
-    <svg
-      className="w-full"
-      style={{ height }}
-      viewBox={`0 0 ${viewBoxWidth} ${height}`}
-      preserveAspectRatio="none"
-    >
-      {/* Gradient definition for area fill */}
-      <defs>
-        <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor={lineColor} stopOpacity={isPositive ? 0.3 : 0.25} />
-          <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
-        </linearGradient>
-      </defs>
+    <div ref={containerRef} style={{ height }} className="w-full">
+      {!isVisible ? (
+        <ChartSkeleton height={height} isPositive={isPositive} />
+      ) : (
+        <svg
+          className="w-full animate-in fade-in duration-300"
+          style={{ height }}
+          viewBox={`0 0 ${viewBoxWidth} ${height}`}
+          preserveAspectRatio="none"
+        >
+          {/* Gradient definition for area fill */}
+          <defs>
+            <linearGradient id={gradientId} x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor={lineColor} stopOpacity={isPositive ? 0.3 : 0.25} />
+              <stop offset="100%" stopColor={lineColor} stopOpacity={0} />
+            </linearGradient>
+          </defs>
 
-      {/* Area fill */}
-      <path d={paths.areaPath} fill={`url(#${gradientId})`} />
+          {/* Area fill */}
+          <path d={paths.areaPath} fill={`url(#${gradientId})`} />
 
-      {/* Line stroke */}
-      <path
-        d={paths.linePath}
-        fill="none"
-        stroke={lineColor}
-        strokeWidth={1.5}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+          {/* Line stroke */}
+          <path
+            d={paths.linePath}
+            fill="none"
+            stroke={lineColor}
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      )}
+    </div>
   );
 }
 
