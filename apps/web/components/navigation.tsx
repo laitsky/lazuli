@@ -28,6 +28,7 @@ import {
   PieChart,
   Activity,
   ChevronRight,
+  Zap,
 } from 'lucide-react';
 
 /**
@@ -51,6 +52,12 @@ const navItems = [
     label: 'Markets',
     icon: TrendingUp,
     description: 'Browse tickers',
+  },
+  {
+    href: '/alt-screener',
+    label: 'Alt Screener',
+    icon: Zap,
+    description: 'Scan all altcoins',
   },
   {
     href: '/multitf',
