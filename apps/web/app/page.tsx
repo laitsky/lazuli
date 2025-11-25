@@ -23,7 +23,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { MarketTicker } from '@/components/market-ticker';
-import { MarketOverview } from '@/components/market-overview';
+import { TopGainers } from '@/components/top-gainers';
+import { TopLosers } from '@/components/top-losers';
 import { Suspense } from 'react';
 
 // Use Incremental Static Regeneration instead of force-dynamic
@@ -152,19 +153,32 @@ export default async function HomePage() {
             </div>
           </div>
 
-          {/* Hero Visual / Stats Preview */}
-          <div className="w-full max-w-md lg:max-w-lg animate-delay-500 animate-fade-in">
-            <Suspense
-              fallback={
-                <Card className="glass border-primary/10 h-[400px] animate-pulse">
-                  <CardContent className="flex items-center justify-center h-full">
-                    <div className="text-muted-foreground">Loading markets...</div>
-                  </CardContent>
-                </Card>
-              }
-            >
-              <MarketOverview />
-            </Suspense>
+          {/* Hero Visual / Top Movers Preview */}
+          <div className="w-full max-w-md lg:max-w-xl animate-delay-500 animate-fade-in">
+            <div className="grid grid-cols-2 gap-4">
+              <Suspense
+                fallback={
+                  <Card className="glass border-primary/10 h-[320px] animate-pulse">
+                    <CardContent className="flex items-center justify-center h-full">
+                      <div className="text-muted-foreground text-sm">Loading...</div>
+                    </CardContent>
+                  </Card>
+                }
+              >
+                <TopGainers />
+              </Suspense>
+              <Suspense
+                fallback={
+                  <Card className="glass border-primary/10 h-[320px] animate-pulse">
+                    <CardContent className="flex items-center justify-center h-full">
+                      <div className="text-muted-foreground text-sm">Loading...</div>
+                    </CardContent>
+                  </Card>
+                }
+              >
+                <TopLosers />
+              </Suspense>
+            </div>
           </div>
         </div>
       </div>

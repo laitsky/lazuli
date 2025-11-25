@@ -26,14 +26,14 @@ export function MarketTickerSkeleton() {
   );
 }
 
-export function MarketOverviewSkeleton() {
+export function TopMoversSkeleton() {
   return (
     <Card className="glass border-primary/10 h-full">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <div className="space-y-2">
-            <div className="h-5 w-32 bg-white/10 rounded animate-pulse" />
-            <div className="h-4 w-48 bg-white/5 rounded animate-pulse" />
+            <div className="h-5 w-28 bg-white/10 rounded animate-pulse" />
+            <div className="h-4 w-36 bg-white/5 rounded animate-pulse" />
           </div>
           <div className="h-8 w-16 bg-white/5 rounded animate-pulse" />
         </div>
@@ -43,20 +43,16 @@ export function MarketOverviewSkeleton() {
           {[1, 2, 3, 4, 5].map((i) => (
             <div
               key={i}
-              className="flex items-center justify-between p-3 rounded-lg border border-transparent"
+              className="flex items-center justify-between p-2.5 rounded-lg"
             >
               <div className="flex items-center gap-3">
-                <div className="h-6 w-6 bg-white/5 rounded animate-pulse" />
+                <div className="h-4 w-4 bg-white/5 rounded animate-pulse" />
                 <div className="space-y-1">
-                  <div className="h-4 w-16 bg-white/10 rounded animate-pulse" />
-                  <div className="h-3 w-24 bg-white/5 rounded animate-pulse" />
+                  <div className="h-4 w-12 bg-white/10 rounded animate-pulse" />
+                  <div className="h-3 w-16 bg-white/5 rounded animate-pulse" />
                 </div>
               </div>
-
-              <div className="flex flex-col items-end gap-1">
-                <div className="h-4 w-20 bg-white/10 rounded animate-pulse" />
-                <div className="h-5 w-12 bg-white/5 rounded animate-pulse" />
-              </div>
+              <div className="h-6 w-14 bg-white/5 rounded animate-pulse" />
             </div>
           ))}
         </div>
