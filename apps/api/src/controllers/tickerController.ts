@@ -11,6 +11,8 @@ import {
   validateTickerSortBy,
   validateBoolean,
   validateExchange,
+  validateQuoteCurrency,
+  parseSymbol,
 } from '../utils/validation';
 
 /**
@@ -25,6 +27,7 @@ export class TickerController {
    * - page: Page number (default: 1)
    * - limit: Items per page (default: 100, max: 500)
    * - type: Filter by market type ('spot' or 'perp')
+   * - quote: Filter by quote currency (e.g., 'USDT', 'BTC')
    * - search: Search by symbol (case-insensitive)
    * - sortBy: Sort field ('volume', 'price', 'change', default: 'volume')
    * - sortOrder: Sort order ('asc' or 'desc', default: 'desc')
@@ -46,6 +49,7 @@ export class TickerController {
       const page = validateInteger(req.query.page, 1, 1, 10000);
       const limit = validateInteger(req.query.limit, 100, 1, 500);
       const typeFilter = validateMarketType(req.query.type);
+      const quoteFilter = validateQuoteCurrency(req.query.quote);
       const searchQuery = validateSearchQuery(req.query.search, 50);
       const sortBy = validateTickerSortBy(req.query.sortBy);
       const sortOrder = validateSortOrder(req.query.sortOrder);
@@ -79,6 +83,15 @@ export class TickerController {
       // Filter by type (spot/perp)
       if (typeFilter && (typeFilter === 'spot' || typeFilter === 'perp')) {
         filteredTickers = filteredTickers.filter((t) => t.type === typeFilter);
+      }
+
+      // Filter by quote currency (e.g., USDT, BTC)
+      // This is important for volume comparisons - IDR pairs have huge numbers but low USD value
+      if (quoteFilter) {
+        filteredTickers = filteredTickers.filter((t) => {
+          const { quote } = parseSymbol(t.symbol);
+          return quote.toUpperCase() === quoteFilter;
+        });
       }
 
       // Filter by search query (symbol)
@@ -118,6 +131,7 @@ export class TickerController {
         pagination,
         filters: {
           type: typeFilter,
+          quote: quoteFilter,
           search: searchQuery,
           sortBy,
           sortOrder,
@@ -145,8 +159,10 @@ export class TickerController {
 
       switch (sortBy) {
         case 'volume':
-          aValue = a.volume24h;
-          bValue = b.volume24h;
+          // Use quoteVolume24h for sorting as it represents actual USD/USDT value
+          // This is more meaningful than base volume (e.g., number of BTC)
+          aValue = a.quoteVolume24h;
+          bValue = b.quoteVolume24h;
           break;
         case 'price':
           aValue = a.last;
@@ -157,8 +173,8 @@ export class TickerController {
           bValue = b.percentage24h;
           break;
         default:
-          aValue = a.volume24h;
-          bValue = b.volume24h;
+          aValue = a.quoteVolume24h;
+          bValue = b.quoteVolume24h;
       }
 
       // Handle null values (put them at the end)

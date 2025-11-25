@@ -33,6 +33,7 @@ export interface TickersQueryParams {
   page?: number;
   limit?: number;
   type?: 'spot' | 'perp';
+  quote?: string; // Filter by quote currency (e.g., 'USDT', 'BTC')
   search?: string;
   sortBy?: 'volume' | 'price' | 'change';
   sortOrder?: 'asc' | 'desc';
