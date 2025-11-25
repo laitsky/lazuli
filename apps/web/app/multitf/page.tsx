@@ -127,6 +127,15 @@ export default function MultiTFPage() {
     loadExchanges();
   }, []);
 
+  // Auto-switch to 'perp' for Hyperliquid (which only supports perpetual markets)
+  useEffect(() => {
+    if (selectedExchange === 'hyperliquid' && marketType === 'spot') {
+      setMarketType('perp');
+      setSelectedSymbol('');
+      setChartsData({} as Record<Timeframe, OHLCV[]>);
+    }
+  }, [selectedExchange]);
+
   // Load tickers when exchange or market type changes
   // Fetches ALL tickers using pagination (same approach as markets page)
   useEffect(() => {
@@ -416,6 +425,12 @@ export default function MultiTFPage() {
                     setChartsData({} as Record<Timeframe, OHLCV[]>);
                   }}
                   className="rounded-md"
+                  disabled={selectedExchange === 'hyperliquid'}
+                  title={
+                    selectedExchange === 'hyperliquid'
+                      ? 'Hyperliquid only supports perpetual markets'
+                      : ''
+                  }
                 >
                   Spot
                 </Button>

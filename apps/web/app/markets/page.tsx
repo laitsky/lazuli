@@ -176,10 +176,10 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
   const params = await searchParams;
   const selectedExchange = params.exchange || 'binance';
 
-  // Validate exchange
-  const validExchanges = ['binance', 'bybit', 'okx'];
+  // Validate exchange - include all supported exchanges
+  const validExchanges = ['binance', 'bybit', 'okx', 'hyperliquid'];
   const exchange = validExchanges.includes(selectedExchange)
-    ? (selectedExchange as any)
+    ? (selectedExchange as SupportedExchange)
     : 'binance';
 
   // Only fetch exchanges list for page shell - it's cached and loads instantly

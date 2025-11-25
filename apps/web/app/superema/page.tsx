@@ -123,6 +123,15 @@ export default function SuperEMAPage() {
     loadExchanges();
   }, []);
 
+  // Auto-switch to 'perp' for Hyperliquid (which only supports perpetual markets)
+  useEffect(() => {
+    if (selectedExchange === 'hyperliquid' && marketType === 'spot') {
+      setMarketType('perp');
+      setSelectedSymbol('');
+      setEmaData(null);
+    }
+  }, [selectedExchange]);
+
   // Load tickers when exchange or market type changes
   useEffect(() => {
     async function loadTickers() {
@@ -466,6 +475,12 @@ export default function SuperEMAPage() {
                     setEmaData(null);
                   }}
                   className="rounded-md"
+                  disabled={selectedExchange === 'hyperliquid'}
+                  title={
+                    selectedExchange === 'hyperliquid'
+                      ? 'Hyperliquid only supports perpetual markets'
+                      : ''
+                  }
                 >
                   Spot
                 </Button>
