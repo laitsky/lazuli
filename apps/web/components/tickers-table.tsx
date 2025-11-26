@@ -12,6 +12,10 @@
  * - Responsive design with mobile-optimized formatting
  * - 24h High/Low range with visual indicator
  * - Funding rate display for perpetual markets
+ * - Open interest for perpetual markets
+ * - Bid-ask spread indicator for liquidity
+ * - Quick filter presets (Top Gainers, Top Losers, High Volume)
+ * - Data freshness indicator
  * - Customizable column visibility
  */
 
@@ -46,6 +50,10 @@ import {
   Settings2,
   Percent,
   Check,
+  Flame,
+  Zap,
+  Clock,
+  Activity,
 } from 'lucide-react';
 import { Ticker } from '@lazuli/shared';
 import { formatCurrency, formatVolume, formatPercentage, getChangeColor } from '@/lib/api-client';
@@ -55,8 +63,9 @@ interface TickersTableProps {
   exchange: string;
 }
 
-type SortField = 'symbol' | 'price' | 'change' | 'volume' | 'high' | 'low' | 'funding';
+type SortField = 'symbol' | 'price' | 'change' | 'volume' | 'high' | 'low' | 'funding' | 'spread' | 'openInterest';
 type SortOrder = 'asc' | 'desc';
+type QuickFilter = 'none' | 'gainers' | 'losers' | 'volume' | 'volatile';
 
 // Column visibility configuration
 interface ColumnVisibility {
@@ -64,7 +73,9 @@ interface ColumnVisibility {
   change: boolean;
   volume: boolean;
   highLow: boolean;
+  spread: boolean;
   funding: boolean; // Only relevant for perpetuals
+  openInterest: boolean; // Only relevant for perpetuals
 }
 
 const DEFAULT_COLUMNS: ColumnVisibility = {
@@ -72,7 +83,9 @@ const DEFAULT_COLUMNS: ColumnVisibility = {
   change: true,
   volume: true,
   highLow: true,
+  spread: false, // Hidden by default, can be enabled
   funding: true,
+  openInterest: false, // Hidden by default, can be enabled
 };
 
 export function TickersTable({ tickers, exchange }: TickersTableProps) {
@@ -85,7 +98,21 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [columns, setColumns] = useState<ColumnVisibility>(DEFAULT_COLUMNS);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>('none');
   const itemsPerPage = 20;
+
+  // Calculate data freshness (most recent timestamp from tickers)
+  const dataFreshness = useMemo(() => {
+    const timestamps = tickers.map((t) => t.timestamp).filter(Boolean);
+    if (timestamps.length === 0) return null;
+    const mostRecent = Math.max(...timestamps);
+    const ageMs = Date.now() - mostRecent;
+    const ageSec = Math.floor(ageMs / 1000);
+    if (ageSec < 60) return `${ageSec}s ago`;
+    const ageMin = Math.floor(ageSec / 60);
+    if (ageMin < 60) return `${ageMin}m ago`;
+    return `${Math.floor(ageMin / 60)}h ago`;
+  }, [tickers]);
 
   // Clear search handler
   const clearSearch = useCallback(() => {
@@ -95,7 +122,38 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   // Reset pagination when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, quoteFilter, marketType, exchange]);
+  }, [searchQuery, quoteFilter, marketType, exchange, quickFilter]);
+
+  // Apply quick filter preset
+  const applyQuickFilter = (filter: QuickFilter) => {
+    if (quickFilter === filter) {
+      // Toggle off
+      setQuickFilter('none');
+      setSortField('volume');
+      setSortOrder('desc');
+    } else {
+      setQuickFilter(filter);
+      // Apply sort based on filter type
+      switch (filter) {
+        case 'gainers':
+          setSortField('change');
+          setSortOrder('desc');
+          break;
+        case 'losers':
+          setSortField('change');
+          setSortOrder('asc');
+          break;
+        case 'volume':
+          setSortField('volume');
+          setSortOrder('desc');
+          break;
+        case 'volatile':
+          setSortField('change');
+          setSortOrder('desc'); // Will use absolute value in filter
+          break;
+      }
+    }
+  };
 
   // Extract quote currency from symbol
   const getQuoteCurrency = (symbol: string) => {
@@ -164,13 +222,34 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     return sortedQuotes;
   }, [tickers, marketType]);
 
+  // Calculate bid-ask spread percentage
+  const getSpread = (ticker: Ticker): number | null => {
+    if (!ticker.bid || !ticker.ask || !ticker.last || ticker.last === 0) return null;
+    return ((ticker.ask - ticker.bid) / ticker.last) * 100;
+  };
+
   // Filter and sort tickers
   const filteredAndSortedTickers = useMemo(() => {
     let result = tickers.filter((t) => {
       const matchesSearch = t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesQuote = getQuoteCurrency(t.symbol).toUpperCase() === quoteFilter;
       const matchesType = t.type === marketType;
-      return matchesSearch && matchesQuote && matchesType;
+
+      // Apply quick filter constraints
+      let matchesQuickFilter = true;
+      if (quickFilter === 'gainers') {
+        matchesQuickFilter = (t.percentage24h || 0) > 0;
+      } else if (quickFilter === 'losers') {
+        matchesQuickFilter = (t.percentage24h || 0) < 0;
+      } else if (quickFilter === 'volume') {
+        // High volume = top 20% by volume (will be sorted anyway)
+        matchesQuickFilter = (t.quoteVolume24h || 0) > 0;
+      } else if (quickFilter === 'volatile') {
+        // Volatile = absolute change > 3%
+        matchesQuickFilter = Math.abs(t.percentage24h || 0) > 3;
+      }
+
+      return matchesSearch && matchesQuote && matchesType && matchesQuickFilter;
     });
 
     result.sort((a, b) => {
@@ -183,7 +262,12 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           comparison = (a.last || 0) - (b.last || 0);
           break;
         case 'change':
-          comparison = (a.percentage24h || 0) - (b.percentage24h || 0);
+          // For volatile filter, sort by absolute value
+          if (quickFilter === 'volatile') {
+            comparison = Math.abs(a.percentage24h || 0) - Math.abs(b.percentage24h || 0);
+          } else {
+            comparison = (a.percentage24h || 0) - (b.percentage24h || 0);
+          }
           break;
         case 'volume':
           comparison = (a.quoteVolume24h || 0) - (b.quoteVolume24h || 0);
@@ -197,12 +281,18 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
         case 'funding':
           comparison = (a.fundingRate || 0) - (b.fundingRate || 0);
           break;
+        case 'spread':
+          comparison = (getSpread(a) || 999) - (getSpread(b) || 999);
+          break;
+        case 'openInterest':
+          comparison = (a.openInterest || 0) - (b.openInterest || 0);
+          break;
       }
       return sortOrder === 'asc' ? comparison : -comparison;
     });
 
     return result;
-  }, [tickers, searchQuery, sortField, sortOrder, quoteFilter, marketType]);
+  }, [tickers, searchQuery, sortField, sortOrder, quoteFilter, marketType, quickFilter]);
 
   // Pagination
   const totalPages = Math.ceil(filteredAndSortedTickers.length / itemsPerPage);
@@ -261,6 +351,27 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     return 'text-yellow-500'; // Neutral
   };
 
+  // Format bid-ask spread
+  const formatSpread = (spread: number | null): string => {
+    if (spread === null) return '-';
+    if (spread < 0.01) return '<0.01%';
+    return `${spread.toFixed(2)}%`;
+  };
+
+  // Get color for spread (lower is better = green, higher = red)
+  const getSpreadColor = (spread: number | null): string => {
+    if (spread === null) return 'text-muted-foreground';
+    if (spread < 0.05) return 'text-green-500'; // Very tight spread
+    if (spread < 0.1) return 'text-yellow-500'; // Normal spread
+    return 'text-red-500'; // Wide spread
+  };
+
+  // Format open interest
+  const formatOpenInterest = (oi: number | null | undefined): string => {
+    if (oi === null || oi === undefined) return '-';
+    return formatVolume(oi);
+  };
+
   // Toggle column visibility
   const toggleColumn = (column: keyof ColumnVisibility) => {
     setColumns((prev) => ({ ...prev, [column]: !prev[column] }));
@@ -286,6 +397,12 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                     {filteredAndSortedTickers.length} Pairs
                   </Badge>
                   <span className="text-xs text-muted-foreground capitalize">{exchange}</span>
+                  {dataFreshness && (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Clock className="h-3 w-3" />
+                      {dataFreshness}
+                    </span>
+                  )}
                 </div>
               </div>
             </CardTitle>
@@ -309,6 +426,76 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* Quick Filters */}
+          <div className="flex flex-wrap gap-2">
+            <span className="text-xs text-muted-foreground flex items-center mr-1">
+              <Zap className="h-3 w-3 mr-1" />
+              Quick:
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => applyQuickFilter('gainers')}
+              className={`h-7 px-2.5 text-xs rounded-lg transition-all ${
+                quickFilter === 'gainers'
+                  ? 'bg-green-500/20 text-green-500 hover:bg-green-500/30'
+                  : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+              }`}
+            >
+              <TrendingUp className="h-3 w-3 mr-1" />
+              Gainers
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => applyQuickFilter('losers')}
+              className={`h-7 px-2.5 text-xs rounded-lg transition-all ${
+                quickFilter === 'losers'
+                  ? 'bg-red-500/20 text-red-500 hover:bg-red-500/30'
+                  : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+              }`}
+            >
+              <TrendingDown className="h-3 w-3 mr-1" />
+              Losers
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => applyQuickFilter('volume')}
+              className={`h-7 px-2.5 text-xs rounded-lg transition-all ${
+                quickFilter === 'volume'
+                  ? 'bg-yellow-500/20 text-yellow-500 hover:bg-yellow-500/30'
+                  : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+              }`}
+            >
+              <BarChart3 className="h-3 w-3 mr-1" />
+              High Volume
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => applyQuickFilter('volatile')}
+              className={`h-7 px-2.5 text-xs rounded-lg transition-all ${
+                quickFilter === 'volatile'
+                  ? 'bg-purple-500/20 text-purple-500 hover:bg-purple-500/30'
+                  : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+              }`}
+            >
+              <Flame className="h-3 w-3 mr-1" />
+              Volatile (&gt;3%)
+            </Button>
+            {quickFilter !== 'none' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => applyQuickFilter(quickFilter)}
+                className="h-7 px-2 text-xs rounded-lg text-muted-foreground hover:bg-white/5"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
           </div>
 
           {/* Filters Row */}
@@ -401,16 +588,36 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                         </div>
                         24h Range
                       </button>
+                      <button
+                        onClick={() => toggleColumn('spread')}
+                        className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
+                      >
+                        <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.spread ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
+                          {columns.spread && <Check className="h-3 w-3 text-primary-foreground" />}
+                        </div>
+                        Spread
+                      </button>
                       {marketType === 'perp' && (
-                        <button
-                          onClick={() => toggleColumn('funding')}
-                          className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
-                        >
-                          <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.funding ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
-                            {columns.funding && <Check className="h-3 w-3 text-primary-foreground" />}
-                          </div>
-                          Funding Rate
-                        </button>
+                        <>
+                          <button
+                            onClick={() => toggleColumn('funding')}
+                            className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
+                          >
+                            <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.funding ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
+                              {columns.funding && <Check className="h-3 w-3 text-primary-foreground" />}
+                            </div>
+                            Funding Rate
+                          </button>
+                          <button
+                            onClick={() => toggleColumn('openInterest')}
+                            className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
+                          >
+                            <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.openInterest ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
+                              {columns.openInterest && <Check className="h-3 w-3 text-primary-foreground" />}
+                            </div>
+                            Open Interest
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -521,6 +728,17 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                     </Button>
                   </TableHead>
                 )}
+                {columns.spread && (
+                  <TableHead className="text-right hidden xl:table-cell">
+                    <Button
+                      variant="ghost"
+                      onClick={() => handleSort('spread')}
+                      className="hover:bg-white/5 hover:text-primary px-2 py-1 font-semibold ml-auto rounded-lg transition-colors"
+                    >
+                      Spread <SortIcon field="spread" />
+                    </Button>
+                  </TableHead>
+                )}
                 {marketType === 'perp' && columns.funding && (
                   <TableHead className="text-right hidden md:table-cell">
                     <Button
@@ -532,12 +750,23 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                     </Button>
                   </TableHead>
                 )}
+                {marketType === 'perp' && columns.openInterest && (
+                  <TableHead className="text-right hidden xl:table-cell">
+                    <Button
+                      variant="ghost"
+                      onClick={() => handleSort('openInterest')}
+                      className="hover:bg-white/5 hover:text-primary px-2 py-1 font-semibold ml-auto rounded-lg transition-colors"
+                    >
+                      OI <SortIcon field="openInterest" />
+                    </Button>
+                  </TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {paginatedTickers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-48 text-center">
+                  <TableCell colSpan={10} className="h-48 text-center">
                     <div className="flex flex-col items-center justify-center gap-3">
                       <div className="h-16 w-16 rounded-2xl bg-muted/30 flex items-center justify-center">
                         <Search className="h-8 w-8 text-muted-foreground/50" />
@@ -665,12 +894,29 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                           </span>
                         </TableCell>
                       )}
+                      {columns.spread && (
+                        <TableCell className="text-right py-4 hidden xl:table-cell">
+                          <span className={`font-mono text-sm ${getSpreadColor(getSpread(ticker))}`}>
+                            {formatSpread(getSpread(ticker))}
+                          </span>
+                        </TableCell>
+                      )}
                       {marketType === 'perp' && columns.funding && (
                         <TableCell className="text-right py-4 hidden md:table-cell">
                           <div className="flex items-center justify-end gap-1.5">
                             <Percent className="h-3 w-3 text-muted-foreground" />
                             <span className={`font-mono text-sm ${getFundingColor(ticker.fundingRate)}`}>
                               {formatFundingRate(ticker.fundingRate)}
+                            </span>
+                          </div>
+                        </TableCell>
+                      )}
+                      {marketType === 'perp' && columns.openInterest && (
+                        <TableCell className="text-right py-4 hidden xl:table-cell">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Activity className="h-3 w-3 text-muted-foreground" />
+                            <span className="font-mono text-sm text-muted-foreground">
+                              {formatOpenInterest(ticker.openInterest)}
                             </span>
                           </div>
                         </TableCell>
