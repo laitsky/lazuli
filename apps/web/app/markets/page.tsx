@@ -13,10 +13,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { TickersTable } from '@/components/tickers-table';
-import { LazuliAPI } from '@/lib/api-client';
+import { LazuliAPI, formatVolume } from '@/lib/api-client';
 import { Ticker, SupportedExchange } from '@lazuli/shared';
 import Link from 'next/link';
-import { BarChart3, Globe, Activity, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { BarChart3, Globe, Activity, ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, DollarSign, Percent } from 'lucide-react';
 
 // Allow partial caching - exchanges list is cached, tickers are fetched fresh
 // This enables fast page navigation while keeping ticker data real-time
@@ -89,47 +89,145 @@ async function TickersSection({ exchange }: { exchange: SupportedExchange }) {
   const perpCount = tickersData.tickers.filter((t) => t.type === 'perp').length;
   const totalVolume = tickersData.tickers.reduce((acc, t) => acc + (t.quoteVolume24h || 0), 0);
 
+  // Calculate gainers and losers (using USDT pairs for consistency)
+  const usdtTickers = tickersData.tickers.filter((t) =>
+    t.symbol.includes('USDT') && t.percentage24h !== null
+  );
+  const gainersCount = usdtTickers.filter((t) => (t.percentage24h || 0) > 0).length;
+  const losersCount = usdtTickers.filter((t) => (t.percentage24h || 0) < 0).length;
+
+  // Calculate average change
+  const validChanges = usdtTickers.filter((t) => t.percentage24h !== null);
+  const avgChange = validChanges.length > 0
+    ? validChanges.reduce((acc, t) => acc + (t.percentage24h || 0), 0) / validChanges.length
+    : 0;
+
+  // Find top gainer and loser
+  const sortedByChange = [...usdtTickers].sort((a, b) => (b.percentage24h || 0) - (a.percentage24h || 0));
+  const topGainer = sortedByChange[0];
+  const topLoser = sortedByChange[sortedByChange.length - 1];
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3">
+      {/* Stats Cards - Row 1: Market Overview */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Tickers
+              Total Markets
             </CardTitle>
             <Activity className="h-4 w-4 text-primary" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-display">{tickersData.count}</div>
-            <p className="text-xs text-muted-foreground mt-1">Active trading pairs</p>
+            <div className="text-2xl font-bold font-display">{tickersData.count.toLocaleString()}</div>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant="outline" className="text-xs bg-green-500/10 text-green-500 border-green-500/20">
+                {spotCount} Spot
+              </Badge>
+              <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500/20">
+                {perpCount} Perp
+              </Badge>
+            </div>
           </CardContent>
         </Card>
+
         <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Spot Markets
+              24h Volume
             </CardTitle>
-            <ArrowUpRight className="h-4 w-4 text-green-500" />
+            <DollarSign className="h-4 w-4 text-yellow-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-display">{spotCount}</div>
-            <p className="text-xs text-muted-foreground mt-1">Traditional trading pairs</p>
+            <div className="text-2xl font-bold font-display">{formatVolume(totalVolume)}</div>
+            <p className="text-xs text-muted-foreground mt-1">Combined trading volume</p>
           </CardContent>
         </Card>
+
         <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Perpetual Markets
+              Gainers / Losers
             </CardTitle>
-            <BarChart3 className="h-4 w-4 text-blue-500" />
+            <div className="flex items-center gap-1">
+              <TrendingUp className="h-4 w-4 text-green-500" />
+              <TrendingDown className="h-4 w-4 text-red-500" />
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-display">{perpCount}</div>
-            <p className="text-xs text-muted-foreground mt-1">Futures contracts</p>
+            <div className="flex items-center gap-3">
+              <span className="text-2xl font-bold font-display text-green-500">{gainersCount}</span>
+              <span className="text-muted-foreground">/</span>
+              <span className="text-2xl font-bold font-display text-red-500">{losersCount}</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">24h market sentiment</p>
+          </CardContent>
+        </Card>
+
+        <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Avg. Change
+            </CardTitle>
+            <Percent className="h-4 w-4 text-purple-500" />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-bold font-display ${avgChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+              {avgChange >= 0 ? '+' : ''}{avgChange.toFixed(2)}%
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">Market-wide average</p>
           </CardContent>
         </Card>
       </div>
+
+      {/* Stats Cards - Row 2: Top Movers */}
+      {topGainer && topLoser && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="glass border-white/5 hover:bg-white/5 transition-colors border-l-2 border-l-green-500">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Top Gainer
+              </CardTitle>
+              <ArrowUpRight className="h-4 w-4 text-green-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xl font-bold font-display">{topGainer.symbol}</div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    ${topGainer.last?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}
+                  </p>
+                </div>
+                <Badge className="bg-green-500/20 text-green-500 border-green-500/30 text-lg font-mono px-3 py-1">
+                  +{topGainer.percentage24h?.toFixed(2)}%
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="glass border-white/5 hover:bg-white/5 transition-colors border-l-2 border-l-red-500">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">
+                Top Loser
+              </CardTitle>
+              <ArrowDownRight className="h-4 w-4 text-red-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xl font-bold font-display">{topLoser.symbol}</div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    ${topLoser.last?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}
+                  </p>
+                </div>
+                <Badge className="bg-red-500/20 text-red-500 border-red-500/30 text-lg font-mono px-3 py-1">
+                  {topLoser.percentage24h?.toFixed(2)}%
+                </Badge>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Tickers Table */}
       <TickersTable tickers={tickersData.tickers} exchange={tickersData.exchange} />
@@ -143,20 +241,42 @@ async function TickersSection({ exchange }: { exchange: SupportedExchange }) {
 function TickersLoadingFallback() {
   return (
     <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
-        {[1, 2, 3].map((i) => (
+      {/* Row 1: 4 stat cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {[1, 2, 3, 4].map((i) => (
           <Card key={i} className="glass border-white/5">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <Skeleton className="h-4 w-24" />
               <Skeleton className="h-4 w-4 rounded-full" />
             </CardHeader>
             <CardContent>
-              <Skeleton className="h-8 w-16 mb-2" />
+              <Skeleton className="h-8 w-20 mb-2" />
               <Skeleton className="h-3 w-32" />
             </CardContent>
           </Card>
         ))}
       </div>
+      {/* Row 2: Top gainers/losers */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {[1, 2].map((i) => (
+          <Card key={i} className="glass border-white/5">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-4 w-4 rounded-full" />
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <Skeleton className="h-6 w-24 mb-1" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+                <Skeleton className="h-8 w-20 rounded-md" />
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      {/* Table skeleton */}
       <Card className="glass border-white/5">
         <CardContent className="py-12">
           <div className="space-y-4">
