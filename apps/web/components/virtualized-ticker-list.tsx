@@ -3,6 +3,7 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useRef } from 'react';
 import { Ticker } from '@lazuli/shared';
+import { Skeleton } from '@/components/ui/skeleton';
 
 /**
  * Row height constant - must match the actual rendered row height
@@ -69,6 +70,7 @@ export function VirtualizedTickerList({
         <div
           role="status"
           aria-label="Loading tickers"
+          aria-busy="true"
           style={{ height: `${ROW_HEIGHT * SKELETON_COUNT}px` }}
         >
           {Array.from({ length: SKELETON_COUNT }).map((_, index) => (
@@ -76,9 +78,10 @@ export function VirtualizedTickerList({
               key={index}
               className="px-3 py-2 rounded"
               style={{ height: `${ROW_HEIGHT}px`, boxSizing: 'border-box' }}
+              aria-hidden="true"
             >
               {/* Animated skeleton bar matching text position and approximate width */}
-              <div className="h-5 w-24 bg-muted animate-pulse rounded" />
+              <Skeleton className="h-5 w-24" />
             </div>
           ))}
         </div>
