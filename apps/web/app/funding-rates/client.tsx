@@ -5,7 +5,7 @@
  *
  * This client component handles the interactive functionality of the Funding Rate page:
  * - Sorting and filtering funding rate data
- * - Tab switching between single exchange and cross-exchange comparison
+ * - Displaying top arbitrage opportunities
  * - Real-time data refresh
  *
  * Educational Purpose:
@@ -32,7 +32,13 @@ import {
   FundingSentiment,
   SupportedExchange,
 } from '@lazuli/shared';
-import { LazuliAPI, formatFundingRate, formatAnnualizedRate, formatVolume, getFundingColor } from '@/lib/api-client';
+import {
+  LazuliAPI,
+  formatFundingRate,
+  formatAnnualizedRate,
+  formatVolume,
+  getFundingColor,
+} from '@/lib/api-client';
 import {
   RefreshCw,
   Search,
@@ -40,11 +46,10 @@ import {
   TrendingUp,
   TrendingDown,
   Scale,
-  Info,
   ChevronDown,
   ChevronUp,
   Sparkles,
-  AlertCircle,
+  ArrowRight,
 } from 'lucide-react';
 
 interface FundingRateClientProps {
@@ -179,7 +184,9 @@ function FundingRateTable({
                   </div>
                 </TableCell>
                 <TableCell className="text-right">
-                  <span className={`font-mono font-semibold ${getFundingColor(item.fundingRatePercent)}`}>
+                  <span
+                    className={`font-mono font-semibold ${getFundingColor(item.fundingRatePercent)}`}
+                  >
                     {formatFundingRate(item.fundingRatePercent)}
                   </span>
                 </TableCell>
@@ -189,7 +196,11 @@ function FundingRateTable({
                   </span>
                 </TableCell>
                 <TableCell className="text-right hidden lg:table-cell font-mono text-sm">
-                  ${item.markPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? 'N/A'}
+                  $
+                  {item.markPrice?.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  }) ?? 'N/A'}
                 </TableCell>
                 <TableCell className="text-right hidden sm:table-cell font-mono text-sm text-muted-foreground">
                   {formatVolume(item.volume24h)}
@@ -226,83 +237,60 @@ function FundingRateTable({
 }
 
 /**
- * Arbitrage Opportunities Component
+ * Compact Arbitrage Opportunities Component
+ * Shows top 5 arbitrage opportunities in a compact format
  */
-function ArbitrageOpportunities({
+function TopArbitrageOpportunities({
   data,
 }: {
   data: CrossExchangeFundingResponse['arbitrageOpportunities'];
 }) {
   if (!data || data.length === 0) {
-    return (
-      <Card className="glass border-white/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Arbitrage Opportunities
-          </CardTitle>
-          <CardDescription>No significant arbitrage opportunities detected</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            Arbitrage opportunities appear when funding rate spreads between exchanges exceed 0.02%.
-            Check back later or try refreshing the data.
-          </p>
-        </CardContent>
-      </Card>
-    );
+    return null;
   }
 
+  // Show only top 5
+  const topOpportunities = data.slice(0, 5);
+
   return (
-    <Card className="glass border-white/5">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary" />
-          Arbitrage Opportunities
+    <Card className="glass border-primary/20 bg-primary/5">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Sparkles className="h-4 w-4 text-primary" />
+          Top Arbitrage Opportunities
         </CardTitle>
-        <CardDescription>
-          Delta-neutral strategies: Long on low-funding exchange, short on high-funding exchange
+        <CardDescription className="text-xs">
+          Cross-exchange funding rate spreads. Long on low-funding, short on high-funding exchange.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="space-y-3">
-          {data.map((opp, index) => (
+      <CardContent className="pt-0">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          {topOpportunities.map((opp, index) => (
             <div
               key={opp.asset}
-              className="flex items-center justify-between p-4 rounded-lg bg-accent/30 border border-border hover:bg-accent/50 transition-colors"
+              className="flex items-center justify-between p-3 rounded-lg bg-background/50 border border-border"
             >
-              <div className="flex items-center gap-4">
-                <span className="text-2xl font-display font-bold text-primary">#{index + 1}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-display font-bold text-primary">#{index + 1}</span>
                 <div>
-                  <span className="font-mono font-semibold text-lg">{opp.asset}</span>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                    <span className="text-green-400">Long: {opp.longExchange}</span>
-                    <span>→</span>
-                    <span className="text-red-400">Short: {opp.shortExchange}</span>
+                  <span className="font-mono font-semibold text-sm">{opp.asset}</span>
+                  <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <span className="text-green-400">{opp.longExchange}</span>
+                    <ArrowRight className="h-2 w-2" />
+                    <span className="text-red-400">{opp.shortExchange}</span>
                   </div>
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-sm text-muted-foreground">Spread</div>
-                <div className="font-mono font-semibold text-primary">
-                  {opp.spread.toFixed(4)}%
+                <div className="font-mono text-sm font-semibold text-primary">
+                  {opp.spread.toFixed(3)}%
                 </div>
-                <div className="text-xs text-green-400">
-                  ~{(opp.estimatedDailyYield).toFixed(3)}% daily
+                <div className="text-[10px] text-green-400">
+                  ~{opp.estimatedDailyYield.toFixed(2)}%/d
                 </div>
               </div>
             </div>
           ))}
-        </div>
-        <div className="mt-4 p-3 rounded-lg bg-primary/5 border border-primary/10">
-          <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-            <p className="text-xs text-muted-foreground">
-              <strong className="text-foreground">Disclaimer:</strong> Arbitrage strategies involve risks
-              including funding rate changes, liquidation risk, and execution slippage. Always do your own
-              research and consider transaction costs.
-            </p>
-          </div>
         </div>
       </CardContent>
     </Card>
@@ -324,7 +312,6 @@ export function FundingRateClient({
   const [sortField, setSortField] = useState<SortField>('rate');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'single' | 'compare'>('single');
 
   // Set initial timestamp on mount
   useEffect(() => {
@@ -442,11 +429,15 @@ export function FundingRateClient({
             </div>
             <div className="hidden sm:flex items-center gap-4 text-sm">
               <div className="text-center">
-                <div className="text-green-400 font-semibold">{data.stats?.positiveCount ?? 0}</div>
+                <div className="text-green-400 font-semibold">
+                  {data.stats?.positiveCount ?? 0}
+                </div>
                 <div className="text-xs text-muted-foreground">Positive</div>
               </div>
               <div className="text-center">
-                <div className="text-muted-foreground font-semibold">{data.stats?.neutralCount ?? 0}</div>
+                <div className="text-muted-foreground font-semibold">
+                  {data.stats?.neutralCount ?? 0}
+                </div>
                 <div className="text-xs text-muted-foreground">Neutral</div>
               </div>
               <div className="text-center">
@@ -458,25 +449,15 @@ export function FundingRateClient({
         </CardContent>
       </Card>
 
-      {/* Tab Navigation */}
+      {/* Top Arbitrage Opportunities (Compact) */}
+      {crossExchangeData && (
+        <TopArbitrageOpportunities data={crossExchangeData.arbitrageOpportunities} />
+      )}
+
+      {/* Search and Refresh Controls */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex gap-2 p-1 bg-muted/30 rounded-lg border border-border">
-          <Button
-            variant={activeTab === 'single' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setActiveTab('single')}
-            className="rounded-md"
-          >
-            Single Exchange
-          </Button>
-          <Button
-            variant={activeTab === 'compare' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => setActiveTab('compare')}
-            className="rounded-md"
-          >
-            Cross-Exchange
-          </Button>
+        <div className="text-sm text-muted-foreground">
+          Last updated: {lastUpdated ?? 'Loading...'} • {data.count} perpetual contracts
         </div>
 
         <div className="flex items-center gap-3">
@@ -502,92 +483,13 @@ export function FundingRateClient({
         </div>
       </div>
 
-      {/* Last Updated */}
-      <div className="text-sm text-muted-foreground">
-        Last updated: {lastUpdated ?? 'Loading...'} • {data.count} perpetual contracts
-      </div>
-
-      {/* Content based on active tab */}
-      {activeTab === 'single' ? (
-        <FundingRateTable
-          data={filteredAndSortedData}
-          sortField={sortField}
-          sortOrder={sortOrder}
-          onSort={handleSort}
-        />
-      ) : (
-        <div className="space-y-6">
-          {/* Arbitrage Opportunities */}
-          {crossExchangeData && (
-            <ArbitrageOpportunities data={crossExchangeData.arbitrageOpportunities} />
-          )}
-
-          {/* Cross-Exchange Comparison Table */}
-          {crossExchangeData && crossExchangeData.comparisons.length > 0 && (
-            <Card className="glass border-white/5">
-              <CardHeader>
-                <CardTitle>Cross-Exchange Funding Rates</CardTitle>
-                <CardDescription>
-                  Compare funding rates across {crossExchangeData.exchanges.join(', ')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-xl border border-border overflow-hidden">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="hover:bg-transparent border-border">
-                        <TableHead className="w-[100px]">Asset</TableHead>
-                        {crossExchangeData.exchanges.map((ex) => (
-                          <TableHead key={ex} className="text-right capitalize">
-                            {ex}
-                          </TableHead>
-                        ))}
-                        <TableHead className="text-right">Spread</TableHead>
-                        <TableHead className="text-center">Arbitrage</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {crossExchangeData.comparisons.slice(0, 30).map((comp) => (
-                        <TableRow key={comp.baseAsset} className="border-border hover:bg-accent/50">
-                          <TableCell className="font-mono font-semibold">
-                            {comp.baseAsset}
-                          </TableCell>
-                          {crossExchangeData.exchanges.map((ex) => {
-                            const rate = comp.rates.find((r) => r.exchange === ex);
-                            return (
-                              <TableCell
-                                key={ex}
-                                className={`text-right font-mono text-sm ${
-                                  rate ? getFundingColor(rate.fundingRatePercent) : 'text-muted-foreground'
-                                }`}
-                              >
-                                {rate ? formatFundingRate(rate.fundingRatePercent) : '-'}
-                              </TableCell>
-                            );
-                          })}
-                          <TableCell className="text-right font-mono font-semibold text-primary">
-                            {comp.spread.toFixed(4)}%
-                          </TableCell>
-                          <TableCell className="text-center">
-                            {comp.arbitrageOpportunity ? (
-                              <Badge className="bg-primary/20 text-primary border-primary/30">
-                                <Sparkles className="h-3 w-3 mr-1" />
-                                Yes
-                              </Badge>
-                            ) : (
-                              <span className="text-muted-foreground text-sm">-</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
+      {/* Funding Rate Table */}
+      <FundingRateTable
+        data={filteredAndSortedData}
+        sortField={sortField}
+        sortOrder={sortOrder}
+        onSort={handleSort}
+      />
     </div>
   );
 }
