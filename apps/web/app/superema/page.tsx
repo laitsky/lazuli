@@ -6,9 +6,18 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { VirtualizedTickerList } from '@/components/virtualized-ticker-list';
+import { PageHeader } from '@/components/page-header';
 import { LazuliAPI, EMADataPoint, SuperEMAResponse } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker } from '@lazuli/shared';
-import { Search, TrendingUp, ArrowRight, LineChart, AlertCircle, Layers } from 'lucide-react';
+import {
+  Search,
+  TrendingUp,
+  ArrowRight,
+  LineChart,
+  AlertCircle,
+  Layers,
+  Activity,
+} from 'lucide-react';
 import { createChart, IChartApi, LineData, CandlestickData, Time } from 'lightweight-charts';
 
 /**
@@ -419,22 +428,13 @@ export default function SuperEMAPage() {
   }, [emaData]);
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-background to-background border border-white/10 p-8">
-        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl opacity-50"></div>
-        <div className="relative z-10 flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-primary/10 text-primary">
-            <Layers className="h-8 w-8" />
-          </div>
-          <div>
-            <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight">SuperEMA</h1>
-            <p className="text-lg font-light text-muted-foreground mt-2">
-              400 EMA lines for comprehensive trend analysis and support/resistance identification.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        icon={Activity}
+        title="SuperEMA"
+        description="400 EMA lines for comprehensive trend analysis. Identify support/resistance levels and trend strength at a glance."
+      />
 
       {/* Controls Card */}
       <Card className="glass border-white/5 overflow-hidden">

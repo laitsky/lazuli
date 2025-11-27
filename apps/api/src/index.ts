@@ -51,7 +51,7 @@ app.get('/health', async (_req, res) => {
     status: 'ok',
     api: 'ready',
     database: dbStatus,
-    exchanges: ['binance', 'bybit', 'okx'],
+    exchanges: ['binance', 'bybit', 'okx', 'hyperliquid'],
     timestamp: Date.now(),
   });
 });

@@ -1,17 +1,14 @@
 'use client';
 
 /**
- * Navigation component - Responsive sidebar navigation for the application
+ * Navigation Component - Terminal Luxe Aesthetic
+ *
  * Features:
- * - Fixed sidebar on desktop (left side, always visible)
- * - Collapsible sidebar on mobile with hamburger menu
- * - Beautiful framer-motion animations throughout
- * - Staggered nav item animations
- * - Active link highlighting with smooth transitions
- * - Logo at top, Live status at bottom
- * - Keyboard navigation support (Escape to close mobile menu)
- * - Icons for each navigation item
- * - Improved mobile UX with better touch targets
+ * - Refined minimal sidebar with warm amber accents
+ * - Elegant typography hierarchy using Clash Display
+ * - Subtle animations with sophisticated easing
+ * - Clean lines and generous whitespace
+ * - Mobile-responsive with slide-out drawer
  */
 
 import Link from 'next/link';
@@ -27,100 +24,89 @@ import {
   GitMerge,
   PieChart,
   Activity,
-  ChevronRight,
   Zap,
+  Menu,
+  X,
 } from 'lucide-react';
 
 /**
- * Navigation items with icons and descriptions for better UX
+ * Navigation items with semantic icons
  */
 const navItems = [
   {
     href: '/',
     label: 'Dashboard',
     icon: LayoutDashboard,
-    description: 'Overview & stats',
   },
   {
     href: '/exchanges',
     label: 'Exchanges',
     icon: Globe,
-    description: 'View all exchanges',
   },
   {
     href: '/markets',
     label: 'Markets',
     icon: TrendingUp,
-    description: 'Browse tickers',
   },
   {
     href: '/alt-screener',
     label: 'Alt Screener',
     icon: Zap,
-    description: 'Scan all altcoins',
   },
   {
     href: '/multitf',
-    label: 'MultiTF',
+    label: 'Multi-TF',
     icon: LayoutGrid,
-    description: 'Multi-timeframe charts',
   },
   {
     href: '/synthetic-pair',
-    label: 'Synthetic Pair',
+    label: 'Synthetic',
     icon: GitMerge,
-    description: 'Custom pair builder',
   },
   {
     href: '/custom-index',
-    label: 'Custom Index',
+    label: 'Index',
     icon: PieChart,
-    description: 'Create custom indices',
   },
   {
     href: '/superema',
     label: 'SuperEMA',
     icon: Activity,
-    description: 'EMA indicator',
   },
 ];
 
 /**
- * Animation variants for sidebar
+ * Refined animation variants
  */
 const sidebarVariants = {
   open: {
     x: 0,
     transition: {
       type: 'spring' as const,
-      stiffness: 300,
-      damping: 30,
+      stiffness: 400,
+      damping: 40,
     },
   },
   closed: {
     x: '-100%',
     transition: {
       type: 'spring' as const,
-      stiffness: 300,
-      damping: 30,
+      stiffness: 400,
+      damping: 40,
     },
   },
 };
 
-/**
- * Animation variants for navigation items
- * Stagger effect makes items appear one by one
- */
 const navItemsContainerVariants = {
   open: {
     transition: {
-      staggerChildren: 0.07,
+      staggerChildren: 0.04,
       delayChildren: 0.1,
     },
   },
   closed: {
     transition: {
-      staggerChildren: 0.05,
+      staggerChildren: 0.03,
       staggerDirection: -1,
     },
   },
@@ -132,33 +118,17 @@ const navItemVariants = {
     opacity: 1,
     transition: {
       type: 'spring' as const,
-      stiffness: 300,
-      damping: 24,
+      stiffness: 400,
+      damping: 30,
     },
   },
   closed: {
-    x: -20,
+    x: -16,
     opacity: 0,
     transition: {
       type: 'spring' as const,
-      stiffness: 300,
-      damping: 24,
-    },
-  },
-};
-
-/**
- * Animation variants for logo
- */
-const logoVariants = {
-  initial: { scale: 0.8, opacity: 0 },
-  animate: {
-    scale: 1,
-    opacity: 1,
-    transition: {
-      type: 'spring' as const,
-      stiffness: 260,
-      damping: 20,
+      stiffness: 400,
+      damping: 30,
     },
   },
 };
@@ -167,42 +137,33 @@ export function Navigation() {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
-  const [hoveredItem, setHoveredItem] = useState<string | null>(null);
 
-  // Close mobile menu handler
   const closeMobileMenu = useCallback(() => {
     setIsMobileMenuOpen(false);
   }, []);
 
-  // Detect desktop screen size on mount and window resize
-  // This runs only on client-side to avoid hydration mismatch
+  // Detect desktop screen size
   useEffect(() => {
     const checkDesktop = () => {
       setIsDesktop(window.innerWidth >= 1024);
     };
-
-    // Set initial state
     checkDesktop();
-
-    // Listen for resize events
     window.addEventListener('resize', checkDesktop);
-
     return () => window.removeEventListener('resize', checkDesktop);
   }, []);
 
-  // Keyboard navigation - close menu on Escape key
+  // Keyboard navigation - Escape to close
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isMobileMenuOpen) {
         closeMobileMenu();
       }
     };
-
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isMobileMenuOpen, closeMobileMenu]);
 
-  // Prevent body scroll when mobile menu is open
+  // Prevent body scroll when menu is open
   useEffect(() => {
     if (isMobileMenuOpen) {
       document.body.style.overflow = 'hidden';
@@ -214,50 +175,54 @@ export function Navigation() {
     };
   }, [isMobileMenuOpen]);
 
-  // Determine sidebar state
   const sidebarState = isDesktop || isMobileMenuOpen ? 'open' : 'closed';
 
   return (
     <>
-      {/* Mobile Menu Button - Only visible on mobile */}
+      {/* Mobile Menu Button */}
       <motion.button
         onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-        className="fixed left-4 top-4 z-50 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/25 lg:hidden"
-        aria-label={isMobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+        className="fixed left-4 top-4 z-50 flex h-11 w-11 items-center justify-center rounded-lg bg-card border border-border lg:hidden"
+        aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
         aria-expanded={isMobileMenuOpen}
-        whileHover={{ scale: 1.05 }}
-        whileTap={{ scale: 0.95 }}
+        whileHover={{ scale: 1.02 }}
+        whileTap={{ scale: 0.98 }}
       >
-        {/* Animated Hamburger Icon */}
-        <div className="flex flex-col space-y-1.5">
-          <motion.span
-            className="block h-0.5 w-5 bg-current rounded-full"
-            animate={isMobileMenuOpen ? { rotate: 45, y: 8 } : { rotate: 0, y: 0 }}
-            transition={{ duration: 0.3 }}
-          />
-          <motion.span
-            className="block h-0.5 w-5 bg-current rounded-full"
-            animate={isMobileMenuOpen ? { opacity: 0, x: -10 } : { opacity: 1, x: 0 }}
-            transition={{ duration: 0.3 }}
-          />
-          <motion.span
-            className="block h-0.5 w-5 bg-current rounded-full"
-            animate={isMobileMenuOpen ? { rotate: -45, y: -8 } : { rotate: 0, y: 0 }}
-            transition={{ duration: 0.3 }}
-          />
-        </div>
+        <AnimatePresence mode="wait">
+          {isMobileMenuOpen ? (
+            <motion.div
+              key="close"
+              initial={{ rotate: -90, opacity: 0 }}
+              animate={{ rotate: 0, opacity: 1 }}
+              exit={{ rotate: 90, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <X className="h-5 w-5 text-foreground" />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="menu"
+              initial={{ rotate: 90, opacity: 0 }}
+              animate={{ rotate: 0, opacity: 1 }}
+              exit={{ rotate: -90, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <Menu className="h-5 w-5 text-foreground" />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </motion.button>
 
-      {/* Overlay for mobile - darkens background when menu is open */}
+      {/* Mobile Overlay */}
       <AnimatePresence>
         {isMobileMenuOpen && (
           <motion.div
-            className="fixed inset-0 z-30 bg-black/60 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-30 bg-background/80 backdrop-blur-sm lg:hidden"
             onClick={closeMobileMenu}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.25 }}
             aria-hidden="true"
           />
         )}
@@ -265,7 +230,7 @@ export function Navigation() {
 
       {/* Sidebar Navigation */}
       <motion.nav
-        className="fixed left-0 top-0 z-40 flex h-screen w-72 flex-col border-r border-white/10 bg-card/95 backdrop-blur-xl shadow-2xl lg:translate-x-0"
+        className="fixed left-0 top-0 z-40 flex h-screen w-[280px] flex-col border-r border-border bg-card lg:translate-x-0"
         initial={false}
         animate={sidebarState}
         variants={sidebarVariants}
@@ -273,37 +238,32 @@ export function Navigation() {
         aria-label="Main navigation"
       >
         {/* Logo Section */}
-        <motion.div
-          className="flex h-20 items-center space-x-3 border-b border-white/10 px-6"
-          variants={logoVariants}
-          initial="initial"
-          animate="animate"
-        >
-          <Link href="/" className="group flex items-center space-x-3" onClick={closeMobileMenu}>
-            <motion.div
-              className="relative flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-blue-600 text-primary-foreground shadow-lg shadow-primary/25"
-              whileHover={{ rotate: 360, scale: 1.05 }}
-              transition={{ duration: 0.6 }}
-            >
-              <span className="text-xl font-display font-bold">L</span>
-              {/* Glow effect on hover */}
-              <div className="absolute inset-0 rounded-xl bg-primary/20 blur-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 -z-10" />
-            </motion.div>
-            <div>
-              <span className="text-xl font-display font-bold group-hover:text-primary transition-colors">
+        <div className="flex h-[72px] items-center border-b border-border px-6">
+          <Link href="/" className="group flex items-center gap-3" onClick={closeMobileMenu}>
+            {/* Logo Mark */}
+            <div className="relative flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
+              <span className="text-lg font-display font-bold text-primary-foreground tracking-tight">
+                L
+              </span>
+              {/* Subtle glow on hover */}
+              <div className="absolute inset-0 rounded-lg bg-primary/30 blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10" />
+            </div>
+            {/* Logo Text */}
+            <div className="flex flex-col">
+              <span className="text-lg font-display font-semibold tracking-tight text-foreground">
                 Lazuli
               </span>
-              <span className="block text-[10px] text-muted-foreground font-medium tracking-wider uppercase">
-                Trading Platform
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                Terminal
               </span>
             </div>
           </Link>
-        </motion.div>
+        </div>
 
         {/* Navigation Links */}
-        <div className="flex-1 overflow-y-auto px-4 py-6 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto px-3 py-4 custom-scrollbar">
           <motion.div
-            className="space-y-1.5"
+            className="space-y-0.5"
             variants={navItemsContainerVariants}
             initial="closed"
             animate="open"
@@ -314,70 +274,47 @@ export function Navigation() {
 
               return (
                 <motion.div key={item.href} variants={navItemVariants}>
-                  <Link
-                    href={item.href}
-                    onClick={closeMobileMenu}
-                    className="block"
-                    onMouseEnter={() => setHoveredItem(item.href)}
-                    onMouseLeave={() => setHoveredItem(null)}
-                  >
+                  <Link href={item.href} onClick={closeMobileMenu} className="block">
                     <motion.div
                       className={cn(
-                        'group relative flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200',
+                        'group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors duration-200',
                         isActive
-                          ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/25'
-                          : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
+                          ? 'bg-primary/10 text-primary'
+                          : 'text-muted-foreground hover:bg-accent hover:text-foreground'
                       )}
-                      whileHover={{
-                        scale: isActive ? 1 : 1.02,
-                        x: isActive ? 0 : 4,
-                        transition: { duration: 0.2 },
-                      }}
-                      whileTap={{ scale: 0.98 }}
+                      whileHover={{ x: isActive ? 0 : 2 }}
+                      whileTap={{ scale: 0.99 }}
                     >
+                      {/* Active indicator line */}
+                      {isActive && (
+                        <motion.div
+                          className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full"
+                          layoutId="activeNav"
+                          transition={{
+                            type: 'spring',
+                            stiffness: 500,
+                            damping: 35,
+                          }}
+                        />
+                      )}
+
                       {/* Icon */}
                       <Icon
                         className={cn(
-                          'h-5 w-5 shrink-0 transition-colors',
+                          'h-[18px] w-[18px] shrink-0 transition-colors',
                           isActive
-                            ? 'text-primary-foreground'
-                            : 'text-muted-foreground group-hover:text-primary'
+                            ? 'text-primary'
+                            : 'text-muted-foreground group-hover:text-foreground'
                         )}
+                        strokeWidth={isActive ? 2.5 : 2}
                       />
 
-                      {/* Label and description */}
-                      <div className="flex-1 min-w-0">
-                        <span className="block truncate">{item.label}</span>
-                        <span
-                          className={cn(
-                            'block text-[10px] truncate transition-colors',
-                            isActive ? 'text-primary-foreground/70' : 'text-muted-foreground/70'
-                          )}
-                        >
-                          {item.description}
-                        </span>
-                      </div>
-
-                      {/* Arrow indicator on hover */}
-                      <motion.div
-                        initial={{ opacity: 0, x: -5 }}
-                        animate={{
-                          opacity: hoveredItem === item.href && !isActive ? 1 : 0,
-                          x: hoveredItem === item.href && !isActive ? 0 : -5,
-                        }}
-                        transition={{ duration: 0.2 }}
+                      {/* Label */}
+                      <span
+                        className={cn('font-medium tracking-tight', isActive && 'font-semibold')}
                       >
-                        <ChevronRight className="h-4 w-4 text-primary" />
-                      </motion.div>
-
-                      {/* Active indicator bar */}
-                      {isActive && (
-                        <motion.div
-                          className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-primary-foreground rounded-r-full"
-                          layoutId="activeIndicator"
-                          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                        />
-                      )}
+                        {item.label}
+                      </span>
                     </motion.div>
                   </Link>
                 </motion.div>
@@ -386,38 +323,18 @@ export function Navigation() {
           </motion.div>
         </div>
 
-        {/* Status Indicator - Fixed at bottom */}
-        <motion.div
-          className="border-t border-white/10 px-6 py-5 bg-white/5"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5, duration: 0.5 }}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <motion.div
-                className="relative h-3 w-3 rounded-full bg-green-500"
-                animate={{
-                  scale: [1, 1.2, 1],
-                }}
-                transition={{
-                  duration: 2,
-                  repeat: Infinity,
-                  ease: 'easeInOut',
-                }}
-              >
-                {/* Ping effect */}
-                <span className="absolute inset-0 rounded-full bg-green-400 animate-ping opacity-75" />
-              </motion.div>
-              <div>
-                <span className="text-sm font-medium text-foreground">System Online</span>
-                <span className="block text-[10px] text-muted-foreground">
-                  All services operational
-                </span>
-              </div>
+        {/* Status Footer */}
+        <div className="border-t border-border px-4 py-4">
+          <div className="flex items-center gap-3">
+            <div className="status-dot status-online" />
+            <div className="flex flex-col">
+              <span className="text-xs font-medium text-foreground">System Online</span>
+              <span className="text-[10px] font-mono text-muted-foreground">
+                All exchanges connected
+              </span>
             </div>
           </div>
-        </motion.div>
+        </div>
       </motion.nav>
     </>
   );

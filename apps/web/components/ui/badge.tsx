@@ -3,25 +3,19 @@ import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '@/lib/utils';
 
 /**
- * Badge component variants
- * Used for status indicators, labels, and tags
+ * Badge component variants - Terminal Luxe aesthetic
+ * Clean labels with subtle color coding
  */
 const badgeVariants = cva(
-  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+  'inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2',
   {
     variants: {
       variant: {
-        default:
-          'border-transparent bg-primary/10 text-primary ring-1 ring-primary/20 hover:bg-primary/20 backdrop-blur-sm',
-        secondary:
-          'border-transparent bg-secondary/50 text-secondary-foreground hover:bg-secondary/80 backdrop-blur-sm',
-        destructive:
-          'border-transparent bg-destructive/10 text-destructive ring-1 ring-destructive/20 hover:bg-destructive/20 backdrop-blur-sm',
-        outline: 'text-foreground border-border hover:bg-accent hover:text-accent-foreground',
-        success:
-          'border-transparent bg-success/10 text-success ring-1 ring-success/20 hover:bg-success/20 backdrop-blur-sm',
-        warning:
-          'border-transparent bg-warning/10 text-warning ring-1 ring-warning/20 hover:bg-warning/20 backdrop-blur-sm',
+        default: 'border-primary/20 bg-primary/10 text-primary',
+        secondary: 'border-border bg-secondary text-secondary-foreground',
+        destructive: 'border-destructive/20 bg-destructive/10 text-destructive',
+        outline: 'border-border text-foreground',
+        success: 'border-[hsl(152_60%_45%/0.2)] bg-[hsl(152_60%_45%/0.1)] text-[hsl(152_60%_50%)]',
       },
     },
     defaultVariants: {

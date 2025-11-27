@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AltScreenerClient } from './client';
+import { PageHeader } from '@/components/page-header';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, BaseCurrency } from '@lazuli/shared';
 import Link from 'next/link';
@@ -225,26 +226,13 @@ export default async function AltScreenerPage({ searchParams }: AltScreenerPageP
     : [];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-background to-background border border-white/10 p-8">
-        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl opacity-50"></div>
-        <div className="absolute bottom-0 left-0 -mb-16 -ml-16 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl opacity-50"></div>
-        <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-primary/10">
-              <Zap className="h-5 w-5 text-primary" />
-            </div>
-            <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight">
-              Alt Screener
-            </h1>
-          </div>
-          <p className="text-lg font-light text-muted-foreground max-w-2xl">
-            Scan all altcoins at once. Compare performance against USD, BTC, ETH, or SOL. Find your
-            next opportunity with visual mini charts.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        icon={Zap}
+        title="Alt Screener"
+        description="Scan all altcoins at once. Compare performance against USD, BTC, ETH, or SOL with visual mini charts."
+      />
 
       {/* Exchange Selector */}
       <div className="flex flex-wrap gap-2 p-1 bg-muted/30 rounded-xl border border-white/5 w-fit backdrop-blur-sm">

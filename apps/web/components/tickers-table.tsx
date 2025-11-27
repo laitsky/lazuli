@@ -63,7 +63,16 @@ interface TickersTableProps {
   exchange: string;
 }
 
-type SortField = 'symbol' | 'price' | 'change' | 'volume' | 'high' | 'low' | 'funding' | 'spread' | 'openInterest';
+type SortField =
+  | 'symbol'
+  | 'price'
+  | 'change'
+  | 'volume'
+  | 'high'
+  | 'low'
+  | 'funding'
+  | 'spread'
+  | 'openInterest';
 type SortOrder = 'asc' | 'desc';
 type QuickFilter = 'none' | 'gainers' | 'losers' | 'volume' | 'volatile';
 
@@ -400,24 +409,21 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   };
 
   return (
-    <Card className="glass border-white/10 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-700">
-      <CardHeader className="border-b border-white/10 bg-gradient-to-r from-white/5 to-transparent">
+    <div className="bg-card rounded-xl border border-border overflow-hidden">
+      <div className="border-b border-border p-5">
         <div className="flex flex-col gap-4">
           {/* Title Row */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <CardTitle className="flex items-center gap-3 text-xl">
-              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
                 <BarChart3 className="h-5 w-5 text-primary" />
               </div>
               <div>
-                <span className="font-display">Market Data</span>
+                <h2 className="font-display font-semibold text-lg">Market Data</h2>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <Badge
-                    variant="outline"
-                    className="text-xs bg-primary/10 text-primary border-primary/20 font-mono"
-                  >
+                  <span className="text-xs font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
                     {filteredAndSortedTickers.length} Pairs
-                  </Badge>
+                  </span>
                   <span className="text-xs text-muted-foreground capitalize">{exchange}</span>
                   {dataFreshness && (
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -427,16 +433,16 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                   )}
                 </div>
               </div>
-            </CardTitle>
+            </div>
 
-            {/* Search Input - Enhanced */}
+            {/* Search Input */}
             <div className="relative group">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
               <Input
                 placeholder="Search symbol..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-10 w-full sm:w-[240px] h-11 bg-background/50 border-white/10 focus:border-primary/50 focus:ring-2 focus:ring-primary/20 rounded-xl transition-all"
+                className="pl-10 pr-10 w-full sm:w-[240px] h-10 bg-secondary border-border focus:border-primary/50 rounded-lg transition-all"
               />
               {searchQuery && (
                 <button
@@ -580,7 +586,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                         onClick={() => toggleColumn('price')}
                         className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
                       >
-                        <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.price ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
+                        <div
+                          className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.price ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}
+                        >
                           {columns.price && <Check className="h-3 w-3 text-primary-foreground" />}
                         </div>
                         Price
@@ -589,7 +597,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                         onClick={() => toggleColumn('change')}
                         className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
                       >
-                        <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.change ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
+                        <div
+                          className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.change ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}
+                        >
                           {columns.change && <Check className="h-3 w-3 text-primary-foreground" />}
                         </div>
                         24h Change
@@ -598,7 +608,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                         onClick={() => toggleColumn('volume')}
                         className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
                       >
-                        <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.volume ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
+                        <div
+                          className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.volume ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}
+                        >
                           {columns.volume && <Check className="h-3 w-3 text-primary-foreground" />}
                         </div>
                         24h Volume
@@ -607,7 +619,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                         onClick={() => toggleColumn('highLow')}
                         className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
                       >
-                        <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.highLow ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
+                        <div
+                          className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.highLow ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}
+                        >
                           {columns.highLow && <Check className="h-3 w-3 text-primary-foreground" />}
                         </div>
                         24h Range
@@ -616,7 +630,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                         onClick={() => toggleColumn('spread')}
                         className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
                       >
-                        <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.spread ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
+                        <div
+                          className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.spread ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}
+                        >
                           {columns.spread && <Check className="h-3 w-3 text-primary-foreground" />}
                         </div>
                         Spread
@@ -627,8 +643,12 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                             onClick={() => toggleColumn('funding')}
                             className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
                           >
-                            <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.funding ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
-                              {columns.funding && <Check className="h-3 w-3 text-primary-foreground" />}
+                            <div
+                              className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.funding ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}
+                            >
+                              {columns.funding && (
+                                <Check className="h-3 w-3 text-primary-foreground" />
+                              )}
                             </div>
                             Funding Rate
                           </button>
@@ -636,8 +656,12 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                             onClick={() => toggleColumn('openInterest')}
                             className="flex items-center gap-2 w-full text-sm py-1.5 px-2 rounded-lg hover:bg-white/10 transition-colors text-left"
                           >
-                            <div className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.openInterest ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}>
-                              {columns.openInterest && <Check className="h-3 w-3 text-primary-foreground" />}
+                            <div
+                              className={`h-4 w-4 rounded border flex items-center justify-center transition-colors ${columns.openInterest ? 'bg-primary border-primary' : 'border-white/20 bg-white/5'}`}
+                            >
+                              {columns.openInterest && (
+                                <Check className="h-3 w-3 text-primary-foreground" />
+                              )}
                             </div>
                             Open Interest
                           </button>
@@ -696,13 +720,13 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
             </div>
           </div>
         </div>
-      </CardHeader>
+      </div>
 
-      <CardContent className="p-0">
+      <div className="p-0">
         <div className="overflow-x-auto">
           <Table>
-            <TableHeader className="bg-white/5 sticky top-0 z-10">
-              <TableRow className="hover:bg-transparent border-white/10">
+            <TableHeader className="bg-secondary sticky top-0 z-10">
+              <TableRow className="hover:bg-transparent border-border">
                 <TableHead className="w-[200px]">
                   <Button
                     variant="ghost"
@@ -736,9 +760,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                 )}
                 {columns.highLow && (
                   <TableHead className="text-right hidden lg:table-cell">
-                    <span className="px-2 py-1 font-semibold text-muted-foreground">
-                      24h Range
-                    </span>
+                    <span className="px-2 py-1 font-semibold text-muted-foreground">24h Range</span>
                   </TableHead>
                 )}
                 {columns.volume && (
@@ -825,8 +847,8 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                   return (
                     <TableRow
                       key={ticker.symbol}
-                      className={`border-white/5 transition-all duration-200 cursor-pointer ${
-                        isHovered ? 'bg-white/10' : 'hover:bg-white/5'
+                      className={`border-border transition-all duration-200 cursor-pointer ${
+                        isHovered ? 'bg-accent' : 'hover:bg-accent/50'
                       }`}
                       onMouseEnter={() => setHoveredRow(ticker.symbol)}
                       onMouseLeave={() => setHoveredRow(null)}
@@ -835,8 +857,8 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                       <TableCell className="font-medium py-4">
                         <div className="flex items-center gap-3">
                           <div
-                            className={`w-10 h-10 rounded-xl bg-gradient-to-br from-primary/20 to-purple-500/20 flex items-center justify-center text-sm font-bold text-primary border border-white/10 transition-all duration-200 ${
-                              isHovered ? 'scale-110 shadow-lg shadow-primary/20' : ''
+                            className={`w-9 h-9 rounded-lg bg-secondary flex items-center justify-center text-sm font-bold text-muted-foreground border border-border transition-all duration-200 ${
+                              isHovered ? 'border-primary/30 text-primary' : ''
                             }`}
                           >
                             {ticker.symbol.substring(0, 1)}
@@ -850,10 +872,12 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                             </div>
                             <div className="text-xs text-muted-foreground hidden sm:flex items-center gap-1.5 mt-0.5">
                               <span className="capitalize">{exchange}</span>
-                              <span className="text-white/20">•</span>
+                              <span className="text-border">•</span>
                               <span
                                 className={
-                                  ticker.type === 'spot' ? 'text-green-500' : 'text-blue-500'
+                                  ticker.type === 'spot'
+                                    ? 'text-[hsl(152_60%_50%)]'
+                                    : 'text-primary'
                                 }
                               >
                                 {ticker.type === 'spot' ? 'Spot' : 'Perp'}
@@ -893,7 +917,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                             <div className="flex items-center gap-2 text-xs font-mono">
                               <span className="text-red-400">{formatCurrency(ticker.low24h)}</span>
                               <span className="text-muted-foreground">-</span>
-                              <span className="text-green-400">{formatCurrency(ticker.high24h)}</span>
+                              <span className="text-green-400">
+                                {formatCurrency(ticker.high24h)}
+                              </span>
                             </div>
                             {/* Visual range indicator */}
                             <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden relative">
@@ -902,7 +928,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                               {/* Current price position indicator */}
                               <div
                                 className="absolute top-0 h-full w-1.5 bg-primary rounded-full shadow-[0_0_6px_rgba(59,130,246,0.8)] transition-all"
-                                style={{ left: `calc(${Math.min(100, Math.max(0, pricePosition))}% - 3px)` }}
+                                style={{
+                                  left: `calc(${Math.min(100, Math.max(0, pricePosition))}% - 3px)`,
+                                }}
                               />
                             </div>
                           </div>
@@ -920,7 +948,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                       )}
                       {columns.spread && (
                         <TableCell className="text-right py-4 hidden xl:table-cell">
-                          <span className={`font-mono text-sm ${getSpreadColor(getSpread(ticker))}`}>
+                          <span
+                            className={`font-mono text-sm ${getSpreadColor(getSpread(ticker))}`}
+                          >
                             {formatSpread(getSpread(ticker))}
                           </span>
                         </TableCell>
@@ -929,7 +959,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                         <TableCell className="text-right py-4 hidden md:table-cell">
                           <div className="flex items-center justify-end gap-1.5">
                             <Percent className="h-3 w-3 text-muted-foreground" />
-                            <span className={`font-mono text-sm ${getFundingColor(ticker.fundingRate)}`}>
+                            <span
+                              className={`font-mono text-sm ${getFundingColor(ticker.fundingRate)}`}
+                            >
                               {formatFundingRate(ticker.fundingRate)}
                             </span>
                           </div>
@@ -953,9 +985,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           </Table>
         </div>
 
-        {/* Pagination - Enhanced */}
+        {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-5 border-t border-white/10 bg-gradient-to-r from-white/5 to-transparent">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-5 py-4 border-t border-border">
             <div className="text-sm text-muted-foreground">
               Showing{' '}
               <span className="font-medium text-foreground">
@@ -970,7 +1002,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
               results
             </div>
 
-            <div className="flex items-center gap-1.5 p-1 bg-white/5 rounded-xl">
+            <div className="flex items-center gap-1.5 p-1 bg-secondary rounded-lg">
               <Button
                 variant="ghost"
                 size="icon"
@@ -1023,7 +1055,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
