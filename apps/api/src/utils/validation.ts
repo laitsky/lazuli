@@ -149,11 +149,11 @@ export function validateQuoteCurrency(value: any): string | undefined {
  * @param value - Input value
  * @returns Valid exchange ID or null
  */
-export function validateExchange(value: any): 'binance' | 'bybit' | 'okx' | 'hyperliquid' | null {
+export function validateExchange(value: any): 'binance' | 'bybit' | 'okx' | 'hyperliquid' | 'upbit' | null {
   const normalized = String(value).toLowerCase();
 
-  if (normalized === 'binance' || normalized === 'bybit' || normalized === 'okx' || normalized === 'hyperliquid') {
-    return normalized as 'binance' | 'bybit' | 'okx' | 'hyperliquid';
+  if (normalized === 'binance' || normalized === 'bybit' || normalized === 'okx' || normalized === 'hyperliquid' || normalized === 'upbit') {
+    return normalized as 'binance' | 'bybit' | 'okx' | 'hyperliquid' | 'upbit';
   }
 
   return null;

@@ -86,6 +86,18 @@ export class CCXTService {
         },
       })
     );
+
+    // Initialize Upbit (spot only - no perpetual markets)
+    // Upbit is a major Korean exchange, primarily using KRW pairs but also supports USDT/BTC pairs
+    this.spotExchanges.set(
+      'upbit',
+      new ccxt.upbit({
+        enableRateLimit: true,
+        options: {
+          defaultType: 'spot',
+        },
+      })
+    );
   }
 
   private getExchange(exchangeId: string, marketType: 'spot' | 'perp' = 'spot'): any {

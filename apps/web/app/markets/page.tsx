@@ -297,7 +297,7 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
   const params = await searchParams;
   const selectedExchange = params.exchange || 'binance';
 
-  const validExchanges = ['binance', 'bybit', 'okx', 'hyperliquid'];
+  const validExchanges = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'];
   const exchange = validExchanges.includes(selectedExchange)
     ? (selectedExchange as SupportedExchange)
     : 'binance';
