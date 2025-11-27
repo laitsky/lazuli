@@ -1,13 +1,10 @@
 import Link from 'next/link';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { LazuliAPI, formatCurrency, formatPercentage, getChangeColor } from '@/lib/api-client';
+import { LazuliAPI, formatCurrency, formatPercentage } from '@/lib/api-client';
 import { TrendingDown } from 'lucide-react';
 
 /**
- * Top Losers Widget - Displays the top 5 coins with biggest 24h losses
- * Filters by USDT quote currency for meaningful comparison
+ * Top Losers Widget - Terminal Luxe
+ * Displays the top 5 coins with biggest 24h losses
  */
 export async function TopLosers() {
   const response = await LazuliAPI.getTickers('binance', {
@@ -25,50 +22,48 @@ export async function TopLosers() {
   }
 
   return (
-    <Card className="glass border-primary/10 h-full">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <CardTitle className="flex items-center gap-2">
-              <TrendingDown className="h-5 w-5 text-red-500" />
-              Top Losers
-            </CardTitle>
-            <CardDescription>Biggest drops (24h)</CardDescription>
-          </div>
-          <Button variant="ghost" size="sm" className="h-8 text-xs" asChild>
-            <Link href="/markets?sortBy=change&sortOrder=asc">View All</Link>
-          </Button>
+    <div className="bg-card rounded-xl border border-border h-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-border">
+        <div className="flex items-center gap-2">
+          <TrendingDown className="h-4 w-4 text-destructive" />
+          <span className="text-sm font-semibold text-foreground">Losers</span>
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-1">
-          {losers.map((ticker, index) => (
-            <Link
-              key={ticker.symbol}
-              href={`/markets?exchange=binance&symbol=${ticker.symbol}`}
-              className="flex items-center justify-between p-2.5 rounded-lg hover:bg-white/5 transition-colors group"
-            >
-              <div className="flex items-center gap-3">
-                <div className="font-display font-bold text-sm w-5 text-muted-foreground/50 group-hover:text-red-500 transition-colors">
-                  {index + 1}
+        <Link
+          href="/markets?sortBy=change&sortOrder=asc"
+          className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors"
+        >
+          View All
+        </Link>
+      </div>
+
+      {/* List */}
+      <div className="flex-1 p-2">
+        {losers.map((ticker, index) => (
+          <Link
+            key={ticker.symbol}
+            href={`/markets?exchange=binance&symbol=${ticker.symbol}`}
+            className="flex items-center justify-between p-2 rounded-lg hover:bg-accent transition-colors group"
+          >
+            <div className="flex items-center gap-2.5">
+              <span className="w-4 text-xs font-mono text-muted-foreground/50 group-hover:text-destructive transition-colors">
+                {index + 1}
+              </span>
+              <div>
+                <div className="text-sm font-semibold text-foreground">
+                  {ticker.symbol.split('-')[0]}
                 </div>
-                <div>
-                  <div className="font-bold text-sm">{ticker.symbol.split('-')[0]}</div>
-                  <div className="text-xs text-muted-foreground font-mono">
-                    {formatCurrency(ticker.last)}
-                  </div>
+                <div className="text-[10px] font-mono text-muted-foreground">
+                  {formatCurrency(ticker.last)}
                 </div>
               </div>
-              <Badge
-                variant="secondary"
-                className={`text-xs h-6 ${getChangeColor(ticker.percentage24h)} bg-red-500/10 border-red-500/20`}
-              >
-                {formatPercentage(ticker.percentage24h)}
-              </Badge>
-            </Link>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+            </div>
+            <span className="text-xs font-mono text-destructive bg-destructive/10 px-2 py-1 rounded">
+              {formatPercentage(ticker.percentage24h)}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }

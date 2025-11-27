@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CandlestickChart } from '@/components/candlestick-chart';
+import { PageHeader } from '@/components/page-header';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
 import { Search, TrendingUp, LayoutGrid, Clock, AlertCircle } from 'lucide-react';
@@ -365,24 +366,13 @@ export default function MultiTFPage() {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-background to-background border border-white/10 p-8">
-        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl opacity-50"></div>
-        <div className="relative z-10 flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-primary/10 text-primary">
-            <LayoutGrid className="h-8 w-8" />
-          </div>
-          <div>
-            <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight">
-              Multi-Timeframe
-            </h1>
-            <p className="text-lg font-light text-muted-foreground mt-2">
-              Analyze market trends across multiple time horizons simultaneously.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        icon={LayoutGrid}
+        title="Multi-Timeframe"
+        description="Analyze market trends across multiple time horizons simultaneously. View 1m to 1w charts side by side."
+      />
 
       {/* Controls Card */}
       <Card className="glass border-white/5 overflow-hidden">

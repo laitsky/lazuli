@@ -7,9 +7,18 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { CandlestickChart } from '@/components/candlestick-chart';
 import { VirtualizedTickerList } from '@/components/virtualized-ticker-list';
+import { PageHeader } from '@/components/page-header';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
-import { Search, TrendingUp, Divide, ArrowRight, Calculator, AlertCircle } from 'lucide-react';
+import {
+  Search,
+  TrendingUp,
+  Divide,
+  ArrowRight,
+  Calculator,
+  AlertCircle,
+  GitMerge,
+} from 'lucide-react';
 
 /**
  * Synthetic Pair Generator Page
@@ -364,25 +373,13 @@ export default function SyntheticPairPage() {
   }
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-background to-background border border-white/10 p-8">
-        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-orange-500/10 rounded-full blur-3xl opacity-50"></div>
-        <div className="relative z-10 flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-primary/10 text-primary">
-            <Calculator className="h-8 w-8" />
-          </div>
-          <div>
-            <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight">
-              Synthetic Pairs
-            </h1>
-            <p className="text-lg font-light text-muted-foreground mt-2">
-              Create custom trading pairs by dividing any two assets to analyze relative
-              performance.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        icon={GitMerge}
+        title="Synthetic Pairs"
+        description="Create custom trading pairs by dividing any two assets. Analyze relative performance and cross-pair relationships."
+      />
 
       {/* Controls Card */}
       <Card className="glass border-white/5 overflow-hidden">
