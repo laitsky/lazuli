@@ -1,6 +1,13 @@
 import ccxt from 'ccxt';
 import { Ticker, Market, OHLCV, Timeframe } from '../types';
 import { convertFromCCXTNotation, convertToCCXTNotation } from '../utils/validation';
+import {
+  ExchangeError,
+  ValidationError,
+  exchangeNotSupported,
+  invalidTimeframe,
+  classifyCcxtError,
+} from '../errors';
 
 export class CCXTService {
   private spotExchanges: Map<string, any>;
@@ -105,7 +112,7 @@ export class CCXTService {
     const exchange = exchangeMap.get(exchangeId);
 
     if (!exchange) {
-      throw new Error(`Exchange ${exchangeId} not supported for ${marketType} markets`);
+      throw exchangeNotSupported(exchangeId);
     }
 
     return exchange;
@@ -166,8 +173,12 @@ export class CCXTService {
       const tickerArrays = await Promise.all(tickerPromises);
       return tickerArrays.flat();
     } catch (error) {
-      console.error(`Error fetching tickers for ${exchangeId}:`, error);
-      throw error;
+      // If it's already an ExchangeError, rethrow it
+      if (error instanceof ExchangeError) {
+        throw error;
+      }
+      // Classify CCXT errors into our standardized error types
+      throw classifyCcxtError(error, exchangeId);
     }
   }
 
@@ -203,8 +214,13 @@ export class CCXTService {
         };
       });
     } catch (error) {
+      // Log the error but classify and rethrow it for proper handling upstream
       console.error(`Error fetching ${type} tickers for ${exchangeId}:`, error);
-      return [];
+      // If it's already an ExchangeError, rethrow it
+      if (error instanceof ExchangeError) {
+        throw error;
+      }
+      throw classifyCcxtError(error, exchangeId);
     }
   }
 
@@ -227,8 +243,12 @@ export class CCXTService {
       const marketArrays = await Promise.all(marketPromises);
       return marketArrays.flat();
     } catch (error) {
-      console.error(`Error fetching markets for ${exchangeId}:`, error);
-      throw error;
+      // If it's already an ExchangeError, rethrow it
+      if (error instanceof ExchangeError) {
+        throw error;
+      }
+      // Classify CCXT errors into our standardized error types
+      throw classifyCcxtError(error, exchangeId);
     }
   }
 
@@ -253,18 +273,32 @@ export class CCXTService {
         };
       });
     } catch (error) {
+      // Log the error but classify and rethrow it for proper handling upstream
       console.error(`Error fetching ${type} markets for ${exchangeId}:`, error);
-      return [];
+      // If it's already an ExchangeError, rethrow it
+      if (error instanceof ExchangeError) {
+        throw error;
+      }
+      throw classifyCcxtError(error, exchangeId);
     }
   }
 
   async getTicker(exchangeId: string, symbol: string): Promise<Ticker | null> {
     try {
       const allTickers = await this.getAllTickers(exchangeId);
-      return allTickers.find((t) => t.symbol === symbol) || null;
+      const ticker = allTickers.find((t) => t.symbol === symbol);
+      if (!ticker) {
+        // Return null instead of throwing to allow controller to handle 404
+        return null;
+      }
+      return ticker;
     } catch (error) {
-      console.error(`Error fetching ticker ${symbol} for ${exchangeId}:`, error);
-      throw error;
+      // If it's already an ExchangeError, rethrow it
+      if (error instanceof ExchangeError) {
+        throw error;
+      }
+      // Classify CCXT errors into our standardized error types
+      throw classifyCcxtError(error, exchangeId);
     }
   }
 
@@ -353,10 +387,7 @@ export class CCXTService {
       // Check if timeframe is supported by this exchange
       if (!this.isTimeframeSupported(exchangeId, timeframe, marketType)) {
         const supported = this.getSupportedTimeframes(exchangeId, marketType);
-        throw new Error(
-          `Timeframe ${timeframe} is not supported by ${exchangeId}. ` +
-            `Supported timeframes: ${supported.join(', ')}`
-        );
+        throw invalidTimeframe(timeframe, supported);
       }
 
       // Fetch OHLCV data from the exchange using CCXT symbol format
@@ -374,7 +405,12 @@ export class CCXTService {
       }));
     } catch (error) {
       console.error(`Error fetching OHLCV for ${symbol} on ${exchangeId}:`, error);
-      throw error;
+      // If it's already an ExchangeError or ValidationError, rethrow it
+      if (error instanceof ExchangeError || error instanceof ValidationError) {
+        throw error;
+      }
+      // Classify CCXT errors into our standardized error types
+      throw classifyCcxtError(error, exchangeId);
     }
   }
 }

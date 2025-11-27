@@ -6,9 +6,16 @@
 
 import { Request, Response } from 'express';
 import { customIndexService } from '../services/customIndexService';
-import { successResponse, errorResponse } from '../utils/response';
+import { successResponse, handleError } from '../utils/response';
 import { SupportedExchange, Timeframe, IndexAsset } from '@lazuli/shared';
 import { validateExchange, validateInteger } from '../utils/validation';
+import {
+  invalidExchange,
+  invalidTimeframe,
+  invalidParameter,
+  missingParameter,
+  invalidWeights,
+} from '../errors';
 
 export class CustomIndexController {
   /**
@@ -40,51 +47,42 @@ export class CustomIndexController {
 
       // Validate required fields
       if (!name || typeof name !== 'string' || name.trim().length === 0) {
-        return errorResponse(res, 'Index name is required', 400);
+        throw missingParameter('name');
       }
 
       // Validate exchange
       const exchangeId = validateExchange(exchange);
       if (!exchangeId) {
-        return errorResponse(
-          res,
-          `Exchange ${exchange} not supported. Use: binance, bybit, okx`,
-          400
-        );
+        throw invalidExchange(exchange);
       }
 
       // Validate timeframe
       const validTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
       if (!timeframe || !validTimeframes.includes(timeframe as Timeframe)) {
-        return errorResponse(
-          res,
-          `Invalid timeframe. Must be one of: ${validTimeframes.join(', ')}`,
-          400
-        );
+        throw invalidTimeframe(timeframe || '', validTimeframes);
       }
 
       // Validate assets array
       if (!assets || !Array.isArray(assets) || assets.length === 0) {
-        return errorResponse(res, 'Assets array is required and must not be empty', 400);
+        throw invalidParameter('assets', 'Assets array is required and must not be empty');
       }
 
       if (assets.length > 20) {
-        return errorResponse(res, 'Maximum 20 assets allowed in an index', 400);
+        throw invalidParameter('assets', 'Maximum 20 assets allowed in an index');
       }
 
       // Validate each asset
       const validatedAssets: IndexAsset[] = [];
       for (const asset of assets) {
         if (!asset.symbol || typeof asset.symbol !== 'string') {
-          return errorResponse(res, 'Each asset must have a valid symbol', 400);
+          throw invalidParameter('assets', 'Each asset must have a valid symbol');
         }
 
         const weight = Number(asset.weight);
         if (isNaN(weight) || weight <= 0 || weight > 100) {
-          return errorResponse(
-            res,
-            `Invalid weight for ${asset.symbol}. Must be between 0 and 100`,
-            400
+          throw invalidParameter(
+            'weight',
+            `Invalid weight for ${asset.symbol}. Must be between 0 and 100`
           );
         }
 
@@ -97,11 +95,7 @@ export class CustomIndexController {
       // Validate weights sum to 100
       const totalWeight = validatedAssets.reduce((sum, a) => sum + a.weight, 0);
       if (Math.abs(totalWeight - 100) > 0.01) {
-        return errorResponse(
-          res,
-          `Asset weights must sum to 100, got ${totalWeight.toFixed(2)}`,
-          400
-        );
+        throw invalidWeights(`Asset weights must sum to 100, got ${totalWeight.toFixed(2)}`);
       }
 
       // Validate limit
@@ -119,8 +113,7 @@ export class CustomIndexController {
       return successResponse(res, result);
     } catch (error) {
       console.error('Error in calculateIndex:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      return errorResponse(res, `Failed to calculate index: ${errorMessage}`, 500);
+      return handleError(res, error, 'Failed to calculate index');
     }
   }
 }

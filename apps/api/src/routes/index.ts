@@ -8,6 +8,7 @@ import { customPairController } from '../controllers/customPairController';
 import { customIndexController } from '../controllers/customIndexController';
 import { superEmaController } from '../controllers/superEmaController';
 import { screenerController } from '../controllers/screenerController';
+import { fundingRateController } from '../controllers/fundingRateController';
 
 // Create Express router for API v1 endpoints
 const router: RouterType = Router();
@@ -70,6 +71,17 @@ router.get('/screener/:exchange', async (req, res) => {
 // GET /api/v1/screener/:exchange/stats - Get quick stats for Alt Screener
 router.get('/screener/:exchange/stats', async (req, res) => {
   await screenerController.getStats(req, res);
+});
+
+// GET /api/v1/funding/compare - Get cross-exchange funding rate comparison
+// Must be before :exchange route to avoid matching "compare" as an exchange
+router.get('/funding/compare', async (req, res) => {
+  await fundingRateController.getCrossExchangeFunding(req, res);
+});
+
+// GET /api/v1/funding/:exchange - Get funding rates for all perpetual contracts
+router.get('/funding/:exchange', async (req, res) => {
+  await fundingRateController.getFundingRates(req, res);
 });
 
 // POST /api/v1/data/store/:exchange - Store live ticker data for an exchange
