@@ -1,9 +1,16 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { cacheService } from '../services/cacheService';
-import { successResponse, errorResponse } from '../utils/response';
+import { successResponse, handleError } from '../utils/response';
 import { SupportedExchange, Timeframe, OHLCV } from '@lazuli/shared';
 import { validateExchange, validateInteger } from '../utils/validation';
+import {
+  invalidExchange,
+  invalidTimeframe,
+  invalidMarketType,
+  missingParameter,
+  dataNotFound,
+} from '../errors';
 
 /**
  * Controller for custom pair generation
@@ -45,36 +52,35 @@ export class CustomPairController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
+        throw invalidExchange(req.params.exchange);
       }
 
       // Extract and validate symbol parameters
       const symbol1 = req.params.symbol1; // Numerator (e.g., BTC-USDT)
       const symbol2 = req.params.symbol2; // Denominator (e.g., AVAX-USDT)
 
-      if (!symbol1 || !symbol2) {
-        return errorResponse(res, 'Both symbol1 and symbol2 parameters are required', 400);
+      if (!symbol1) {
+        throw missingParameter('symbol1');
+      }
+      if (!symbol2) {
+        throw missingParameter('symbol2');
       }
 
       // Validate timeframe parameter
       const timeframe = req.query.timeframe as Timeframe;
       if (!timeframe) {
-        return errorResponse(res, 'Timeframe query parameter is required', 400);
+        throw missingParameter('timeframe');
       }
 
       const validTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
       if (!validTimeframes.includes(timeframe)) {
-        return errorResponse(
-          res,
-          `Invalid timeframe. Must be one of: ${validTimeframes.join(', ')}`,
-          400
-        );
+        throw invalidTimeframe(timeframe, validTimeframes);
       }
 
       // Validate market type parameter
       const marketType = (req.query.type as 'spot' | 'perp') || 'spot';
       if (marketType !== 'spot' && marketType !== 'perp') {
-        return errorResponse(res, 'Market type must be "spot" or "perp"', 400);
+        throw invalidMarketType(String(req.query.type));
       }
 
       // Validate limit parameter
@@ -96,11 +102,11 @@ export class CustomPairController {
 
         // Validate that we got data for both symbols
         if (!candles1 || candles1.length === 0) {
-          return errorResponse(res, `No data available for ${symbol1}`, 404);
+          throw dataNotFound(`No data available for ${symbol1}`);
         }
 
         if (!candles2 || candles2.length === 0) {
-          return errorResponse(res, `No data available for ${symbol2}`, 404);
+          throw dataNotFound(`No data available for ${symbol2}`);
         }
 
         // Calculate custom pair by dividing symbol1 by symbol2
@@ -133,9 +139,7 @@ export class CustomPairController {
       return successResponse(res, response);
     } catch (error) {
       console.error('Error in getCustomPair:', error);
-      // Don't expose raw error details to users for security
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      return errorResponse(res, `Failed to generate custom pair data: ${errorMessage}`, 500);
+      return handleError(res, error, 'Failed to generate custom pair data');
     }
   }
 
@@ -172,7 +176,7 @@ export class CustomPairController {
           candles = await ccxtService.fetchOHLCV(exchangeId, symbol, timeframe, marketType, limit);
           break;
         default:
-          throw new Error(`Exchange ${exchangeId} not supported`);
+          throw invalidExchange(exchangeId);
       }
 
       // Cache the results for 1 minute
