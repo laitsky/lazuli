@@ -1,25 +1,27 @@
 /**
- * Markets Page - Display real-time ticker data from exchanges
- * Supports filtering by exchange and searching symbols
+ * Markets Page - Terminal Luxe
+ * Real-time ticker data with clean data visualization
  *
- * Uses streaming SSR:
- * - Page shell (header + exchange selector) renders immediately
- * - Tickers data streams in separately via Suspense
+ * Uses streaming SSR for fast initial load
  */
 
 import { Suspense } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import { TickersTable } from '@/components/tickers-table';
 import { LazuliAPI, formatVolume } from '@/lib/api-client';
 import { Ticker, SupportedExchange } from '@lazuli/shared';
 import Link from 'next/link';
-import { BarChart3, Globe, Activity, ArrowUpRight, ArrowDownRight, TrendingUp, TrendingDown, DollarSign, Percent } from 'lucide-react';
+import {
+  BarChart3,
+  Activity,
+  ArrowUpRight,
+  ArrowDownRight,
+  TrendingUp,
+  TrendingDown,
+  DollarSign,
+} from 'lucide-react';
+import { ExchangeLogo } from '@/components/exchange-logo';
+import { PageHeader } from '@/components/page-header';
 
-// Allow partial caching - exchanges list is cached, tickers are fetched fresh
-// This enables fast page navigation while keeping ticker data real-time
 export const dynamic = 'auto';
 
 interface TickersPageProps {
@@ -27,14 +29,13 @@ interface TickersPageProps {
 }
 
 /**
- * Fetch all tickers from all pages without any limit
- * Continues fetching until all pages are retrieved
+ * Fetch all tickers from all pages
  */
 async function fetchAllTickers(exchange: SupportedExchange) {
   const allTickers: Ticker[] = [];
   let currentPage = 1;
   let hasMorePages = true;
-  const pageLimit = 500; // Maximum allowed by backend
+  const pageLimit = 500;
 
   while (hasMorePages) {
     const response = await LazuliAPI.getTickers(exchange, {
@@ -45,13 +46,11 @@ async function fetchAllTickers(exchange: SupportedExchange) {
     });
 
     if (!response.success || !response.data) {
-      // If any page fails, return what we have so far
       break;
     }
 
     allTickers.push(...response.data.tickers);
 
-    // Check if there are more pages
     if (response.data.pagination && response.data.pagination.hasNext) {
       currentPage++;
     } else {
@@ -59,8 +58,6 @@ async function fetchAllTickers(exchange: SupportedExchange) {
     }
   }
 
-  // Deduplicate tickers by symbol to prevent React key errors
-  // This is especially important for Hyperliquid which may return duplicates
   const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
 
   return {
@@ -71,20 +68,16 @@ async function fetchAllTickers(exchange: SupportedExchange) {
 }
 
 /**
- * TickersSection - Async component that fetches and displays tickers
- * Wrapped in Suspense to enable streaming SSR
+ * TickersSection - Fetches and displays tickers with stats
  */
 async function TickersSection({ exchange }: { exchange: SupportedExchange }) {
   const tickersData = await fetchAllTickers(exchange);
 
   if (!tickersData || tickersData.tickers.length === 0) {
     return (
-      <Card className="glass border-white/5">
-        <CardHeader>
-          <CardTitle>No Tickers Available</CardTitle>
-          <CardDescription>No ticker data found for this exchange.</CardDescription>
-        </CardHeader>
-      </Card>
+      <div className="bg-card rounded-xl border border-border p-8 text-center">
+        <p className="text-muted-foreground">No ticker data found for this exchange.</p>
+      </div>
     );
   }
 
@@ -93,143 +86,163 @@ async function TickersSection({ exchange }: { exchange: SupportedExchange }) {
   const perpCount = tickersData.tickers.filter((t) => t.type === 'perp').length;
   const totalVolume = tickersData.tickers.reduce((acc, t) => acc + (t.quoteVolume24h || 0), 0);
 
-  // Calculate gainers and losers (using USDT pairs for consistency)
-  const usdtTickers = tickersData.tickers.filter((t) =>
-    t.symbol.includes('USDT') && t.percentage24h !== null
+  // Calculate gainers and losers
+  const usdtTickers = tickersData.tickers.filter(
+    (t) => t.symbol.includes('USDT') && t.percentage24h !== null
   );
   const gainersCount = usdtTickers.filter((t) => (t.percentage24h || 0) > 0).length;
   const losersCount = usdtTickers.filter((t) => (t.percentage24h || 0) < 0).length;
 
   // Calculate average change
   const validChanges = usdtTickers.filter((t) => t.percentage24h !== null);
-  const avgChange = validChanges.length > 0
-    ? validChanges.reduce((acc, t) => acc + (t.percentage24h || 0), 0) / validChanges.length
-    : 0;
+  const avgChange =
+    validChanges.length > 0
+      ? validChanges.reduce((acc, t) => acc + (t.percentage24h || 0), 0) / validChanges.length
+      : 0;
 
   // Find top gainer and loser
-  const sortedByChange = [...usdtTickers].sort((a, b) => (b.percentage24h || 0) - (a.percentage24h || 0));
+  const sortedByChange = [...usdtTickers].sort(
+    (a, b) => (b.percentage24h || 0) - (a.percentage24h || 0)
+  );
   const topGainer = sortedByChange[0];
   const topLoser = sortedByChange[sortedByChange.length - 1];
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Stats Cards - Row 1: Market Overview */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Markets
-            </CardTitle>
+    <div className="space-y-6 animate-fade-in">
+      {/* Stats Grid */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {/* Total Markets */}
+        <div className="bg-card rounded-xl border border-border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+              Markets
+            </span>
             <Activity className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-display">{tickersData.count.toLocaleString()}</div>
-            <div className="flex items-center gap-2 mt-1">
-              <Badge variant="outline" className="text-xs bg-green-500/10 text-green-500 border-green-500/20">
-                {spotCount} Spot
-              </Badge>
-              <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-500 border-blue-500/20">
-                {perpCount} Perp
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="text-2xl font-display font-bold text-foreground">
+            {tickersData.count.toLocaleString()}
+          </div>
+          <div className="flex gap-2 mt-2">
+            <span className="text-[10px] font-mono text-[hsl(152_60%_50%)] bg-[hsl(152_60%_45%/0.1)] px-1.5 py-0.5 rounded">
+              {spotCount} SPOT
+            </span>
+            <span className="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+              {perpCount} PERP
+            </span>
+          </div>
+        </div>
 
-        <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+        {/* 24h Volume */}
+        <div className="bg-card rounded-xl border border-border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
               24h Volume
-            </CardTitle>
-            <DollarSign className="h-4 w-4 text-yellow-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold font-display">{formatVolume(totalVolume)}</div>
-            <p className="text-xs text-muted-foreground mt-1">Combined trading volume</p>
-          </CardContent>
-        </Card>
+            </span>
+            <DollarSign className="h-4 w-4 text-primary" />
+          </div>
+          <div className="text-2xl font-display font-bold text-foreground">
+            {formatVolume(totalVolume)}
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2">Combined trading volume</p>
+        </div>
 
-        <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Gainers / Losers
-            </CardTitle>
+        {/* Gainers / Losers */}
+        <div className="bg-card rounded-xl border border-border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+              Sentiment
+            </span>
             <div className="flex items-center gap-1">
-              <TrendingUp className="h-4 w-4 text-green-500" />
-              <TrendingDown className="h-4 w-4 text-red-500" />
+              <TrendingUp className="h-3.5 w-3.5 text-[hsl(152_60%_45%)]" />
+              <TrendingDown className="h-3.5 w-3.5 text-destructive" />
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-3">
-              <span className="text-2xl font-bold font-display text-green-500">{gainersCount}</span>
-              <span className="text-muted-foreground">/</span>
-              <span className="text-2xl font-bold font-display text-red-500">{losersCount}</span>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">24h market sentiment</p>
-          </CardContent>
-        </Card>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-display font-bold text-[hsl(152_60%_50%)]">
+              {gainersCount}
+            </span>
+            <span className="text-muted-foreground">/</span>
+            <span className="text-2xl font-display font-bold text-destructive">{losersCount}</span>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2">Gainers vs Losers (24h)</p>
+        </div>
 
-        <Card className="glass border-white/5 hover:bg-white/5 transition-colors">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
+        {/* Average Change */}
+        <div className="bg-card rounded-xl border border-border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
               Avg. Change
-            </CardTitle>
-            <Percent className="h-4 w-4 text-purple-500" />
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold font-display ${avgChange >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-              {avgChange >= 0 ? '+' : ''}{avgChange.toFixed(2)}%
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">Market-wide average</p>
-          </CardContent>
-        </Card>
+            </span>
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div
+            className={`text-2xl font-display font-bold ${
+              avgChange >= 0 ? 'text-[hsl(152_60%_50%)]' : 'text-destructive'
+            }`}
+          >
+            {avgChange >= 0 ? '+' : ''}
+            {avgChange.toFixed(2)}%
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2">Market-wide average</p>
+        </div>
       </div>
 
-      {/* Stats Cards - Row 2: Top Movers */}
+      {/* Top Movers */}
       {topGainer && topLoser && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card className="glass border-white/5 hover:bg-white/5 transition-colors border-l-2 border-l-green-500">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+        <div className="grid gap-3 md:grid-cols-2">
+          {/* Top Gainer */}
+          <div className="bg-card rounded-xl border border-border p-4 border-l-2 border-l-[hsl(152_60%_45%)]">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
                 Top Gainer
-              </CardTitle>
-              <ArrowUpRight className="h-4 w-4 text-green-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xl font-bold font-display">{topGainer.symbol}</div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    ${topGainer.last?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}
-                  </p>
+              </span>
+              <ArrowUpRight className="h-4 w-4 text-[hsl(152_60%_45%)]" />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-lg font-display font-bold text-foreground">
+                  {topGainer.symbol}
                 </div>
-                <Badge className="bg-green-500/20 text-green-500 border-green-500/30 text-lg font-mono px-3 py-1">
-                  +{topGainer.percentage24h?.toFixed(2)}%
-                </Badge>
+                <span className="text-xs font-mono text-muted-foreground">
+                  $
+                  {topGainer.last?.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 8,
+                  })}
+                </span>
               </div>
-            </CardContent>
-          </Card>
+              <span className="text-lg font-mono font-bold text-[hsl(152_60%_50%)] bg-[hsl(152_60%_45%/0.1)] px-3 py-1.5 rounded-lg">
+                +{topGainer.percentage24h?.toFixed(2)}%
+              </span>
+            </div>
+          </div>
 
-          <Card className="glass border-white/5 hover:bg-white/5 transition-colors border-l-2 border-l-red-500">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+          {/* Top Loser */}
+          <div className="bg-card rounded-xl border border-border p-4 border-l-2 border-l-destructive">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
                 Top Loser
-              </CardTitle>
-              <ArrowDownRight className="h-4 w-4 text-red-500" />
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xl font-bold font-display">{topLoser.symbol}</div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    ${topLoser.last?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}
-                  </p>
+              </span>
+              <ArrowDownRight className="h-4 w-4 text-destructive" />
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-lg font-display font-bold text-foreground">
+                  {topLoser.symbol}
                 </div>
-                <Badge className="bg-red-500/20 text-red-500 border-red-500/30 text-lg font-mono px-3 py-1">
-                  {topLoser.percentage24h?.toFixed(2)}%
-                </Badge>
+                <span className="text-xs font-mono text-muted-foreground">
+                  $
+                  {topLoser.last?.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 8,
+                  })}
+                </span>
               </div>
-            </CardContent>
-          </Card>
+              <span className="text-lg font-mono font-bold text-destructive bg-destructive/10 px-3 py-1.5 rounded-lg">
+                {topLoser.percentage24h?.toFixed(2)}%
+              </span>
+            </div>
+          </div>
         </div>
       )}
 
@@ -240,58 +253,42 @@ async function TickersSection({ exchange }: { exchange: SupportedExchange }) {
 }
 
 /**
- * TickersLoadingFallback - Loading skeleton shown while tickers are fetching
+ * Loading skeleton
  */
 function TickersLoadingFallback() {
   return (
     <div className="space-y-6">
-      {/* Row 1: 4 stat cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[1, 2, 3, 4].map((i) => (
-          <Card key={i} className="glass border-white/5">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-4 w-4 rounded-full" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-8 w-20 mb-2" />
-              <Skeleton className="h-3 w-32" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      {/* Row 2: Top gainers/losers */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {[1, 2].map((i) => (
-          <Card key={i} className="glass border-white/5">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <Skeleton className="h-4 w-20" />
-              <Skeleton className="h-4 w-4 rounded-full" />
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div>
-                  <Skeleton className="h-6 w-24 mb-1" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-                <Skeleton className="h-8 w-20 rounded-md" />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      {/* Table skeleton */}
-      <Card className="glass border-white/5">
-        <CardContent className="py-12">
-          <div className="space-y-4">
-            <Skeleton className="h-10 w-full max-w-sm" />
-            <Skeleton className="h-12 w-full" />
-            {[1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-16 w-full" />
-            ))}
+          <div key={i} className="bg-card rounded-xl border border-border p-4 animate-pulse">
+            <div className="h-4 w-20 bg-secondary rounded mb-3" />
+            <div className="h-8 w-24 bg-secondary rounded mb-2" />
+            <div className="h-3 w-32 bg-secondary rounded" />
           </div>
-        </CardContent>
-      </Card>
+        ))}
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
+        {[1, 2].map((i) => (
+          <div key={i} className="bg-card rounded-xl border border-border p-4 animate-pulse">
+            <div className="h-4 w-20 bg-secondary rounded mb-3" />
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="h-6 w-28 bg-secondary rounded mb-2" />
+                <div className="h-3 w-20 bg-secondary rounded" />
+              </div>
+              <div className="h-8 w-24 bg-secondary rounded" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="bg-card rounded-xl border border-border p-6 animate-pulse">
+        <div className="space-y-4">
+          <div className="h-10 w-full max-w-sm bg-secondary rounded" />
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="h-14 w-full bg-secondary rounded" />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -300,55 +297,48 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
   const params = await searchParams;
   const selectedExchange = params.exchange || 'binance';
 
-  // Validate exchange - include all supported exchanges
   const validExchanges = ['binance', 'bybit', 'okx', 'hyperliquid'];
   const exchange = validExchanges.includes(selectedExchange)
     ? (selectedExchange as SupportedExchange)
     : 'binance';
 
-  // Only fetch exchanges list for page shell - it's cached and loads instantly
   const exchangesResponse = await LazuliAPI.getExchanges();
   const exchanges = exchangesResponse.success ? exchangesResponse.data : [];
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      {/* Hero Section */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-background to-background border border-white/10 p-8">
-        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl opacity-50"></div>
-        <div className="relative z-10">
-          <h1 className="text-4xl md:text-5xl font-display font-bold tracking-tight mb-2">
-            Markets
-          </h1>
-          <p className="text-lg font-light text-muted-foreground max-w-2xl">
-            Real-time cryptocurrency price data and market statistics across major exchanges.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        icon={TrendingUp}
+        title="Markets"
+        description="Real-time cryptocurrency data across major exchanges. Track prices, volume, and 24h changes."
+      />
 
       {/* Exchange Selector */}
-      <div className="flex flex-wrap gap-2 p-1 bg-muted/30 rounded-xl border border-white/5 w-fit backdrop-blur-sm">
+      <div className="flex flex-wrap gap-2">
         {exchanges.map((ex) => (
           <Link key={ex.id} href={`/markets?exchange=${ex.id}`}>
-            <Button
-              variant={exchange === ex.id ? 'default' : 'ghost'}
-              size="lg"
-              className={`rounded-lg transition-all duration-300 ${
+            <button
+              className={`group inline-flex items-center gap-2.5 px-4 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                 exchange === ex.id
-                  ? 'shadow-lg shadow-primary/20'
-                  : 'hover:bg-white/5 text-muted-foreground hover:text-foreground'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-card border border-border text-muted-foreground hover:text-foreground hover:border-primary/30'
               }`}
             >
-              <Globe className={`mr-2 h-4 w-4 ${exchange === ex.id ? 'animate-pulse' : ''}`} />
+              <ExchangeLogo
+                exchangeId={ex.id}
+                className={`h-4 w-4 ${exchange === ex.id ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'}`}
+              />
               {ex.name}
               {exchange === ex.id && (
-                <span className="ml-2 flex h-2 w-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
+                <span className="flex h-1.5 w-1.5 rounded-full bg-primary-foreground/80" />
               )}
-            </Button>
+            </button>
           </Link>
         ))}
       </div>
 
-      {/* Tickers Data - streams in via Suspense, showing loading skeleton while fetching */}
+      {/* Tickers Data */}
       <Suspense key={exchange} fallback={<TickersLoadingFallback />}>
         <TickersSection exchange={exchange} />
       </Suspense>
