@@ -40,6 +40,9 @@ import { convertFromCCXTNotation } from '../utils/validation';
  * Funding Rate Service class
  * Handles fetching and processing funding rate data from exchanges
  */
+// Default timeout for exchange API calls (20 seconds)
+const EXCHANGE_TIMEOUT = 20000;
+
 export class FundingRateService {
   private perpExchanges: Map<string, any>;
 
@@ -51,6 +54,7 @@ export class FundingRateService {
   /**
    * Initialize perpetual exchange instances
    * Only perpetual markets have funding rates
+   * Each exchange has a timeout to prevent hanging requests
    */
   private initializeExchanges(): void {
     // Binance Futures
@@ -58,6 +62,7 @@ export class FundingRateService {
       'binance',
       new ccxt.binance({
         enableRateLimit: true,
+        timeout: EXCHANGE_TIMEOUT,
         options: {
           defaultType: 'future',
         },
@@ -69,6 +74,7 @@ export class FundingRateService {
       'bybit',
       new ccxt.bybit({
         enableRateLimit: true,
+        timeout: EXCHANGE_TIMEOUT,
         options: {
           defaultType: 'swap',
         },
@@ -80,6 +86,7 @@ export class FundingRateService {
       'okx',
       new ccxt.okx({
         enableRateLimit: true,
+        timeout: EXCHANGE_TIMEOUT,
         options: {
           defaultType: 'swap',
         },
@@ -91,6 +98,7 @@ export class FundingRateService {
       'hyperliquid',
       new ccxt.hyperliquid({
         enableRateLimit: true,
+        timeout: EXCHANGE_TIMEOUT,
         options: {
           defaultType: 'swap',
         },
@@ -220,124 +228,83 @@ export class FundingRateService {
     if (!cachedData) {
       console.log(`Cache miss for ${cacheKey}, fetching from exchange...`);
 
-      const exchange = this.getExchange(exchangeId);
-
-      // Load markets if not loaded
-      if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
-        await exchange.loadMarkets();
-      }
-
-      // Fetch funding rates using the dedicated CCXT method
-      // This is more reliable than extracting from tickers
-      let fundingRates: Record<string, any> = {};
-
-      try {
-        // Try to use fetchFundingRates if available (preferred method)
-        if (exchange.has['fetchFundingRates']) {
-          fundingRates = await exchange.fetchFundingRates();
-        } else if (exchange.has['fetchFundingRate']) {
-          // Some exchanges only support fetching one at a time
-          // In this case, we'll fetch from tickers as fallback
-          fundingRates = {};
-        }
-      } catch (error) {
-        console.log(`fetchFundingRates not available for ${exchangeId}, using tickers fallback`);
-        fundingRates = {};
-      }
-
-      // Also fetch tickers for additional data (volume, price, open interest)
-      const tickers = await exchange.fetchTickers();
-
-      // Transform to our funding rate format
+      // Initialize empty array for data
       cachedData = [];
 
-      // Process perpetual markets
-      for (const [ccxtSymbol, market] of Object.entries(exchange.markets)) {
-        const marketData = market as any;
+      try {
+        const exchange = this.getExchange(exchangeId);
 
-        // Only process perpetual/swap/future markets
-        if (marketData.type !== 'swap' && marketData.type !== 'future' && !marketData.linear) {
-          continue;
+        // Load markets if not loaded (with timeout protection)
+        if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
+          console.log(`Loading markets for ${exchangeId}...`);
+          await exchange.loadMarkets();
+          console.log(`Markets loaded for ${exchangeId}: ${Object.keys(exchange.markets).length} markets`);
         }
 
-        // Only process USDT-margined contracts (most liquid)
-        if (!ccxtSymbol.includes('USDT') && !ccxtSymbol.includes('USD')) {
-          continue;
+        // Fetch funding rates using the dedicated CCXT method
+        let fundingRates: Record<string, any> = {};
+
+        // Use fetchFundingRates - this is the most reliable method
+        if (exchange.has['fetchFundingRates']) {
+          console.log(`Fetching funding rates from ${exchangeId}...`);
+          fundingRates = await exchange.fetchFundingRates();
+          console.log(`Fetched ${Object.keys(fundingRates).length} funding rates from ${exchangeId}`);
+        } else {
+          console.log(`Exchange ${exchangeId} does not support fetchFundingRates`);
         }
 
-        // Skip inactive markets
-        if (marketData.active === false) {
-          continue;
-        }
+        // If we have funding rates from the API, use them directly
+        if (Object.keys(fundingRates).length > 0) {
+          for (const [symbol, fundingData] of Object.entries(fundingRates)) {
+            const data = fundingData as any;
 
-        // Get funding rate from fundingRates response or ticker
-        let fundingRate: number | null = null;
-        const fundingData = fundingRates[ccxtSymbol];
-        const tickerData = tickers[ccxtSymbol] as any;
+            // Only process USDT-margined contracts (most liquid)
+            if (!symbol.includes('USDT') && !symbol.includes('USD')) {
+              continue;
+            }
 
-        if (fundingData) {
-          // Use dedicated funding rate data
-          fundingRate = fundingData.fundingRate ?? null;
-        } else if (tickerData) {
-          // Fallback to parsing from ticker
-          fundingRate = this.parseFundingRate(tickerData, exchangeId);
-        }
+            // Get funding rate
+            const fundingRate = data.fundingRate;
+            if (fundingRate === null || fundingRate === undefined) continue;
 
-        // Skip if no funding rate found
-        if (fundingRate === null) continue;
+            // Convert to percentage
+            const fundingRatePercent = fundingRate * 100;
 
-        // Convert to percentage (funding rate is typically a decimal like 0.0001 = 0.01%)
-        const fundingRatePercent = fundingRate * 100;
+            // Annualized rate: assuming 3 funding settlements per day (every 8 hours)
+            const annualizedRate = fundingRatePercent * 3 * 365;
 
-        // Annualized rate: assuming 3 funding settlements per day (every 8 hours)
-        // Annual rate = daily rate * 365 = (rate * 3) * 365
-        const annualizedRate = fundingRatePercent * 3 * 365;
+            // Convert symbol to our notation
+            const standardSymbol = convertFromCCXTNotation(symbol, 'perp');
+            const baseAsset = this.extractBaseAsset(symbol);
 
-        // Convert symbol to our notation
-        const standardSymbol = convertFromCCXTNotation(ccxtSymbol, 'perp');
-        const baseAsset = this.extractBaseAsset(ccxtSymbol);
+            const fundingRateDataItem: FundingRateData = {
+              symbol: standardSymbol,
+              baseAsset,
+              exchange: exchangeId,
+              fundingRate,
+              fundingRatePercent,
+              annualizedRate,
+              nextFundingTime: data.fundingTimestamp ?? data.nextFundingTimestamp ?? null,
+              markPrice: data.markPrice ?? data.mark ?? null,
+              indexPrice: data.indexPrice ?? data.index ?? null,
+              openInterest: null, // Not typically in funding rate response
+              volume24h: null, // Not typically in funding rate response
+              timestamp: data.timestamp || Date.now(),
+            };
 
-        // Get price and volume from ticker
-        const markPrice = tickerData?.last ?? tickerData?.close ?? null;
-        const volume24h = tickerData?.quoteVolume ?? null;
-
-        // Parse open interest
-        let openInterest: number | null = null;
-        if (tickerData?.info?.openInterest) {
-          openInterest = parseFloat(tickerData.info.openInterest);
-          // Convert to USD value if we have mark price
-          if (markPrice && openInterest) {
-            openInterest = openInterest * markPrice;
+            cachedData.push(fundingRateDataItem);
           }
         }
 
-        // Get next funding time
-        let nextFundingTime: number | null = null;
-        if (fundingData?.fundingTimestamp) {
-          nextFundingTime = fundingData.fundingTimestamp;
-        } else if (tickerData) {
-          nextFundingTime = this.parseNextFundingTime(tickerData, exchangeId);
-        }
-
-        const fundingRateDataItem: FundingRateData = {
-          symbol: standardSymbol,
-          baseAsset,
-          exchange: exchangeId,
-          fundingRate,
-          fundingRatePercent,
-          annualizedRate,
-          nextFundingTime,
-          markPrice,
-          indexPrice: fundingData?.indexPrice ?? (tickerData?.info?.indexPrice ? parseFloat(tickerData.info.indexPrice) : null),
-          openInterest,
-          volume24h,
-          timestamp: tickerData?.timestamp || Date.now(),
-        };
-
-        cachedData.push(fundingRateDataItem);
+        // Log result
+        console.log(`Processed ${cachedData.length} funding rates for ${exchangeId}`);
+      } catch (error) {
+        // Log error but don't throw - return empty data instead
+        console.error(`Error fetching funding rates for ${exchangeId}:`, error instanceof Error ? error.message : error);
       }
 
       // Cache for 30 seconds (funding rates update frequently)
+      // Cache even if empty to prevent repeated failed requests
       cacheService.set(cacheKey, cachedData, 30000);
     } else {
       console.log(`Cache hit for ${cacheKey}`);
@@ -449,9 +416,33 @@ export class FundingRateService {
   async getCrossExchangeFunding(limit: number = 50): Promise<CrossExchangeFundingResponse> {
     // Fetch funding rates from all exchanges in parallel
     const exchanges = ['binance', 'bybit', 'okx', 'hyperliquid'];
-    const results = await Promise.allSettled(
+    console.log('Fetching cross-exchange funding rates...');
+
+    // Add a timeout wrapper for the entire operation
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Cross-exchange fetch timeout')), 60000);
+    });
+
+    const fetchPromise = Promise.allSettled(
       exchanges.map((ex) => this.getFundingRates(ex, 'volume', 'desc', 200))
     );
+
+    let results: PromiseSettledResult<FundingRateResponse>[];
+    try {
+      results = await Promise.race([fetchPromise, timeoutPromise]) as PromiseSettledResult<FundingRateResponse>[];
+    } catch (error) {
+      console.error('Cross-exchange fetch timed out or failed:', error);
+      // Return empty response on timeout
+      return {
+        comparisons: [],
+        count: 0,
+        exchanges,
+        timestamp: Date.now(),
+        arbitrageOpportunities: [],
+      };
+    }
+
+    console.log('Cross-exchange fetch complete, processing results...');
 
     // Collect all funding data by base asset
     const assetMap = new Map<string, CrossExchangeFunding['rates']>();
