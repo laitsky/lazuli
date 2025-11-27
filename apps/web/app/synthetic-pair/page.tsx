@@ -169,6 +169,19 @@ export default function SyntheticPairPage() {
     loadExchanges();
   }, []);
 
+  // Auto-switch to 'perp' and USDC for Hyperliquid (perpetual-only, USDC quote)
+  useEffect(() => {
+    if (selectedExchange === 'hyperliquid') {
+      if (marketType === 'spot') {
+        setMarketType('perp');
+      }
+      setQuoteFilter('USDC');
+      setSymbol1('');
+      setSymbol2('');
+      setChartData([]);
+    }
+  }, [selectedExchange]);
+
   // Load tickers when exchange or market type changes
   useEffect(() => {
     async function loadTickers() {
@@ -210,7 +223,9 @@ export default function SyntheticPairPage() {
           }
         }
 
-        setTickers(allTickers);
+        // Deduplicate tickers by symbol to prevent React key errors
+        const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
+        setTickers(uniqueTickers);
 
         // Warn if we hit the page limit
         if (currentPage > MAX_PAGES) {
@@ -417,6 +432,12 @@ export default function SyntheticPairPage() {
                     setChartData([]);
                   }}
                   className="rounded-md"
+                  disabled={selectedExchange === 'hyperliquid'}
+                  title={
+                    selectedExchange === 'hyperliquid'
+                      ? 'Hyperliquid only supports perpetual markets'
+                      : ''
+                  }
                 >
                   Spot
                 </Button>

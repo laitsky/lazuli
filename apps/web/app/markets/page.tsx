@@ -59,10 +59,14 @@ async function fetchAllTickers(exchange: SupportedExchange) {
     }
   }
 
+  // Deduplicate tickers by symbol to prevent React key errors
+  // This is especially important for Hyperliquid which may return duplicates
+  const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
+
   return {
     exchange,
-    tickers: allTickers,
-    count: allTickers.length,
+    tickers: uniqueTickers,
+    count: uniqueTickers.length,
   };
 }
 
@@ -176,10 +180,10 @@ export default async function TickersPage({ searchParams }: TickersPageProps) {
   const params = await searchParams;
   const selectedExchange = params.exchange || 'binance';
 
-  // Validate exchange
-  const validExchanges = ['binance', 'bybit', 'okx'];
+  // Validate exchange - include all supported exchanges
+  const validExchanges = ['binance', 'bybit', 'okx', 'hyperliquid'];
   const exchange = validExchanges.includes(selectedExchange)
-    ? (selectedExchange as any)
+    ? (selectedExchange as SupportedExchange)
     : 'binance';
 
   // Only fetch exchanges list for page shell - it's cached and loads instantly
