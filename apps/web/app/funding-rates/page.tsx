@@ -56,17 +56,26 @@ interface FundingRatePageProps {
 
 /**
  * Fetch funding rate data from API
+ * Handles errors gracefully by returning null values
  */
 async function fetchFundingData(exchange: SupportedExchange) {
-  const [fundingResponse, crossExchangeResponse] = await Promise.all([
-    LazuliAPI.getFundingRates(exchange, { limit: 200, sortBy: 'rate', sortOrder: 'desc' }),
-    LazuliAPI.getCrossExchangeFunding({ limit: 50 }),
-  ]);
+  try {
+    const [fundingResponse, crossExchangeResponse] = await Promise.all([
+      LazuliAPI.getFundingRates(exchange, { limit: 200, sortBy: 'rate', sortOrder: 'desc' }),
+      LazuliAPI.getCrossExchangeFunding({ limit: 50 }),
+    ]);
 
-  return {
-    funding: fundingResponse.success ? fundingResponse.data : null,
-    crossExchange: crossExchangeResponse.success ? crossExchangeResponse.data : null,
-  };
+    return {
+      funding: fundingResponse.success ? fundingResponse.data : null,
+      crossExchange: crossExchangeResponse.success ? crossExchangeResponse.data : null,
+    };
+  } catch (error) {
+    console.error('Error fetching funding data:', error);
+    return {
+      funding: null,
+      crossExchange: null,
+    };
+  }
 }
 
 /**
