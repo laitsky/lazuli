@@ -420,7 +420,7 @@ export function FundingRateClient({
     }
   }, [exchange]);
 
-  const sentimentInfo = getSentimentDisplay(data.stats.marketSentiment);
+  const sentimentInfo = getSentimentDisplay(data.stats?.marketSentiment ?? 'neutral');
 
   return (
     <div className="space-y-6">
@@ -434,7 +434,7 @@ export function FundingRateClient({
                 <div className="flex items-center gap-2">
                   <span className="font-display font-semibold">{sentimentInfo.label}</span>
                   <Badge variant="outline" className="font-mono text-xs">
-                    Avg: {formatFundingRate(data.stats.avgFundingPercent)}
+                    Avg: {formatFundingRate(data.stats?.avgFundingPercent ?? null)}
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground mt-1">{sentimentInfo.description}</p>
@@ -442,15 +442,15 @@ export function FundingRateClient({
             </div>
             <div className="hidden sm:flex items-center gap-4 text-sm">
               <div className="text-center">
-                <div className="text-green-400 font-semibold">{data.stats.positiveCount}</div>
+                <div className="text-green-400 font-semibold">{data.stats?.positiveCount ?? 0}</div>
                 <div className="text-xs text-muted-foreground">Positive</div>
               </div>
               <div className="text-center">
-                <div className="text-muted-foreground font-semibold">{data.stats.neutralCount}</div>
+                <div className="text-muted-foreground font-semibold">{data.stats?.neutralCount ?? 0}</div>
                 <div className="text-xs text-muted-foreground">Neutral</div>
               </div>
               <div className="text-center">
-                <div className="text-red-400 font-semibold">{data.stats.negativeCount}</div>
+                <div className="text-red-400 font-semibold">{data.stats?.negativeCount ?? 0}</div>
                 <div className="text-xs text-muted-foreground">Negative</div>
               </div>
             </div>
