@@ -30,9 +30,15 @@ export class OHLCVController {
       }
 
       // Validate market type parameter
-      const marketType = (req.query.type as 'spot' | 'perp') || 'spot';
+      // Hyperliquid only supports perpetual markets, so default to 'perp' for Hyperliquid
+      let marketType = (req.query.type as 'spot' | 'perp') || 'spot';
       if (marketType !== 'spot' && marketType !== 'perp') {
         return errorResponse(res, 'Market type must be "spot" or "perp"', 400);
+      }
+
+      // Hyperliquid only supports perpetual markets - auto-correct or reject spot requests
+      if (exchangeId === 'hyperliquid' && marketType === 'spot') {
+        marketType = 'perp'; // Auto-correct to perp since Hyperliquid only has perp markets
       }
 
       let supportedTimeframes: string[] = [];
@@ -42,6 +48,7 @@ export class OHLCVController {
         case 'binance':
         case 'bybit':
         case 'okx':
+        case 'hyperliquid':
           supportedTimeframes = ccxtService.getSupportedTimeframes(exchangeId, marketType);
           break;
       }
@@ -109,9 +116,15 @@ export class OHLCVController {
       }
 
       // Validate market type parameter
-      const marketType = (req.query.type as 'spot' | 'perp') || 'spot';
+      // Hyperliquid only supports perpetual markets, so auto-correct to 'perp' for Hyperliquid
+      let marketType = (req.query.type as 'spot' | 'perp') || 'spot';
       if (marketType !== 'spot' && marketType !== 'perp') {
         return errorResponse(res, 'Market type must be "spot" or "perp"', 400);
+      }
+
+      // Hyperliquid only supports perpetual markets - auto-correct spot requests
+      if (exchangeId === 'hyperliquid' && marketType === 'spot') {
+        marketType = 'perp'; // Auto-correct to perp since Hyperliquid only has perp markets
       }
 
       // Validate limit parameter
@@ -129,7 +142,8 @@ export class OHLCVController {
           case 'binance':
           case 'bybit':
           case 'okx':
-            // CCXT exchanges support both spot and perp
+          case 'hyperliquid':
+            // CCXT exchanges support both spot and perp (except Hyperliquid which is perp-only)
             candles = await ccxtService.fetchOHLCV(
               exchangeId,
               symbol,
@@ -216,9 +230,15 @@ export class OHLCVController {
       }
 
       // Validate market type parameter
-      const marketType = (req.query.type as 'spot' | 'perp') || 'spot';
+      // Hyperliquid only supports perpetual markets, so auto-correct to 'perp' for Hyperliquid
+      let marketType = (req.query.type as 'spot' | 'perp') || 'spot';
       if (marketType !== 'spot' && marketType !== 'perp') {
         return errorResponse(res, 'Market type must be "spot" or "perp"', 400);
+      }
+
+      // Hyperliquid only supports perpetual markets - auto-correct spot requests
+      if (exchangeId === 'hyperliquid' && marketType === 'spot') {
+        marketType = 'perp'; // Auto-correct to perp since Hyperliquid only has perp markets
       }
 
       // Validate limit parameter
@@ -238,6 +258,7 @@ export class OHLCVController {
               case 'binance':
               case 'bybit':
               case 'okx':
+              case 'hyperliquid':
                 candles = await ccxtService.fetchOHLCV(
                   exchangeId,
                   symbol,
