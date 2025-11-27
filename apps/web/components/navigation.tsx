@@ -27,6 +27,8 @@ import {
   Zap,
   Menu,
   X,
+  Search,
+  Command,
 } from 'lucide-react';
 
 /**
@@ -258,6 +260,36 @@ export function Navigation() {
               </span>
             </div>
           </Link>
+        </div>
+
+        {/* Command Palette Trigger */}
+        <div className="px-3 py-3 border-b border-border">
+          <button
+            onClick={() => {
+              // Dispatch keyboard event to open command palette
+              const event = new KeyboardEvent('keydown', {
+                key: 'k',
+                metaKey: true,
+                bubbles: true,
+              });
+              document.dispatchEvent(event);
+              closeMobileMenu();
+            }}
+            className={cn(
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg',
+              'text-sm text-muted-foreground',
+              'bg-muted/50 border border-border',
+              'hover:bg-accent hover:text-foreground hover:border-primary/30',
+              'transition-all duration-200'
+            )}
+            aria-label="Open command palette"
+          >
+            <Search className="h-4 w-4" />
+            <span className="flex-1 text-left text-xs">Search...</span>
+            <kbd className="flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono font-medium bg-background rounded border border-border">
+              <Command className="h-3 w-3" />K
+            </kbd>
+          </button>
         </div>
 
         {/* Navigation Links */}
