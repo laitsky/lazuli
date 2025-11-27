@@ -171,12 +171,14 @@ function FundingRateTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {data.map((item) => {
+          {data.map((item, index) => {
             const isPositive = item.fundingRatePercent > 0;
             const isStrong = Math.abs(item.fundingRatePercent) > 0.01;
+            // Use symbol + exchange + index for unique key (some exchanges may have duplicate symbols)
+            const uniqueKey = `${item.symbol}-${item.exchange}-${index}`;
 
             return (
-              <TableRow key={item.symbol} className="border-border hover:bg-accent/50">
+              <TableRow key={uniqueKey} className="border-border hover:bg-accent/50">
                 <TableCell className="font-medium">
                   <div className="flex flex-col">
                     <span className="font-mono text-sm">{item.baseAsset}</span>

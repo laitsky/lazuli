@@ -254,11 +254,14 @@ export class FundingRateService {
         }
 
         // If we have funding rates from the API, use them directly
+        // Use a Map to deduplicate by base asset (prefer USDT-margined contracts)
+        const assetMap = new Map<string, FundingRateData>();
+
         if (Object.keys(fundingRates).length > 0) {
           for (const [symbol, fundingData] of Object.entries(fundingRates)) {
             const data = fundingData as any;
 
-            // Only process USDT-margined contracts (most liquid)
+            // Only process USD-denominated contracts
             if (!symbol.includes('USDT') && !symbol.includes('USD')) {
               continue;
             }
@@ -292,8 +295,18 @@ export class FundingRateService {
               timestamp: data.timestamp || Date.now(),
             };
 
-            cachedData.push(fundingRateDataItem);
+            // Deduplicate by base asset - prefer USDT over USD contracts
+            const existing = assetMap.get(baseAsset);
+            if (!existing) {
+              assetMap.set(baseAsset, fundingRateDataItem);
+            } else if (symbol.includes('USDT') && !existing.symbol.includes('USDT')) {
+              // Prefer USDT-margined contracts (more liquid)
+              assetMap.set(baseAsset, fundingRateDataItem);
+            }
           }
+
+          // Convert map to array
+          cachedData = Array.from(assetMap.values());
         }
 
         // Log result
