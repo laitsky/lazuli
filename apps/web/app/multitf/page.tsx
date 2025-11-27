@@ -127,6 +127,18 @@ export default function MultiTFPage() {
     loadExchanges();
   }, []);
 
+  // Auto-switch to 'perp' and USDC for Hyperliquid (perpetual-only, USDC quote)
+  useEffect(() => {
+    if (selectedExchange === 'hyperliquid') {
+      if (marketType === 'spot') {
+        setMarketType('perp');
+      }
+      setQuoteFilter('USDC');
+      setSelectedSymbol('');
+      setChartsData({} as Record<Timeframe, OHLCV[]>);
+    }
+  }, [selectedExchange]);
+
   // Load tickers when exchange or market type changes
   // Fetches ALL tickers using pagination (same approach as markets page)
   useEffect(() => {
@@ -170,7 +182,9 @@ export default function MultiTFPage() {
           }
         }
 
-        setTickers(allTickers);
+        // Deduplicate tickers by symbol to prevent React key errors
+        const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
+        setTickers(uniqueTickers);
       } catch (err) {
         setError('Failed to load tickers');
       } finally {
@@ -416,6 +430,12 @@ export default function MultiTFPage() {
                     setChartsData({} as Record<Timeframe, OHLCV[]>);
                   }}
                   className="rounded-md"
+                  disabled={selectedExchange === 'hyperliquid'}
+                  title={
+                    selectedExchange === 'hyperliquid'
+                      ? 'Hyperliquid only supports perpetual markets'
+                      : ''
+                  }
                 >
                   Spot
                 </Button>

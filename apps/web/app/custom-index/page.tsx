@@ -63,6 +63,7 @@ export default function CustomIndexPage() {
   const [indexName, setIndexName] = useState<string>('My Custom Index');
   const [selectedAssets, setSelectedAssets] = useState<IndexAsset[]>([]);
   const [indexResult, setIndexResult] = useState<CustomIndexResponse | null>(null);
+  const [marketType, setMarketType] = useState<'spot' | 'perp'>('spot');
 
   // Ref for scrolling to results
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -187,6 +188,18 @@ export default function CustomIndexPage() {
     loadExchanges();
   }, []);
 
+  // Auto-switch to 'perp' for Hyperliquid (which only supports perpetual markets)
+  // Also set quoteFilter state if we add it, but for now custom-index hardcodes USDT filter
+  useEffect(() => {
+    if (selectedExchange === 'hyperliquid') {
+      if (marketType === 'spot') {
+        setMarketType('perp');
+      }
+      setSelectedAssets([]);
+      setIndexResult(null);
+    }
+  }, [selectedExchange]);
+
   // Load tickers
   useEffect(() => {
     async function loadTickers() {
@@ -205,7 +218,7 @@ export default function CustomIndexPage() {
             limit: 500,
             sortBy: 'volume',
             sortOrder: 'desc',
-            type: 'spot',
+            type: marketType,
           });
 
           if (!response.success || !response.data) {
@@ -218,7 +231,10 @@ export default function CustomIndexPage() {
           currentPage++;
         }
 
-        setTickers(allTickers);
+        // Deduplicate tickers by symbol to prevent React key errors
+        // This is especially important for Hyperliquid which may return duplicates
+        const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
+        setTickers(uniqueTickers);
       } catch {
         setError('Failed to load tickers');
       } finally {
@@ -226,18 +242,20 @@ export default function CustomIndexPage() {
       }
     }
     loadTickers();
-  }, [selectedExchange]);
+  }, [selectedExchange, marketType]);
 
-  // Filter tickers for search - show all USDT pairs
+  // Filter tickers for search - show USDT pairs (or USDC for Hyperliquid)
   const filteredTickers = useMemo(() => {
+    // Hyperliquid uses USDC, other exchanges use USDT
+    const targetQuote = selectedExchange === 'hyperliquid' ? 'USDC' : 'USDT';
     return tickers.filter((t) => {
       const matchesSearch =
         !searchQuery || t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
-      const isUSDT = getQuoteCurrency(t.symbol).toUpperCase() === 'USDT';
+      const matchesQuote = getQuoteCurrency(t.symbol).toUpperCase() === targetQuote;
       const notSelected = !selectedAssets.some((a) => a.symbol === t.symbol);
-      return matchesSearch && isUSDT && notSelected;
+      return matchesSearch && matchesQuote && notSelected;
     });
-  }, [tickers, searchQuery, selectedAssets]);
+  }, [tickers, searchQuery, selectedAssets, selectedExchange]);
 
   // Calculate total weight
   const totalWeight = useMemo(() => {
@@ -282,7 +300,10 @@ export default function CustomIndexPage() {
    * Quick-add popular asset
    */
   const quickAddAsset = (base: string) => {
-    const symbol = `${base}-USDT`;
+    // Use correct symbol format based on market type and exchange
+    // Hyperliquid uses USDC, other exchanges use USDT
+    const quote = selectedExchange === 'hyperliquid' ? 'USDC' : 'USDT';
+    const symbol = marketType === 'spot' ? `${base}-${quote}` : `${base}${quote}.P`;
     const ticker = tickers.find((t) => t.symbol === symbol);
     if (ticker) {
       addAsset(symbol);
@@ -470,43 +491,45 @@ export default function CustomIndexPage() {
         </div>
       </div>
 
-      {/* Preset Templates */}
-      <Card className="glass border-white/5">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Layers className="h-4 w-4 text-primary" />
-            Start from Template
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {PRESET_TEMPLATES.map((template) => (
-              <button
-                key={template.name}
-                onClick={() => applyTemplate(template)}
-                className="text-left p-3 rounded-lg border border-white/10 hover:border-primary/50 hover:bg-primary/5 transition-all group"
-              >
-                <div className="font-medium text-sm group-hover:text-primary transition-colors">
-                  {template.name}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">{template.description}</div>
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {template.assets.slice(0, 3).map((a) => (
-                    <span key={a.symbol} className="text-xs bg-muted/50 px-1.5 py-0.5 rounded">
-                      {a.symbol.replace('-USDT', '')}
-                    </span>
-                  ))}
-                  {template.assets.length > 3 && (
-                    <span className="text-xs text-muted-foreground">
-                      +{template.assets.length - 3}
-                    </span>
-                  )}
-                </div>
-              </button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Preset Templates - Only show for spot markets */}
+      {marketType === 'spot' && (
+        <Card className="glass border-white/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Layers className="h-4 w-4 text-primary" />
+              Start from Template
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {PRESET_TEMPLATES.map((template) => (
+                <button
+                  key={template.name}
+                  onClick={() => applyTemplate(template)}
+                  className="text-left p-3 rounded-lg border border-white/10 hover:border-primary/50 hover:bg-primary/5 transition-all group"
+                >
+                  <div className="font-medium text-sm group-hover:text-primary transition-colors">
+                    {template.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">{template.description}</div>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {template.assets.slice(0, 3).map((a) => (
+                      <span key={a.symbol} className="text-xs bg-muted/50 px-1.5 py-0.5 rounded">
+                        {a.symbol.replace('-USDT', '')}
+                      </span>
+                    ))}
+                    {template.assets.length > 3 && (
+                      <span className="text-xs text-muted-foreground">
+                        +{template.assets.length - 3}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Two-Panel Layout */}
       <div className="grid lg:grid-cols-5 gap-6">
@@ -531,8 +554,8 @@ export default function CustomIndexPage() {
               <CardTitle className="text-sm">Add Assets</CardTitle>
             </CardHeader>
             <CardContent className="pt-0 space-y-4">
-              {/* Exchange & Timeframe in same row */}
-              <div className="grid grid-cols-2 gap-4">
+              {/* Exchange, Market Type & Timeframe */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">Exchange</label>
                   <div className="flex gap-1.5 mt-1.5 flex-wrap">
@@ -550,6 +573,41 @@ export default function CustomIndexPage() {
                         {ex.name}
                       </Button>
                     ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground">Market Type</label>
+                  <div className="flex p-1 bg-muted/50 rounded-lg w-fit mt-1.5">
+                    <Button
+                      variant={marketType === 'spot' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      onClick={() => {
+                        setMarketType('spot');
+                        setSelectedAssets([]);
+                        setIndexResult(null);
+                      }}
+                      className="rounded-md"
+                      disabled={selectedExchange === 'hyperliquid'}
+                      title={
+                        selectedExchange === 'hyperliquid'
+                          ? 'Hyperliquid only supports perpetual markets'
+                          : ''
+                      }
+                    >
+                      Spot
+                    </Button>
+                    <Button
+                      variant={marketType === 'perp' ? 'secondary' : 'ghost'}
+                      size="sm"
+                      onClick={() => {
+                        setMarketType('perp');
+                        setSelectedAssets([]);
+                        setIndexResult(null);
+                      }}
+                      className="rounded-md"
+                    >
+                      Perpetual
+                    </Button>
                   </div>
                 </div>
                 <div>
@@ -578,7 +636,11 @@ export default function CustomIndexPage() {
                 </label>
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {POPULAR_ASSETS.map((asset) => {
-                    const isAdded = selectedAssets.some((a) => a.symbol === `${asset}-USDT`);
+                    // Check using correct symbol format based on market type and exchange
+                    const quote = selectedExchange === 'hyperliquid' ? 'USDC' : 'USDT';
+                    const symbol =
+                      marketType === 'spot' ? `${asset}-${quote}` : `${asset}${quote}.P`;
+                    const isAdded = selectedAssets.some((a) => a.symbol === symbol);
                     return (
                       <Button
                         key={asset}
@@ -633,7 +695,8 @@ export default function CustomIndexPage() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                {filteredTickers.length} USDT pairs available
+                {filteredTickers.length} {selectedExchange === 'hyperliquid' ? 'USDC' : 'USDT'}{' '}
+                pairs available
               </p>
             </CardContent>
           </Card>

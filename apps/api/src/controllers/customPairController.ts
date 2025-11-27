@@ -167,8 +167,11 @@ export class CustomPairController {
         case 'binance':
         case 'bybit':
         case 'okx':
+        case 'hyperliquid':
           candles = await ccxtService.fetchOHLCV(exchangeId, symbol, timeframe, marketType, limit);
           break;
+        default:
+          throw new Error(`Exchange ${exchangeId} not supported`);
       }
 
       // Cache the results for 1 minute
