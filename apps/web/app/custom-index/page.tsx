@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { PageHeader } from '@/components/page-header';
 import { LazuliAPI, CustomIndexRequest } from '@/lib/api-client';
 import {
   SupportedExchange,
@@ -26,6 +27,7 @@ import {
   FileImage,
   FileSpreadsheet,
   Layers,
+  PieChart,
 } from 'lucide-react';
 import {
   LineChart,
@@ -36,7 +38,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  PieChart,
+  PieChart as RechartsPieChart,
   Pie,
   Cell,
 } from 'recharts';
@@ -472,24 +474,13 @@ export default function CustomIndexPage() {
   }, [indexResult]);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      {/* Hero */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-primary/5 via-background to-background border border-white/10 p-6">
-        <div className="absolute top-0 right-0 -mt-16 -mr-16 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl opacity-50" />
-        <div className="relative z-10 flex items-center gap-4">
-          <div className="p-3 rounded-2xl bg-primary/10 text-primary">
-            <BarChart3 className="h-7 w-7" />
-          </div>
-          <div>
-            <h1 className="text-3xl md:text-4xl font-display font-bold tracking-tight">
-              Custom Index
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Build weighted baskets and compare to BTC, ETH, SOL
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-6">
+      {/* Page Header */}
+      <PageHeader
+        icon={PieChart}
+        title="Custom Index"
+        description="Build weighted baskets of assets and track performance. Compare your custom index against BTC, ETH, and SOL."
+      />
 
       {/* Preset Templates - Only show for spot markets */}
       {marketType === 'spot' && (
@@ -789,7 +780,7 @@ export default function CustomIndexPage() {
               ) : (
                 <div className="h-48">
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
+                    <RechartsPieChart>
                       <Pie
                         data={pieData}
                         cx="50%"
@@ -812,7 +803,7 @@ export default function CustomIndexPage() {
                           fontSize: '12px',
                         }}
                       />
-                    </PieChart>
+                    </RechartsPieChart>
                   </ResponsiveContainer>
                 </div>
               )}
