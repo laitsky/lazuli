@@ -9,6 +9,7 @@ import { customIndexController } from '../controllers/customIndexController';
 import { superEmaController } from '../controllers/superEmaController';
 import { screenerController } from '../controllers/screenerController';
 import { fundingRateController } from '../controllers/fundingRateController';
+import { technicalIndicatorController } from '../controllers/technicalIndicatorController';
 
 // Create Express router for API v1 endpoints
 const router: RouterType = Router();
@@ -61,6 +62,11 @@ router.post('/custom-index', async (req, res) => {
 // GET /api/v1/superema/:exchange/:symbol - Get SuperEMA data (1-400 EMA periods)
 router.get('/superema/:exchange/:symbol', async (req, res) => {
   await superEmaController.getSuperEMA(req, res);
+});
+
+// GET /api/v1/indicators/:exchange/:symbol - Get technical indicators (SMA, EMA, RSI)
+router.get('/indicators/:exchange/:symbol', async (req, res) => {
+  await technicalIndicatorController.getIndicators(req, res);
 });
 
 // GET /api/v1/screener/:exchange - Get all altcoins with performance data for Alt Screener
