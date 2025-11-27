@@ -13,7 +13,9 @@
   },
   "dependencies": {
     "@lazuli/shared": "*",
+    "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-slot": "^1.2.4",
+    "cmdk": "^1.0.0",
     "@tanstack/react-virtual": "^3.13.12",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

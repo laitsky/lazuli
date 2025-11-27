@@ -24,6 +24,9 @@ export function ExchangeLogo({ exchangeId, className, ...props }: ExchangeLogoPr
   } else if (id === 'hyperliquid') {
     src = 'https://avatars.githubusercontent.com/u/125463758?s=200&v=4';
     alt = 'Hyperliquid Logo';
+  } else if (id === 'upbit') {
+    src = 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Upbit_Logo.svg/1024px-Upbit_Logo.svg.png';
+    alt = 'Upbit Logo';
   } else {
     // Fallback for unknown exchanges
     return (

@@ -45,6 +45,13 @@ export class ExchangeController {
           hasSpot: false,
           hasPerp: true,
         },
+        {
+          name: 'Upbit',
+          id: 'upbit',
+          supported: true,
+          hasSpot: true,
+          hasPerp: false,
+        },
       ];
 
       return successResponse(res, exchanges);

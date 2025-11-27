@@ -168,6 +168,7 @@ export class CustomPairController {
         case 'bybit':
         case 'okx':
         case 'hyperliquid':
+        case 'upbit':
           candles = await ccxtService.fetchOHLCV(exchangeId, symbol, timeframe, marketType, limit);
           break;
         default:
