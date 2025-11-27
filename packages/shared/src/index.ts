@@ -342,3 +342,111 @@ export interface AltScreenerResponse {
     topLoser: string; // Worst performing symbol
   };
 }
+
+// ============================================================================
+// Funding Rate Analytics Types
+// ============================================================================
+
+/**
+ * Funding rate data for a single perpetual contract
+ *
+ * Funding rate is a periodic payment between long and short traders in perpetual futures.
+ * - Positive rate: Longs pay shorts (bullish sentiment, more longs)
+ * - Negative rate: Shorts pay longs (bearish sentiment, more shorts)
+ *
+ * Traders use funding rates for:
+ * 1. Arbitrage: Earn passive income by going long spot + short perp when funding is positive
+ * 2. Sentiment analysis: Extreme funding often precedes market reversals
+ * 3. Cross-exchange arbitrage: Compare funding across exchanges
+ */
+export interface FundingRateData {
+  symbol: string; // Trading pair symbol (e.g., BTCUSDT.P)
+  baseAsset: string; // Base currency (e.g., BTC)
+  exchange: string; // Exchange identifier
+  fundingRate: number; // Current funding rate (e.g., 0.0001 = 0.01%)
+  fundingRatePercent: number; // Funding rate as percentage (e.g., 0.01)
+  annualizedRate: number; // Annualized rate assuming 3x daily (e.g., 10.95 for 0.01% * 3 * 365)
+  nextFundingTime: number | null; // Timestamp of next funding settlement
+  markPrice: number | null; // Current mark price
+  indexPrice: number | null; // Current index (spot) price
+  openInterest: number | null; // Open interest in USD
+  volume24h: number | null; // 24h trading volume in USD
+  timestamp: number; // Data timestamp
+}
+
+/**
+ * Cross-exchange funding rate comparison for a single asset
+ * Useful for identifying arbitrage opportunities
+ */
+export interface CrossExchangeFunding {
+  baseAsset: string; // Base currency (e.g., BTC)
+  rates: {
+    exchange: string; // Exchange identifier
+    symbol: string; // Symbol on that exchange
+    fundingRate: number; // Current funding rate
+    fundingRatePercent: number; // Funding rate as percentage
+    annualizedRate: number; // Annualized rate
+    markPrice: number | null; // Mark price on this exchange
+  }[];
+  spread: number; // Max - Min funding rate spread
+  maxExchange: string; // Exchange with highest funding
+  minExchange: string; // Exchange with lowest funding
+  arbitrageOpportunity: boolean; // True if spread is significant (>0.02%)
+}
+
+/**
+ * Funding rate sentiment indicator
+ */
+export type FundingSentiment = 'extremely_bullish' | 'bullish' | 'neutral' | 'bearish' | 'extremely_bearish';
+
+/**
+ * Market funding statistics
+ */
+export interface FundingMarketStats {
+  totalPairs: number; // Total perpetual pairs analyzed
+  positiveCount: number; // Pairs with positive funding
+  negativeCount: number; // Pairs with negative funding
+  neutralCount: number; // Pairs with near-zero funding
+  avgFundingRate: number; // Average funding rate across all pairs
+  avgFundingPercent: number; // Average funding as percentage
+  marketSentiment: FundingSentiment; // Overall market sentiment
+  highestFunding: {
+    symbol: string;
+    rate: number;
+    percent: number;
+  };
+  lowestFunding: {
+    symbol: string;
+    rate: number;
+    percent: number;
+  };
+}
+
+/**
+ * Funding rate analytics response
+ */
+export interface FundingRateResponse {
+  exchange: string; // Exchange identifier
+  fundingRates: FundingRateData[]; // Array of funding rate data
+  count: number; // Number of pairs returned
+  stats: FundingMarketStats; // Market statistics
+  timestamp: number; // Response timestamp
+}
+
+/**
+ * Cross-exchange funding rate comparison response
+ */
+export interface CrossExchangeFundingResponse {
+  comparisons: CrossExchangeFunding[]; // Cross-exchange comparisons
+  count: number; // Number of assets compared
+  exchanges: string[]; // Exchanges included in comparison
+  timestamp: number; // Response timestamp
+  arbitrageOpportunities: {
+    // Top arbitrage opportunities
+    asset: string;
+    spread: number;
+    longExchange: string; // Exchange to go long (low funding)
+    shortExchange: string; // Exchange to go short (high funding)
+    estimatedDailyYield: number; // Estimated daily yield from funding arbitrage
+  }[];
+}

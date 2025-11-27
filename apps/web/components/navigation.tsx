@@ -27,6 +27,7 @@ import {
   Zap,
   Menu,
   X,
+  Percent,
 } from 'lucide-react';
 
 /**
@@ -52,6 +53,11 @@ const navItems = [
     href: '/alt-screener',
     label: 'Alt Screener',
     icon: Zap,
+  },
+  {
+    href: '/funding-rates',
+    label: 'Funding Rates',
+    icon: Percent,
   },
   {
     href: '/multitf',
