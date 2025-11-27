@@ -223,7 +223,7 @@ function AssetComparisonCard({ comparison }: { comparison: CrossExchangeFunding 
         <div className="space-y-2">
           {sortedRates.map((rate, index) => (
             <div
-              key={rate.exchange}
+              key={`${rate.exchange}-${index}`}
               className="flex items-center justify-between p-2 rounded-lg bg-background/50"
             >
               <div className="flex items-center gap-2">
@@ -441,24 +441,24 @@ export function ArbitrageClient({ initialData }: ArbitrageClientProps) {
       </Card>
 
       {/* Content based on view mode */}
-      {viewMode === 'table' ? (
-        <ArbitrageOpportunityTable
-          opportunities={filteredAndSortedOpportunities}
-          comparisons={data.comparisons}
-          sortField={sortField}
-          sortOrder={sortOrder}
-          onSort={handleSort}
-        />
+      {filteredAndSortedOpportunities.length > 0 ? (
+        viewMode === 'table' ? (
+          <ArbitrageOpportunityTable
+            opportunities={filteredAndSortedOpportunities}
+            comparisons={data.comparisons}
+            sortField={sortField}
+            sortOrder={sortOrder}
+            onSort={handleSort}
+          />
+        ) : (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {filteredComparisons.map((comparison) => (
+              <AssetComparisonCard key={comparison.baseAsset} comparison={comparison} />
+            ))}
+          </div>
+        )
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredComparisons.map((comparison) => (
-            <AssetComparisonCard key={comparison.baseAsset} comparison={comparison} />
-          ))}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {filteredAndSortedOpportunities.length === 0 && (
+        /* Empty state */
         <Card className="glass border-white/5">
           <CardContent className="py-12 text-center">
             <p className="text-muted-foreground">
