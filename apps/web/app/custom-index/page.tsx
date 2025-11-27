@@ -202,6 +202,17 @@ export default function CustomIndexPage() {
     }
   }, [selectedExchange]);
 
+  // Auto-switch to 'spot' for Upbit (which only supports spot markets)
+  useEffect(() => {
+    if (selectedExchange === 'upbit') {
+      if (marketType === 'perp') {
+        setMarketType('spot');
+      }
+      setSelectedAssets([]);
+      setIndexResult(null);
+    }
+  }, [selectedExchange]);
+
   // Load tickers
   useEffect(() => {
     async function loadTickers() {
@@ -596,6 +607,12 @@ export default function CustomIndexPage() {
                         setIndexResult(null);
                       }}
                       className="rounded-md"
+                      disabled={selectedExchange === 'upbit'}
+                      title={
+                        selectedExchange === 'upbit'
+                          ? 'Upbit only supports spot markets'
+                          : ''
+                      }
                     >
                       Perpetual
                     </Button>
