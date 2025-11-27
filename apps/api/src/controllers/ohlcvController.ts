@@ -41,6 +41,11 @@ export class OHLCVController {
         marketType = 'perp'; // Auto-correct to perp since Hyperliquid only has perp markets
       }
 
+      // Upbit only supports spot markets - auto-correct perp requests
+      if (exchangeId === 'upbit' && marketType === 'perp') {
+        marketType = 'spot'; // Auto-correct to spot since Upbit only has spot markets
+      }
+
       let supportedTimeframes: string[] = [];
 
       // Get supported timeframes based on exchange
@@ -49,6 +54,7 @@ export class OHLCVController {
         case 'bybit':
         case 'okx':
         case 'hyperliquid':
+        case 'upbit':
           supportedTimeframes = ccxtService.getSupportedTimeframes(exchangeId, marketType);
           break;
       }
@@ -127,6 +133,11 @@ export class OHLCVController {
         marketType = 'perp'; // Auto-correct to perp since Hyperliquid only has perp markets
       }
 
+      // Upbit only supports spot markets - auto-correct perp requests
+      if (exchangeId === 'upbit' && marketType === 'perp') {
+        marketType = 'spot'; // Auto-correct to spot since Upbit only has spot markets
+      }
+
       // Validate limit parameter
       const limit = validateInteger(req.query.limit, 100, 1, 1000);
 
@@ -143,7 +154,8 @@ export class OHLCVController {
           case 'bybit':
           case 'okx':
           case 'hyperliquid':
-            // CCXT exchanges support both spot and perp (except Hyperliquid which is perp-only)
+          case 'upbit':
+            // CCXT exchanges support both spot and perp (except Hyperliquid which is perp-only, Upbit which is spot-only)
             candles = await ccxtService.fetchOHLCV(
               exchangeId,
               symbol,
@@ -241,6 +253,11 @@ export class OHLCVController {
         marketType = 'perp'; // Auto-correct to perp since Hyperliquid only has perp markets
       }
 
+      // Upbit only supports spot markets - auto-correct perp requests
+      if (exchangeId === 'upbit' && marketType === 'perp') {
+        marketType = 'spot'; // Auto-correct to spot since Upbit only has spot markets
+      }
+
       // Validate limit parameter
       const limit = validateInteger(req.query.limit, 100, 1, 1000);
 
@@ -259,6 +276,7 @@ export class OHLCVController {
               case 'bybit':
               case 'okx':
               case 'hyperliquid':
+              case 'upbit':
                 candles = await ccxtService.fetchOHLCV(
                   exchangeId,
                   symbol,

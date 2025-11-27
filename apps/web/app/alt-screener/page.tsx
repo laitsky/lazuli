@@ -207,8 +207,9 @@ function ScreenerLoadingFallback() {
 export default async function AltScreenerPage({ searchParams }: AltScreenerPageProps) {
   const params = await searchParams;
 
-  // Validate exchange
-  const validExchanges = ['binance', 'bybit', 'okx'];
+  // Validate exchange (excluding hyperliquid which is perp-only)
+  // Upbit is included as it has spot markets
+  const validExchanges = ['binance', 'bybit', 'okx', 'upbit'];
   const selectedExchange = params.exchange || 'binance';
   const exchange = validExchanges.includes(selectedExchange)
     ? (selectedExchange as SupportedExchange)
@@ -220,9 +221,10 @@ export default async function AltScreenerPage({ searchParams }: AltScreenerPageP
   const base = validBases.includes(selectedBase) ? (selectedBase as BaseCurrency) : 'USD';
 
   // Fetch exchanges list (cached)
+  // Exclude hyperliquid (perp only) - Upbit is included as it has spot markets
   const exchangesResponse = await LazuliAPI.getExchanges();
   const exchanges = exchangesResponse.success
-    ? exchangesResponse.data.filter((e) => e.id !== 'hyperliquid') // Exclude hyperliquid (perp only)
+    ? exchangesResponse.data.filter((e) => e.id !== 'hyperliquid')
     : [];
 
   return (

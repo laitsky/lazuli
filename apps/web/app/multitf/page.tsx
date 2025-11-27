@@ -40,7 +40,7 @@ export default function MultiTFPage() {
    * Longer timeframes need more candles to show meaningful historical data
    *
    * Uses maximum allowed by each exchange's API
-   * Binance: 1000, Bybit: 1000, OKX: 300
+   * Binance: 1000, Bybit: 1000, OKX: 300, Hyperliquid: 1000, Upbit: 200
    */
   const getCandleLimit = (exchange: SupportedExchange): number => {
     const limits: Record<SupportedExchange, number> = {
@@ -48,6 +48,7 @@ export default function MultiTFPage() {
       bybit: 1000,
       okx: 300,
       hyperliquid: 1000,
+      upbit: 200, // Upbit API limit is 200 candles per request
     };
     return limits[exchange] || 1000;
   };
@@ -135,6 +136,20 @@ export default function MultiTFPage() {
         setMarketType('perp');
       }
       setQuoteFilter('USDC');
+      setSelectedSymbol('');
+      setChartsData({} as Record<Timeframe, OHLCV[]>);
+    }
+  }, [selectedExchange]);
+
+  // Auto-switch to 'spot' for Upbit (spot-only exchange)
+  // Upbit uses KRW (Korean Won) as primary quote, but also has BTC pairs
+  useEffect(() => {
+    if (selectedExchange === 'upbit') {
+      if (marketType === 'perp') {
+        setMarketType('spot');
+      }
+      // KRW is the most common on Upbit, but USDT and BTC pairs also exist
+      setQuoteFilter('KRW');
       setSelectedSymbol('');
       setChartsData({} as Record<Timeframe, OHLCV[]>);
     }
@@ -438,6 +453,12 @@ export default function MultiTFPage() {
                     setChartsData({} as Record<Timeframe, OHLCV[]>);
                   }}
                   className="rounded-md"
+                  disabled={selectedExchange === 'upbit'}
+                  title={
+                    selectedExchange === 'upbit'
+                      ? 'Upbit only supports spot markets'
+                      : ''
+                  }
                 >
                   Perpetual
                 </Button>
