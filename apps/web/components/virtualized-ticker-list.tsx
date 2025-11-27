@@ -5,6 +5,19 @@ import { useRef } from 'react';
 import { Ticker } from '@lazuli/shared';
 
 /**
+ * Row height constant - must match the actual rendered row height
+ * This is used both by the virtualizer and skeleton to prevent layout shifts
+ * Height breakdown: py-2 (8px top + 8px bottom) + text line-height (~20px) + borders = 44px
+ */
+const ROW_HEIGHT = 44;
+
+/**
+ * Number of skeleton rows to show during loading
+ * Should roughly fill the visible area (max-h-48 = 192px / 44px ≈ 4 rows)
+ */
+const SKELETON_COUNT = 4;
+
+/**
  * Props for VirtualizedTickerList component
  */
 interface VirtualizedTickerListProps {
@@ -36,11 +49,11 @@ export function VirtualizedTickerList({
 }: VirtualizedTickerListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
 
-  // Configure virtualizer
+  // Configure virtualizer with consistent row height
   const virtualizer = useVirtualizer({
     count: tickers.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 44, // Height of each item in pixels (py-2 + padding)
+    estimateSize: () => ROW_HEIGHT, // Uses shared constant to ensure consistency
     overscan: 5, // Number of items to render outside viewport for smooth scrolling
   });
 
@@ -52,9 +65,31 @@ export function VirtualizedTickerList({
       aria-label={`${ariaLabel} ticker list`}
     >
       {loading ? (
-        <p className="text-sm text-muted-foreground text-center py-4">Loading tickers...</p>
+        // Skeleton rows with exact same height as rendered rows to prevent layout shift
+        <div
+          role="status"
+          aria-label="Loading tickers"
+          style={{ height: `${ROW_HEIGHT * SKELETON_COUNT}px` }}
+        >
+          {Array.from({ length: SKELETON_COUNT }).map((_, index) => (
+            <div
+              key={index}
+              className="px-3 py-2 rounded"
+              style={{ height: `${ROW_HEIGHT}px`, boxSizing: 'border-box' }}
+            >
+              {/* Animated skeleton bar matching text position and approximate width */}
+              <div className="h-5 w-24 bg-muted animate-pulse rounded" />
+            </div>
+          ))}
+        </div>
       ) : tickers.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-4">No tickers found</p>
+        // Empty state with height matching skeleton to maintain consistent container size
+        <div
+          className="flex items-center justify-center"
+          style={{ height: `${ROW_HEIGHT * SKELETON_COUNT}px` }}
+        >
+          <p className="text-sm text-muted-foreground text-center">No tickers found</p>
+        </div>
       ) : (
         <div
           style={{
@@ -79,6 +114,8 @@ export function VirtualizedTickerList({
                   top: 0,
                   left: 0,
                   width: '100%',
+                  height: `${ROW_HEIGHT}px`, // Fixed height prevents layout variations
+                  boxSizing: 'border-box',
                   transform: `translateY(${virtualItem.start}px)`,
                 }}
                 role="option"
