@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Navigation } from '@/components/navigation';
+import { CommandPalette } from '@/components/command-palette';
 import { Outfit, Fira_Code } from 'next/font/google';
 import localFont from 'next/font/local';
 
@@ -66,6 +67,8 @@ export default function RootLayout({
     <html lang="en" className={`${clashDisplay.variable} ${outfit.variable} ${firaCode.variable}`}>
       <body className="antialiased font-sans min-h-screen bg-background text-foreground">
         <Navigation />
+        {/* Global Command Palette - Cmd+K / Ctrl+K to open */}
+        <CommandPalette />
         {/* Main content area with left margin for sidebar on desktop */}
         {/* Mobile: full width with top padding, Desktop (lg): 280px left margin for sidebar */}
         <main className="min-h-screen px-4 pt-20 pb-8 lg:pt-8 lg:ml-[280px] lg:px-8 relative">
