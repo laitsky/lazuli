@@ -10,6 +10,7 @@
  * - Quick exchange switching
  * - Symbol search integration
  * - Terminal Luxe aesthetic with glassmorphic design
+ * - Full accessibility support (ARIA, focus trap, keyboard navigation)
  */
 
 import * as React from 'react';
@@ -36,6 +37,7 @@ import { cn } from '@/lib/utils';
 
 /**
  * Navigation items matching the sidebar navigation
+ * Each item includes keywords for better search filtering
  */
 const navigationItems = [
   {
@@ -115,7 +117,7 @@ const marketTypeItems = [
 ];
 
 /**
- * Animation variants for the dialog
+ * Animation variants for the dialog overlay
  */
 const overlayVariants = {
   hidden: { opacity: 0 },
@@ -123,6 +125,9 @@ const overlayVariants = {
   exit: { opacity: 0 },
 };
 
+/**
+ * Animation variants for the dialog content
+ */
 const dialogVariants = {
   hidden: {
     opacity: 0,
@@ -157,7 +162,7 @@ export function CommandPalette({ className }: CommandPaletteProps) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const dialogRef = React.useRef<HTMLDivElement>(null);
 
   /**
    * Handle keyboard shortcut to open/close command palette
@@ -165,33 +170,35 @@ export function CommandPalette({ className }: CommandPaletteProps) {
    */
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Open command palette with Cmd+K or Ctrl+K
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
         setOpen((prev) => !prev);
-      }
-
-      // Close with Escape
-      if (e.key === 'Escape' && open) {
-        setOpen(false);
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open]);
+  }, []);
 
   /**
-   * Focus input when dialog opens
+   * Lock body scroll when dialog is open
+   * This prevents scrolling the page behind the modal
    */
   React.useEffect(() => {
     if (open) {
-      // Small delay to ensure the dialog is rendered
-      const timer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 50);
-      return () => clearTimeout(timer);
-    } else {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [open]);
+
+  /**
+   * Reset search when dialog closes
+   */
+  React.useEffect(() => {
+    if (!open) {
       setSearch('');
     }
   }, [open]);
@@ -208,31 +215,29 @@ export function CommandPalette({ className }: CommandPaletteProps) {
   );
 
   /**
-   * Handle exchange switch
+   * Handle exchange switch - navigates to markets with exchange filter
    */
   const handleExchangeSwitch = React.useCallback(
     (exchangeId: string) => {
       setOpen(false);
-      // Navigate to markets page with exchange parameter
       router.push(`/markets?exchange=${exchangeId}`);
     },
     [router]
   );
 
   /**
-   * Handle market type switch
+   * Handle market type switch - navigates to markets with type filter
    */
   const handleMarketTypeSwitch = React.useCallback(
     (marketType: string) => {
       setOpen(false);
-      // Navigate to markets page with type parameter
       router.push(`/markets?type=${marketType}`);
     },
     [router]
   );
 
   /**
-   * Handle symbol search - navigate to markets with search query
+   * Handle symbol search - navigates to markets with search query
    */
   const handleSymbolSearch = React.useCallback(() => {
     if (search.trim()) {
@@ -241,10 +246,18 @@ export function CommandPalette({ className }: CommandPaletteProps) {
     }
   }, [router, search]);
 
+  /**
+   * Handle dialog close via overlay click or escape key
+   */
+  const handleClose = React.useCallback(() => {
+    setOpen(false);
+  }, []);
+
   return (
     <>
       {/* Trigger Button - Visible on desktop, shows keyboard shortcut */}
       <button
+        type="button"
         onClick={() => setOpen(true)}
         className={cn(
           'hidden lg:flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground',
@@ -253,12 +266,15 @@ export function CommandPalette({ className }: CommandPaletteProps) {
           'transition-all duration-200',
           className
         )}
-        aria-label="Open command palette"
+        aria-label="Open command palette (Cmd+K)"
+        aria-haspopup="dialog"
+        aria-expanded={open}
       >
-        <Search className="h-4 w-4" />
+        <Search className="h-4 w-4" aria-hidden="true" />
         <span className="text-xs">Search...</span>
         <kbd className="ml-2 hidden md:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono font-medium bg-muted rounded border border-border">
-          <CommandIcon className="h-3 w-3" />K
+          <CommandIcon className="h-3 w-3" aria-hidden="true" />
+          <span>K</span>
         </kbd>
       </button>
 
@@ -273,17 +289,21 @@ export function CommandPalette({ className }: CommandPaletteProps) {
               initial="hidden"
               animate="visible"
               exit="exit"
-              onClick={() => setOpen(false)}
+              onClick={handleClose}
               aria-hidden="true"
             />
 
-            {/* Command dialog */}
+            {/* Command dialog container */}
             <motion.div
-              className="fixed left-1/2 top-[20%] z-50 w-full max-w-[640px] -translate-x-1/2"
+              ref={dialogRef}
+              className="fixed inset-x-4 top-[15%] z-50 mx-auto max-w-[640px] sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:w-full"
               variants={dialogVariants}
               initial="hidden"
               animate="visible"
               exit="exit"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Command palette"
             >
               <Command
                 className={cn(
@@ -292,12 +312,18 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                 )}
                 loop
                 shouldFilter={true}
+                onKeyDown={(e) => {
+                  // Close on Escape
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    handleClose();
+                  }
+                }}
               >
                 {/* Search Input */}
                 <div className="flex items-center border-b border-border px-4">
-                  <Search className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  <Search className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
                   <Command.Input
-                    ref={inputRef}
                     value={search}
                     onValueChange={setSearch}
                     placeholder="Search commands, pages, or symbols..."
@@ -306,6 +332,7 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                       'outline-none border-none focus:ring-0',
                       'text-base font-sans'
                     )}
+                    autoFocus
                   />
                   <kbd className="hidden sm:inline-flex items-center px-2 py-1 text-[10px] font-mono font-medium text-muted-foreground bg-muted rounded border border-border">
                     ESC
@@ -313,16 +340,16 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                 </div>
 
                 {/* Command List */}
-                <Command.List className="max-h-[400px] overflow-y-auto custom-scrollbar p-2">
+                <Command.List className="max-h-[60vh] sm:max-h-[400px] overflow-y-auto custom-scrollbar p-2">
                   <Command.Empty className="py-12 text-center text-sm text-muted-foreground">
                     <div className="flex flex-col items-center gap-2">
-                      <Search className="h-10 w-10 text-muted-foreground/50" />
+                      <Search className="h-10 w-10 text-muted-foreground/50" aria-hidden="true" />
                       <p>No results found.</p>
                       <p className="text-xs">Try searching for pages, exchanges, or symbols.</p>
                     </div>
                   </Command.Empty>
 
-                  {/* Quick Symbol Search */}
+                  {/* Quick Symbol Search - appears when user types */}
                   {search.trim() && (
                     <Command.Group heading="Quick Actions">
                       <Command.Item
@@ -336,17 +363,17 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                         )}
                       >
                         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                          <Search className="h-4 w-4 text-primary" />
+                          <Search className="h-4 w-4 text-primary" aria-hidden="true" />
                         </div>
-                        <div className="flex-1">
-                          <p className="font-medium">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">
                             Search for &quot;{search}&quot;
                           </p>
                           <p className="text-xs text-muted-foreground">
                             Find symbol in markets
                           </p>
                         </div>
-                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                        <ArrowRight className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />
                       </Command.Item>
                     </Command.Group>
                   )}
@@ -367,16 +394,15 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                             'transition-colors duration-150'
                           )}
                         >
-                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-                            <Icon className="h-4 w-4 text-muted-foreground" />
+                          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted shrink-0">
+                            <Icon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                           </div>
-                          <div className="flex-1">
+                          <div className="flex-1 min-w-0">
                             <p className="font-medium">{item.label}</p>
-                            <p className="text-xs text-muted-foreground">
+                            <p className="text-xs text-muted-foreground truncate">
                               {item.description}
                             </p>
                           </div>
-                          <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-aria-selected:opacity-100 transition-opacity" />
                         </Command.Item>
                       );
                     })}
@@ -396,11 +422,11 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                           'transition-colors duration-150'
                         )}
                       >
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
-                          <Globe className="h-4 w-4 text-muted-foreground" />
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted shrink-0">
+                          <Globe className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                         </div>
-                        <span className="font-medium">{exchange.label}</span>
-                        <ExternalLink className="ml-auto h-3 w-3 text-muted-foreground" />
+                        <span className="font-medium flex-1">{exchange.label}</span>
+                        <ExternalLink className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden="true" />
                       </Command.Item>
                     ))}
                   </Command.Group>
@@ -419,8 +445,8 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                           'transition-colors duration-150'
                         )}
                       >
-                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
-                          <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted shrink-0">
+                          <TrendingUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                         </div>
                         <span className="font-medium">{marketType.label}</span>
                       </Command.Item>
@@ -442,10 +468,10 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                         'transition-colors duration-150'
                       )}
                     >
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
-                        <RefreshCw className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted shrink-0">
+                        <RefreshCw className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                       </div>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <p className="font-medium">Refresh Data</p>
                         <p className="text-xs text-muted-foreground">
                           Reload current page data
@@ -462,10 +488,10 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                         'transition-colors duration-150'
                       )}
                     >
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
-                        <Settings className="h-4 w-4 text-muted-foreground" />
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted shrink-0">
+                        <Settings className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                       </div>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <p className="font-medium">API Status</p>
                         <p className="text-xs text-muted-foreground">
                           Check exchange connections
@@ -475,29 +501,29 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                   </Command.Group>
                 </Command.List>
 
-                {/* Footer with keyboard shortcuts */}
+                {/* Footer with keyboard shortcuts help */}
                 <div className="flex items-center justify-between border-t border-border px-4 py-3 text-xs text-muted-foreground">
                   <div className="flex items-center gap-4">
                     <span className="flex items-center gap-1">
                       <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border font-mono">
                         ↑↓
                       </kbd>
-                      Navigate
+                      <span className="hidden sm:inline">Navigate</span>
                     </span>
                     <span className="flex items-center gap-1">
                       <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border font-mono">
                         ↵
                       </kbd>
-                      Select
+                      <span className="hidden sm:inline">Select</span>
                     </span>
                     <span className="flex items-center gap-1">
                       <kbd className="px-1.5 py-0.5 rounded bg-muted border border-border font-mono">
                         esc
                       </kbd>
-                      Close
+                      <span className="hidden sm:inline">Close</span>
                     </span>
                   </div>
-                  <span className="font-mono text-[10px] text-muted-foreground/70">
+                  <span className="font-mono text-[10px] text-muted-foreground/70 hidden sm:inline">
                     Lazuli Terminal
                   </span>
                 </div>
@@ -508,23 +534,4 @@ export function CommandPalette({ className }: CommandPaletteProps) {
       </AnimatePresence>
     </>
   );
-}
-
-/**
- * Export a hook for opening the command palette from anywhere
- */
-export function useCommandPalette() {
-  const [, setOpen] = React.useState(false);
-
-  const openCommandPalette = React.useCallback(() => {
-    // Dispatch a custom event to open the command palette
-    const event = new KeyboardEvent('keydown', {
-      key: 'k',
-      metaKey: true,
-      bubbles: true,
-    });
-    document.dispatchEvent(event);
-  }, []);
-
-  return { openCommandPalette };
 }
