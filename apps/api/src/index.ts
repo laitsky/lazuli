@@ -4,9 +4,15 @@ import dotenv from 'dotenv';
 import routes from './routes';
 import { successResponse, errorResponse } from './utils/response';
 import { testDatabaseConnection } from './utils/supabase';
+import { cacheService } from './services/cacheService';
 
 // Load environment variables from .env file
 dotenv.config();
+
+// Initialize cache service (connects to Redis if enabled)
+cacheService.initialize().catch((err) => {
+  console.error('Failed to initialize cache service:', err);
+});
 
 // Initialize Express application
 const app = express();
@@ -46,11 +52,21 @@ app.get('/health', async (_req, res) => {
     dbStatus = 'error';
   }
 
+  // Get cache status and statistics
+  const cacheStats = cacheService.getStats();
+  const cacheStatus = {
+    backend: cacheStats.backend,
+    redisConnected: cacheStats.redisConnected,
+    hitRatio: cacheStats.hitRatio,
+    size: cacheStats.size,
+  };
+
   // Return health data in standard API response format
   successResponse(res, {
     status: 'ok',
     api: 'ready',
     database: dbStatus,
+    cache: cacheStatus,
     exchanges: ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'],
     timestamp: Date.now(),
   });
