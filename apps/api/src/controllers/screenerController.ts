@@ -14,7 +14,7 @@
 
 import { Request, Response } from 'express';
 import { screenerService } from '../services/screenerService';
-import { successResponse, errorResponse } from '../utils/response';
+import { successResponse, handleError } from '../utils/response';
 import {
   validateExchange,
   validateInteger,
@@ -23,6 +23,7 @@ import {
   validateMarketType,
 } from '../utils/validation';
 import { BaseCurrency, PerformancePeriod, ScreenerSortBy, ScreenerFilters } from '@lazuli/shared';
+import { invalidExchange, invalidParameter } from '../errors';
 
 /**
  * Valid base currencies for comparison
@@ -129,21 +130,14 @@ export class ScreenerController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(
-          res,
-          `Exchange "${req.params.exchange}" not supported. ` +
-            `Supported exchanges: binance, bybit, okx, upbit`,
-          400
-        );
+        throw invalidExchange(req.params.exchange);
       }
 
       // Hyperliquid only has perpetual markets, not ideal for altcoin screener
       if (exchangeId === 'hyperliquid') {
-        return errorResponse(
-          res,
-          'Hyperliquid only supports perpetual markets. ' +
-            'For altcoin screening, please use binance, bybit, okx, or upbit.',
-          400
+        throw invalidParameter(
+          'exchange',
+          'Hyperliquid only supports perpetual markets. For altcoin screening, please use binance, bybit, okx, or upbit.'
         );
       }
 
@@ -184,11 +178,7 @@ export class ScreenerController {
       return successResponse(res, screenerData);
     } catch (error) {
       console.error('Error in getAltcoins:', error);
-      return errorResponse(
-        res,
-        `Failed to fetch altcoin data: ${error instanceof Error ? error.message : error}`,
-        500
-      );
+      return handleError(res, error, 'Failed to fetch altcoin data');
     }
   }
 
@@ -206,7 +196,7 @@ export class ScreenerController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(res, `Exchange "${req.params.exchange}" not supported`, 400);
+        throw invalidExchange(req.params.exchange);
       }
 
       // Get minimal data with small limit for quick stats
@@ -227,7 +217,7 @@ export class ScreenerController {
       });
     } catch (error) {
       console.error('Error in getStats:', error);
-      return errorResponse(res, `Failed to fetch stats: ${error}`, 500);
+      return handleError(res, error, 'Failed to fetch stats');
     }
   }
 }

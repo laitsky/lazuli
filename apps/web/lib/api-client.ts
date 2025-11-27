@@ -22,6 +22,8 @@ import {
   PerformancePeriod,
   ScreenerSortBy,
   ScreenerFilters,
+  FundingRateResponse,
+  CrossExchangeFundingResponse,
 } from '@lazuli/shared';
 
 // API base URL - defaults to localhost in development
@@ -118,6 +120,22 @@ export interface AltScreenerQueryParams {
   maxChange?: number; // Maximum percentage change filter
   type?: 'spot' | 'perp'; // Market type filter
   search?: string; // Symbol search query
+}
+
+/**
+ * Query parameters for Funding Rate endpoint
+ */
+export interface FundingRateQueryParams {
+  sortBy?: 'rate' | 'volume' | 'openInterest'; // Sort field
+  sortOrder?: 'asc' | 'desc'; // Sort direction
+  limit?: number; // Maximum number of results (default: 100, max: 500)
+}
+
+/**
+ * Query parameters for Cross-Exchange Funding endpoint
+ */
+export interface CrossExchangeFundingQueryParams {
+  limit?: number; // Maximum assets to compare (default: 50, max: 200)
 }
 
 /**
@@ -467,6 +485,44 @@ export class LazuliAPI {
       `${API_VERSION}/screener/${exchange}/stats`
     );
   }
+
+  /**
+   * Get funding rates for all perpetual contracts on an exchange
+   * Provides funding rate data for sentiment analysis and arbitrage opportunities
+   * Uses extended timeout (60s) due to fetching many symbols
+   *
+   * @param exchange - Exchange to fetch funding rates from
+   * @param queryParams - Optional query parameters (sortBy, sortOrder, limit)
+   */
+  static async getFundingRates(
+    exchange: SupportedExchange,
+    queryParams?: FundingRateQueryParams
+  ): Promise<ApiResponse<FundingRateResponse>> {
+    // Use 60s timeout for funding rates (fetches many symbols)
+    return apiFetch<FundingRateResponse>(
+      `${API_VERSION}/funding/${exchange}`,
+      queryParams,
+      60000
+    );
+  }
+
+  /**
+   * Get cross-exchange funding rate comparison
+   * Compares funding rates across all exchanges to identify arbitrage opportunities
+   * Uses extended timeout (90s) due to fetching from multiple exchanges
+   *
+   * @param queryParams - Optional query parameters (limit)
+   */
+  static async getCrossExchangeFunding(
+    queryParams?: CrossExchangeFundingQueryParams
+  ): Promise<ApiResponse<CrossExchangeFundingResponse>> {
+    // Use 90s timeout for cross-exchange comparison (fetches from all exchanges)
+    return apiFetch<CrossExchangeFundingResponse>(
+      `${API_VERSION}/funding/compare`,
+      queryParams,
+      90000
+    );
+  }
 }
 
 /**
@@ -537,4 +593,38 @@ export function formatTimestamp(timestamp: number): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(timestamp));
+}
+
+/**
+ * Format funding rate with sign and precision
+ * @param rate - Funding rate as percentage (e.g., 0.01 for 0.01%)
+ * @param showSign - Whether to show + sign for positive values
+ */
+export function formatFundingRate(rate: number | null, showSign: boolean = true): string {
+  if (rate === null) return 'N/A';
+  const sign = showSign && rate >= 0 ? '+' : '';
+  return `${sign}${rate.toFixed(4)}%`;
+}
+
+/**
+ * Format annualized rate with sign
+ * @param rate - Annualized rate as percentage
+ */
+export function formatAnnualizedRate(rate: number | null): string {
+  if (rate === null) return 'N/A';
+  const sign = rate >= 0 ? '+' : '';
+  return `${sign}${rate.toFixed(2)}%`;
+}
+
+/**
+ * Get color class based on funding rate
+ * Positive = bullish (green), Negative = bearish (red)
+ */
+export function getFundingColor(rate: number | null): string {
+  if (rate === null) return 'text-muted-foreground';
+  if (rate > 0.01) return 'text-green-500'; // Strong positive
+  if (rate > 0) return 'text-green-400'; // Positive
+  if (rate < -0.01) return 'text-red-500'; // Strong negative
+  if (rate < 0) return 'text-red-400'; // Negative
+  return 'text-muted-foreground'; // Neutral
 }

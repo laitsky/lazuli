@@ -15,6 +15,7 @@ import {
   CustomIndexResponse,
   SupportedExchange,
 } from '../types';
+import { invalidWeights, dataNotFound, ApiError } from '../errors';
 
 /**
  * Benchmark symbols to compare against
@@ -46,7 +47,7 @@ export class CustomIndexService {
     // Validate weights sum to 100
     const totalWeight = assets.reduce((sum, asset) => sum + asset.weight, 0);
     if (Math.abs(totalWeight - 100) > 0.01) {
-      throw new Error(`Asset weights must sum to 100, got ${totalWeight}`);
+      throw invalidWeights(`Asset weights must sum to 100, got ${totalWeight.toFixed(2)}`);
     }
 
     // Create cache key for this specific index configuration
@@ -73,7 +74,7 @@ export class CustomIndexService {
     const commonTimestamps = this.findCommonTimestamps(assetDataResults.map((r) => r.data));
 
     if (commonTimestamps.length === 0) {
-      throw new Error('No common timestamps found across assets');
+      throw dataNotFound('No common timestamps found across assets. Assets may have different trading hours.');
     }
 
     // Calculate index performance

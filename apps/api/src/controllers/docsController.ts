@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
-import { successResponse, errorResponse } from '../utils/response';
+import { successResponse, handleError, errorResponse } from '../utils/response';
 import fs from 'fs';
 import path from 'path';
+import { ErrorCode } from '../errors';
 
 /**
  * Controller for serving API documentation using Stoplight Elements
@@ -51,7 +52,7 @@ export class DocsController {
       res.send(html);
     } catch (error) {
       console.error('Error serving documentation:', error);
-      errorResponse(res, 'Failed to load API documentation', 500);
+      handleError(res, error, 'Failed to load API documentation');
     }
   }
 
@@ -65,7 +66,7 @@ export class DocsController {
       const specPath = path.join(__dirname, '../api-spec.yaml');
 
       if (!fs.existsSync(specPath)) {
-        errorResponse(res, 'API specification file not found', 404);
+        errorResponse(res, 'API specification file not found', 404, ErrorCode.NOT_FOUND_DATA);
         return;
       }
 
@@ -82,7 +83,7 @@ export class DocsController {
       res.send(specContent);
     } catch (error) {
       console.error('Error serving API specification:', error);
-      errorResponse(res, 'Failed to load API specification', 500);
+      handleError(res, error, 'Failed to load API specification');
     }
   }
 
@@ -120,7 +121,7 @@ export class DocsController {
       successResponse(res, docsInfo);
     } catch (error) {
       console.error('Error getting docs info:', error);
-      errorResponse(res, 'Failed to get documentation information', 500);
+      handleError(res, error, 'Failed to get documentation information');
     }
   }
 }

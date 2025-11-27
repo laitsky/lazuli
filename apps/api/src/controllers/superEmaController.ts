@@ -2,9 +2,16 @@ import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { cacheService } from '../services/cacheService';
 import { calculateSuperEMA, SuperEMAResponse } from '../services/emaService';
-import { successResponse, errorResponse } from '../utils/response';
+import { successResponse, handleError } from '../utils/response';
 import { Timeframe } from '@lazuli/shared';
 import { validateExchange, validateInteger } from '../utils/validation';
+import {
+  invalidExchange,
+  invalidTimeframe,
+  invalidMarketType,
+  missingParameter,
+  dataNotFound,
+} from '../errors';
 
 /**
  * Controller for SuperEMA endpoints
@@ -31,34 +38,30 @@ export class SuperEmaController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
+        throw invalidExchange(req.params.exchange);
       }
 
       // Extract and validate symbol parameter
       const symbol = req.params.symbol;
       if (!symbol) {
-        return errorResponse(res, 'Symbol parameter is required', 400);
+        throw missingParameter('symbol');
       }
 
       // Validate timeframe parameter
       const timeframe = req.query.timeframe as Timeframe;
       if (!timeframe) {
-        return errorResponse(res, 'Timeframe query parameter is required', 400);
+        throw missingParameter('timeframe');
       }
 
       const validTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
       if (!validTimeframes.includes(timeframe)) {
-        return errorResponse(
-          res,
-          `Invalid timeframe. Must be one of: ${validTimeframes.join(', ')}`,
-          400
-        );
+        throw invalidTimeframe(timeframe, validTimeframes);
       }
 
       // Validate market type parameter
       const marketType = (req.query.type as 'spot' | 'perp') || 'spot';
       if (marketType !== 'spot' && marketType !== 'perp') {
-        return errorResponse(res, 'Market type must be "spot" or "perp"', 400);
+        throw invalidMarketType(String(req.query.type));
       }
 
       // Validate limit parameter (need more candles for accurate EMA calculation)
@@ -96,7 +99,7 @@ export class SuperEmaController {
       );
 
       if (!ohlcvData || ohlcvData.length === 0) {
-        return errorResponse(res, 'No OHLCV data available for the specified symbol', 404);
+        throw dataNotFound(`No OHLCV data available for ${symbol}`);
       }
 
       // Calculate SuperEMA (all periods from 1 to maxPeriod)
@@ -122,7 +125,7 @@ export class SuperEmaController {
       return successResponse(res, response);
     } catch (error) {
       console.error('Error in getSuperEMA:', error);
-      return errorResponse(res, `Failed to calculate SuperEMA: ${error}`, 500);
+      return handleError(res, error, 'Failed to calculate SuperEMA');
     }
   }
 }
