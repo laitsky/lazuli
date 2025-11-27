@@ -35,6 +35,7 @@ import {
 } from '@lazuli/shared';
 import { cacheService } from './cacheService';
 import { convertFromCCXTNotation } from '../utils/validation';
+import { exchangeNotSupported } from '../errors';
 
 /**
  * Funding Rate Service class
@@ -112,7 +113,7 @@ export class FundingRateService {
   private getExchange(exchangeId: string): any {
     const exchange = this.perpExchanges.get(exchangeId);
     if (!exchange) {
-      throw new Error(`Exchange ${exchangeId} not supported for funding rates`);
+      throw exchangeNotSupported(exchangeId);
     }
     return exchange;
   }
@@ -238,7 +239,9 @@ export class FundingRateService {
         if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
           console.log(`Loading markets for ${exchangeId}...`);
           await exchange.loadMarkets();
-          console.log(`Markets loaded for ${exchangeId}: ${Object.keys(exchange.markets).length} markets`);
+          console.log(
+            `Markets loaded for ${exchangeId}: ${Object.keys(exchange.markets).length} markets`
+          );
         }
 
         // Fetch funding rates using the dedicated CCXT method
@@ -248,7 +251,9 @@ export class FundingRateService {
         if (exchange.has['fetchFundingRates']) {
           console.log(`Fetching funding rates from ${exchangeId}...`);
           fundingRates = await exchange.fetchFundingRates();
-          console.log(`Fetched ${Object.keys(fundingRates).length} funding rates from ${exchangeId}`);
+          console.log(
+            `Fetched ${Object.keys(fundingRates).length} funding rates from ${exchangeId}`
+          );
         } else {
           console.log(`Exchange ${exchangeId} does not support fetchFundingRates`);
         }
@@ -313,7 +318,10 @@ export class FundingRateService {
         console.log(`Processed ${cachedData.length} funding rates for ${exchangeId}`);
       } catch (error) {
         // Log error but don't throw - return empty data instead
-        console.error(`Error fetching funding rates for ${exchangeId}:`, error instanceof Error ? error.message : error);
+        console.error(
+          `Error fetching funding rates for ${exchangeId}:`,
+          error instanceof Error ? error.message : error
+        );
       }
 
       // Cache for 30 seconds (funding rates update frequently)
@@ -442,7 +450,10 @@ export class FundingRateService {
 
     let results: PromiseSettledResult<FundingRateResponse>[];
     try {
-      results = await Promise.race([fetchPromise, timeoutPromise]) as PromiseSettledResult<FundingRateResponse>[];
+      results = (await Promise.race([
+        fetchPromise,
+        timeoutPromise,
+      ])) as PromiseSettledResult<FundingRateResponse>[];
     } catch (error) {
       console.error('Cross-exchange fetch timed out or failed:', error);
       // Return empty response on timeout

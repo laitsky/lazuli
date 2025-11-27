@@ -11,8 +11,9 @@
 
 import { Request, Response } from 'express';
 import { fundingRateService } from '../services/fundingRateService';
-import { successResponse, errorResponse } from '../utils/response';
+import { successResponse, handleError } from '../utils/response';
 import { validateExchange, validateInteger, validateSortOrder } from '../utils/validation';
+import { invalidExchange } from '../errors';
 
 /**
  * Valid sort fields for funding rate data
@@ -57,7 +58,7 @@ export class FundingRateController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
+        throw invalidExchange(req.params.exchange);
       }
 
       // Validate query parameters
@@ -76,11 +77,7 @@ export class FundingRateController {
       return successResponse(res, fundingData);
     } catch (error) {
       console.error('Error in getFundingRates:', error);
-      return errorResponse(
-        res,
-        `Failed to fetch funding rates: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        500
-      );
+      return handleError(res, error, 'Failed to fetch funding rates');
     }
   }
 
@@ -110,11 +107,7 @@ export class FundingRateController {
       return successResponse(res, comparisonData);
     } catch (error) {
       console.error('Error in getCrossExchangeFunding:', error);
-      return errorResponse(
-        res,
-        `Failed to fetch cross-exchange funding: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        500
-      );
+      return handleError(res, error, 'Failed to fetch cross-exchange funding');
     }
   }
 }
