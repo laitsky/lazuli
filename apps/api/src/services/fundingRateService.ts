@@ -227,18 +227,36 @@ export class FundingRateService {
         await exchange.loadMarkets();
       }
 
-      // Fetch all tickers (includes funding rate data)
+      // Fetch funding rates using the dedicated CCXT method
+      // This is more reliable than extracting from tickers
+      let fundingRates: Record<string, any> = {};
+
+      try {
+        // Try to use fetchFundingRates if available (preferred method)
+        if (exchange.has['fetchFundingRates']) {
+          fundingRates = await exchange.fetchFundingRates();
+        } else if (exchange.has['fetchFundingRate']) {
+          // Some exchanges only support fetching one at a time
+          // In this case, we'll fetch from tickers as fallback
+          fundingRates = {};
+        }
+      } catch (error) {
+        console.log(`fetchFundingRates not available for ${exchangeId}, using tickers fallback`);
+        fundingRates = {};
+      }
+
+      // Also fetch tickers for additional data (volume, price, open interest)
       const tickers = await exchange.fetchTickers();
 
       // Transform to our funding rate format
       cachedData = [];
 
-      for (const [ccxtSymbol, ticker] of Object.entries(tickers)) {
-        const tickerData = ticker as any;
+      // Process perpetual markets
+      for (const [ccxtSymbol, market] of Object.entries(exchange.markets)) {
+        const marketData = market as any;
 
-        // Only process perpetual/swap markets
-        const market = exchange.markets[ccxtSymbol];
-        if (!market || (market.type !== 'swap' && market.type !== 'future')) {
+        // Only process perpetual/swap/future markets
+        if (marketData.type !== 'swap' && marketData.type !== 'future' && !marketData.linear) {
           continue;
         }
 
@@ -247,7 +265,25 @@ export class FundingRateService {
           continue;
         }
 
-        const fundingRate = this.parseFundingRate(tickerData, exchangeId);
+        // Skip inactive markets
+        if (marketData.active === false) {
+          continue;
+        }
+
+        // Get funding rate from fundingRates response or ticker
+        let fundingRate: number | null = null;
+        const fundingData = fundingRates[ccxtSymbol];
+        const tickerData = tickers[ccxtSymbol] as any;
+
+        if (fundingData) {
+          // Use dedicated funding rate data
+          fundingRate = fundingData.fundingRate ?? null;
+        } else if (tickerData) {
+          // Fallback to parsing from ticker
+          fundingRate = this.parseFundingRate(tickerData, exchangeId);
+        }
+
+        // Skip if no funding rate found
         if (fundingRate === null) continue;
 
         // Convert to percentage (funding rate is typically a decimal like 0.0001 = 0.01%)
@@ -261,32 +297,44 @@ export class FundingRateService {
         const standardSymbol = convertFromCCXTNotation(ccxtSymbol, 'perp');
         const baseAsset = this.extractBaseAsset(ccxtSymbol);
 
+        // Get price and volume from ticker
+        const markPrice = tickerData?.last ?? tickerData?.close ?? null;
+        const volume24h = tickerData?.quoteVolume ?? null;
+
         // Parse open interest
         let openInterest: number | null = null;
-        if (tickerData.info?.openInterest) {
+        if (tickerData?.info?.openInterest) {
           openInterest = parseFloat(tickerData.info.openInterest);
           // Convert to USD value if we have mark price
-          if (tickerData.last && openInterest) {
-            openInterest = openInterest * tickerData.last;
+          if (markPrice && openInterest) {
+            openInterest = openInterest * markPrice;
           }
         }
 
-        const fundingData: FundingRateData = {
+        // Get next funding time
+        let nextFundingTime: number | null = null;
+        if (fundingData?.fundingTimestamp) {
+          nextFundingTime = fundingData.fundingTimestamp;
+        } else if (tickerData) {
+          nextFundingTime = this.parseNextFundingTime(tickerData, exchangeId);
+        }
+
+        const fundingRateDataItem: FundingRateData = {
           symbol: standardSymbol,
           baseAsset,
           exchange: exchangeId,
           fundingRate,
           fundingRatePercent,
           annualizedRate,
-          nextFundingTime: this.parseNextFundingTime(tickerData, exchangeId),
-          markPrice: tickerData.last || null,
-          indexPrice: tickerData.info?.indexPrice ? parseFloat(tickerData.info.indexPrice) : null,
+          nextFundingTime,
+          markPrice,
+          indexPrice: fundingData?.indexPrice ?? (tickerData?.info?.indexPrice ? parseFloat(tickerData.info.indexPrice) : null),
           openInterest,
-          volume24h: tickerData.quoteVolume || null,
-          timestamp: tickerData.timestamp || Date.now(),
+          volume24h,
+          timestamp: tickerData?.timestamp || Date.now(),
         };
 
-        cachedData.push(fundingData);
+        cachedData.push(fundingRateDataItem);
       }
 
       // Cache for 30 seconds (funding rates update frequently)
