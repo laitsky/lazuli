@@ -67,6 +67,7 @@ export class TickerController {
           case 'binance':
           case 'bybit':
           case 'okx':
+          case 'hyperliquid':
             allTickers = await ccxtService.getAllTickers(exchangeId);
             break;
         }
@@ -207,6 +208,7 @@ export class TickerController {
         case 'binance':
         case 'bybit':
         case 'okx':
+        case 'hyperliquid':
           ticker = await ccxtService.getTicker(exchangeId, symbol);
           break;
         default:
@@ -267,6 +269,7 @@ export class TickerController {
           case 'binance':
           case 'bybit':
           case 'okx':
+          case 'hyperliquid':
             allMarkets = await ccxtService.getMarkets(exchangeId);
             break;
         }

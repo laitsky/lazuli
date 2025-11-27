@@ -123,6 +123,18 @@ export default function SuperEMAPage() {
     loadExchanges();
   }, []);
 
+  // Auto-switch to 'perp' and USDC for Hyperliquid (perpetual-only, USDC quote)
+  useEffect(() => {
+    if (selectedExchange === 'hyperliquid') {
+      if (marketType === 'spot') {
+        setMarketType('perp');
+      }
+      setQuoteFilter('USDC');
+      setSelectedSymbol('');
+      setEmaData(null);
+    }
+  }, [selectedExchange]);
+
   // Load tickers when exchange or market type changes
   useEffect(() => {
     async function loadTickers() {
@@ -162,7 +174,9 @@ export default function SuperEMAPage() {
           }
         }
 
-        setTickers(allTickers);
+        // Deduplicate tickers by symbol to prevent React key errors
+        const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
+        setTickers(uniqueTickers);
       } catch (err) {
         setError('Failed to load tickers');
       } finally {
@@ -466,6 +480,12 @@ export default function SuperEMAPage() {
                     setEmaData(null);
                   }}
                   className="rounded-md"
+                  disabled={selectedExchange === 'hyperliquid'}
+                  title={
+                    selectedExchange === 'hyperliquid'
+                      ? 'Hyperliquid only supports perpetual markets'
+                      : ''
+                  }
                 >
                   Spot
                 </Button>

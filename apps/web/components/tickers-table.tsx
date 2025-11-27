@@ -93,8 +93,14 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [sortField, setSortField] = useState<SortField>('volume');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
-  const [quoteFilter, setQuoteFilter] = useState<string>('USDT');
-  const [marketType, setMarketType] = useState<'spot' | 'perp'>('spot');
+  // Default quote filter: USDC for Hyperliquid, USDT for others
+  const [quoteFilter, setQuoteFilter] = useState<string>(
+    exchange === 'hyperliquid' ? 'USDC' : 'USDT'
+  );
+  // Default market type: perp for Hyperliquid (no spot), spot for others
+  const [marketType, setMarketType] = useState<'spot' | 'perp'>(
+    exchange === 'hyperliquid' ? 'perp' : 'spot'
+  );
   const [hoveredRow, setHoveredRow] = useState<string | null>(null);
   const [columns, setColumns] = useState<ColumnVisibility>(DEFAULT_COLUMNS);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -113,6 +119,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     if (ageMin < 60) return `${ageMin}m ago`;
     return `${Math.floor(ageMin / 60)}h ago`;
   }, [tickers]);
+
+  // Check if current exchange is Hyperliquid (perpetual-only)
+  const isHyperliquid = exchange === 'hyperliquid';
 
   // Clear search handler
   const clearSearch = useCallback(() => {
@@ -154,6 +163,19 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
       }
     }
   };
+
+  // Handle exchange changes - reset to appropriate defaults
+  useEffect(() => {
+    if (exchange === 'hyperliquid') {
+      // Hyperliquid: perpetual-only, USDC quote
+      setMarketType('perp');
+      setQuoteFilter('USDC');
+    } else {
+      // Other exchanges: default to spot, USDT quote
+      setMarketType('spot');
+      setQuoteFilter('USDT');
+    }
+  }, [exchange]);
 
   // Extract quote currency from symbol
   const getQuoteCurrency = (symbol: string) => {
@@ -506,11 +528,13 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                 variant="ghost"
                 size="sm"
                 onClick={() => setMarketType('spot')}
+                disabled={isHyperliquid}
+                title={isHyperliquid ? 'Hyperliquid only supports perpetual markets' : ''}
                 className={`h-9 px-4 text-xs rounded-lg transition-all ${
                   marketType === 'spot'
                     ? 'bg-green-500/20 text-green-500 hover:bg-green-500/30 shadow-sm'
                     : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'
-                }`}
+                } ${isHyperliquid ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <TrendingUp className="h-3.5 w-3.5 mr-1.5" />
                 Spot
