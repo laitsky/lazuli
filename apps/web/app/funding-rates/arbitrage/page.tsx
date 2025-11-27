@@ -24,7 +24,6 @@ import {
   AlertTriangle,
   Zap,
   DollarSign,
-  BarChart3,
   Clock,
 } from 'lucide-react';
 import { LazuliAPI } from '@/lib/api-client';
