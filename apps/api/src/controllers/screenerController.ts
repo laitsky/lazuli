@@ -132,7 +132,7 @@ export class ScreenerController {
         return errorResponse(
           res,
           `Exchange "${req.params.exchange}" not supported. ` +
-            `Supported exchanges: binance, bybit, okx`,
+            `Supported exchanges: binance, bybit, okx, upbit`,
           400
         );
       }
@@ -142,7 +142,7 @@ export class ScreenerController {
         return errorResponse(
           res,
           'Hyperliquid only supports perpetual markets. ' +
-            'For altcoin screening, please use binance, bybit, or okx.',
+            'For altcoin screening, please use binance, bybit, okx, or upbit.',
           400
         );
       }

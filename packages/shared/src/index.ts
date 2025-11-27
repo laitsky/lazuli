@@ -68,8 +68,13 @@ export interface ExchangeInfo {
 
 /**
  * Supported exchanges
+ * - binance: Binance (spot + perpetual)
+ * - bybit: Bybit (spot + perpetual)
+ * - okx: OKX (spot + perpetual)
+ * - hyperliquid: Hyperliquid DEX (perpetual only)
+ * - upbit: Upbit Korea (spot only)
  */
-export type SupportedExchange = 'binance' | 'bybit' | 'okx' | 'hyperliquid';
+export type SupportedExchange = 'binance' | 'bybit' | 'okx' | 'hyperliquid' | 'upbit';
 
 /**
  * Pagination metadata
