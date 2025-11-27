@@ -13,6 +13,7 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -257,19 +258,30 @@ function TopArbitrageOpportunities({
   return (
     <Card className="glass border-primary/20 bg-primary/5">
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Sparkles className="h-4 w-4 text-primary" />
-          Top Arbitrage Opportunities
-        </CardTitle>
-        <CardDescription className="text-xs">
-          Cross-exchange funding rate spreads. Long on low-funding, short on high-funding exchange.
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Top Arbitrage Opportunities
+            </CardTitle>
+            <CardDescription className="text-xs mt-1">
+              Cross-exchange funding rate spreads. Long on low-funding, short on high-funding
+              exchange.
+            </CardDescription>
+          </div>
+          <Link href="/funding-rates/arbitrage">
+            <Button variant="outline" size="sm" className="gap-2">
+              View All
+              <ArrowRight className="h-3 w-3" />
+            </Button>
+          </Link>
+        </div>
       </CardHeader>
       <CardContent className="pt-0">
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
           {topOpportunities.map((opp, index) => (
             <div
-              key={opp.asset}
+              key={`${opp.asset}-${index}`}
               className="flex items-center justify-between p-3 rounded-lg bg-background/50 border border-border"
             >
               <div className="flex items-center gap-2">
