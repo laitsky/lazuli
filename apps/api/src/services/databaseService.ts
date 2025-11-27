@@ -1,5 +1,11 @@
 import { supabase } from '../utils/supabase';
 import { Ticker, Market } from '../types';
+import {
+  DatabaseError,
+  databaseNotConfigured,
+  databaseWriteError,
+  databaseQueryError,
+} from '../errors';
 
 /**
  * Database service for managing ticker and market data
@@ -15,18 +21,25 @@ import { Ticker, Market } from '../types';
  */
 export class DatabaseService {
   /**
+   * Checks if the database is configured and throws an error if not
+   * @throws DatabaseError if database is not configured
+   */
+  private ensureDatabaseConfigured(): void {
+    if (!supabase) {
+      throw databaseNotConfigured();
+    }
+  }
+  /**
    * Store ticker data in the database
    * @param ticker - Ticker object to store
    * @returns Promise<boolean> - True if successful
+   * @throws DatabaseError if database is not configured or write fails
    */
   async storeTicker(ticker: Ticker): Promise<boolean> {
-    if (!supabase) {
-      console.warn('Database not configured - skipping ticker storage');
-      return false;
-    }
+    this.ensureDatabaseConfigured();
 
     try {
-      const { error } = await supabase.from('tickers').insert({
+      const { error } = await supabase!.from('tickers').insert({
         symbol: ticker.symbol,
         exchange: ticker.exchange,
         type: ticker.type,
@@ -45,13 +58,19 @@ export class DatabaseService {
 
       if (error) {
         console.error('Error storing ticker:', error);
-        return false;
+        throw databaseWriteError('storeTicker', error.message);
       }
 
       return true;
     } catch (error) {
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
       console.error('Exception storing ticker:', error);
-      return false;
+      throw databaseWriteError(
+        'storeTicker',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     }
   }
 
@@ -59,12 +78,10 @@ export class DatabaseService {
    * Store multiple tickers in batch
    * @param tickers - Array of ticker objects
    * @returns Promise<number> - Number of successfully stored tickers
+   * @throws DatabaseError if database is not configured or write fails
    */
   async storeTickers(tickers: Ticker[]): Promise<number> {
-    if (!supabase) {
-      console.warn('Database not configured - skipping tickers batch storage');
-      return 0;
-    }
+    this.ensureDatabaseConfigured();
 
     try {
       const tickerData = tickers.map((ticker) => ({
@@ -84,18 +101,24 @@ export class DatabaseService {
         open_interest: ticker.openInterest,
       }));
 
-      const { error } = await supabase.from('tickers').insert(tickerData);
+      const { error } = await supabase!.from('tickers').insert(tickerData);
 
       if (error) {
         console.error('Error storing tickers batch:', error);
-        return 0;
+        throw databaseWriteError('storeTickers', error.message);
       }
 
-      console.log(`✅ Stored ${tickers.length} tickers successfully`);
+      console.log(`Stored ${tickers.length} tickers successfully`);
       return tickers.length;
     } catch (error) {
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
       console.error('Exception storing tickers batch:', error);
-      return 0;
+      throw databaseWriteError(
+        'storeTickers',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     }
   }
 
@@ -103,15 +126,13 @@ export class DatabaseService {
    * Store market information
    * @param market - Market object to store
    * @returns Promise<boolean> - True if successful
+   * @throws DatabaseError if database is not configured or write fails
    */
   async storeMarket(market: Market): Promise<boolean> {
-    if (!supabase) {
-      console.warn('Database not configured - skipping market storage');
-      return false;
-    }
+    this.ensureDatabaseConfigured();
 
     try {
-      const { error } = await supabase.from('markets').upsert({
+      const { error } = await supabase!.from('markets').upsert({
         id: market.id,
         symbol: market.symbol,
         base: market.base,
@@ -123,13 +144,19 @@ export class DatabaseService {
 
       if (error) {
         console.error('Error storing market:', error);
-        return false;
+        throw databaseWriteError('storeMarket', error.message);
       }
 
       return true;
     } catch (error) {
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
       console.error('Exception storing market:', error);
-      return false;
+      throw databaseWriteError(
+        'storeMarket',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     }
   }
 
@@ -137,12 +164,10 @@ export class DatabaseService {
    * Store multiple markets in batch
    * @param markets - Array of market objects
    * @returns Promise<number> - Number of successfully stored markets
+   * @throws DatabaseError if database is not configured or write fails
    */
   async storeMarkets(markets: Market[]): Promise<number> {
-    if (!supabase) {
-      console.warn('Database not configured - skipping markets batch storage');
-      return 0;
-    }
+    this.ensureDatabaseConfigured();
 
     try {
       const marketData = markets.map((market) => ({
@@ -155,18 +180,24 @@ export class DatabaseService {
         exchange: market.exchange,
       }));
 
-      const { error } = await supabase.from('markets').upsert(marketData);
+      const { error } = await supabase!.from('markets').upsert(marketData);
 
       if (error) {
         console.error('Error storing markets batch:', error);
-        return 0;
+        throw databaseWriteError('storeMarkets', error.message);
       }
 
-      console.log(`✅ Stored ${markets.length} markets successfully`);
+      console.log(`Stored ${markets.length} markets successfully`);
       return markets.length;
     } catch (error) {
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
       console.error('Exception storing markets batch:', error);
-      return 0;
+      throw databaseWriteError(
+        'storeMarkets',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     }
   }
 
@@ -176,15 +207,13 @@ export class DatabaseService {
    * @param exchange - Exchange name (optional)
    * @param limit - Maximum number of records (default: 100)
    * @returns Promise<Ticker[]> - Array of historical tickers
+   * @throws DatabaseError if database is not configured or query fails
    */
   async getHistoricalTickers(symbol: string, exchange?: string, limit = 100): Promise<Ticker[]> {
-    if (!supabase) {
-      console.warn('Database not configured - cannot fetch historical tickers');
-      return [];
-    }
+    this.ensureDatabaseConfigured();
 
     try {
-      let query = supabase
+      let query = supabase!
         .from('tickers')
         .select('*')
         .eq('symbol', symbol)
@@ -199,7 +228,7 @@ export class DatabaseService {
 
       if (error) {
         console.error('Error fetching historical tickers:', error);
-        return [];
+        throw databaseQueryError('getHistoricalTickers', error.message);
       }
 
       // Transform database records back to Ticker format
@@ -221,8 +250,14 @@ export class DatabaseService {
         openInterest: record.open_interest,
       }));
     } catch (error) {
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
       console.error('Exception fetching historical tickers:', error);
-      return [];
+      throw databaseQueryError(
+        'getHistoricalTickers',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     }
   }
 
@@ -230,16 +265,14 @@ export class DatabaseService {
    * Get latest ticker for a symbol from database
    * @param symbol - Trading pair symbol
    * @param exchange - Exchange name
-   * @returns Promise<Ticker | null> - Latest ticker or null
+   * @returns Promise<Ticker | null> - Latest ticker or null if not found
+   * @throws DatabaseError if database is not configured or query fails
    */
   async getLatestTicker(symbol: string, exchange: string): Promise<Ticker | null> {
-    if (!supabase) {
-      console.warn('Database not configured - cannot fetch latest ticker');
-      return null;
-    }
+    this.ensureDatabaseConfigured();
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabase!
         .from('tickers')
         .select('*')
         .eq('symbol', symbol)
@@ -247,7 +280,12 @@ export class DatabaseService {
         .order('created_at', { ascending: false })
         .limit(1);
 
-      if (error || !data || data.length === 0) {
+      if (error) {
+        console.error('Error fetching latest ticker:', error);
+        throw databaseQueryError('getLatestTicker', error.message);
+      }
+
+      if (!data || data.length === 0) {
         return null;
       }
 
@@ -270,8 +308,14 @@ export class DatabaseService {
         openInterest: record.open_interest,
       };
     } catch (error) {
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
       console.error('Exception fetching latest ticker:', error);
-      return null;
+      throw databaseQueryError(
+        'getLatestTicker',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     }
   }
 
@@ -279,32 +323,36 @@ export class DatabaseService {
    * Clean up old ticker data (older than specified days)
    * @param daysToKeep - Number of days to keep (default: 30)
    * @returns Promise<number> - Number of records deleted
+   * @throws DatabaseError if database is not configured or delete fails
    */
   async cleanupOldTickers(daysToKeep = 30): Promise<number> {
-    if (!supabase) {
-      console.warn('Database not configured - cannot cleanup old tickers');
-      return 0;
-    }
+    this.ensureDatabaseConfigured();
 
     try {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
 
-      const { error, count } = await supabase
+      const { error, count } = await supabase!
         .from('tickers')
         .delete()
         .lt('created_at', cutoffDate.toISOString());
 
       if (error) {
         console.error('Error cleaning up old tickers:', error);
-        return 0;
+        throw databaseWriteError('cleanupOldTickers', error.message);
       }
 
-      console.log(`🧹 Cleaned up ${count || 0} old ticker records`);
+      console.log(`Cleaned up ${count || 0} old ticker records`);
       return count || 0;
     } catch (error) {
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
       console.error('Exception cleaning up old tickers:', error);
-      return 0;
+      throw databaseWriteError(
+        'cleanupOldTickers',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     }
   }
 }

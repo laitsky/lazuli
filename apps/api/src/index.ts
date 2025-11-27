@@ -2,8 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes';
-import { successResponse, errorResponse } from './utils/response';
+import { successResponse } from './utils/response';
 import { testDatabaseConnection } from './utils/supabase';
+import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -56,16 +57,12 @@ app.get('/health', async (_req, res) => {
   });
 });
 
-// Handle 404 errors for undefined routes
-app.use((_req, res) => {
-  errorResponse(res, 'Route not found', 404);
-});
+// Handle 404 errors for undefined routes using standardized error handling
+app.use(notFoundHandler);
 
-// Global error handler for unhandled errors
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Error:', err);
-  errorResponse(res, err.message || 'Internal server error', 500);
-});
+// Global error handler for unhandled errors using standardized error handling
+// This catches all errors thrown in route handlers and services
+app.use(globalErrorHandler);
 
 // Start the server
 app.listen(PORT, () => {
