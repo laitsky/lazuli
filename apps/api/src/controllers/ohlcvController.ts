@@ -1,9 +1,17 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { cacheService } from '../services/cacheService';
-import { successResponse, errorResponse } from '../utils/response';
+import { successResponse, handleError } from '../utils/response';
 import { Timeframe, OHLCVResponse } from '@lazuli/shared';
 import { validateExchange, validateInteger } from '../utils/validation';
+import {
+  invalidExchange,
+  invalidTimeframe,
+  invalidMarketType,
+  missingParameter,
+  invalidParameter,
+  internalError,
+} from '../errors';
 
 /**
  * Controller for OHLCV (candlestick) data endpoints
@@ -26,14 +34,14 @@ export class OHLCVController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
+        throw invalidExchange(req.params.exchange);
       }
 
       // Validate market type parameter
       // Hyperliquid only supports perpetual markets, so default to 'perp' for Hyperliquid
       let marketType = (req.query.type as 'spot' | 'perp') || 'spot';
       if (marketType !== 'spot' && marketType !== 'perp') {
-        return errorResponse(res, 'Market type must be "spot" or "perp"', 400);
+        throw invalidMarketType(String(req.query.type));
       }
 
       // Hyperliquid only supports perpetual markets - auto-correct or reject spot requests
@@ -75,7 +83,7 @@ export class OHLCVController {
       return successResponse(res, response);
     } catch (error) {
       console.error('Error in getSupportedTimeframes:', error);
-      return errorResponse(res, `Failed to fetch supported timeframes: ${error}`, 500);
+      return handleError(res, error, 'Failed to fetch supported timeframes');
     }
   }
 
@@ -97,35 +105,31 @@ export class OHLCVController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
+        throw invalidExchange(req.params.exchange);
       }
 
       // Extract and validate symbol parameter
       const symbol = req.params.symbol;
       if (!symbol) {
-        return errorResponse(res, 'Symbol parameter is required', 400);
+        throw missingParameter('symbol');
       }
 
       // Validate timeframe parameter
       const timeframe = req.query.timeframe as Timeframe;
       if (!timeframe) {
-        return errorResponse(res, 'Timeframe query parameter is required', 400);
+        throw missingParameter('timeframe');
       }
 
       const validTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
       if (!validTimeframes.includes(timeframe)) {
-        return errorResponse(
-          res,
-          `Invalid timeframe. Must be one of: ${validTimeframes.join(', ')}`,
-          400
-        );
+        throw invalidTimeframe(timeframe, validTimeframes);
       }
 
       // Validate market type parameter
       // Hyperliquid only supports perpetual markets, so auto-correct to 'perp' for Hyperliquid
       let marketType = (req.query.type as 'spot' | 'perp') || 'spot';
       if (marketType !== 'spot' && marketType !== 'perp') {
-        return errorResponse(res, 'Market type must be "spot" or "perp"', 400);
+        throw invalidMarketType(String(req.query.type));
       }
 
       // Hyperliquid only supports perpetual markets - auto-correct spot requests
@@ -184,7 +188,7 @@ export class OHLCVController {
       return successResponse(res, response);
     } catch (error) {
       console.error('Error in getOHLCV:', error);
-      return errorResponse(res, `Failed to fetch OHLCV data: ${error}`, 500);
+      return handleError(res, error, 'Failed to fetch OHLCV data');
     }
   }
 
@@ -207,19 +211,19 @@ export class OHLCVController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
+        throw invalidExchange(req.params.exchange);
       }
 
       // Extract and validate symbol parameter
       const symbol = req.params.symbol;
       if (!symbol) {
-        return errorResponse(res, 'Symbol parameter is required', 400);
+        throw missingParameter('symbol');
       }
 
       // Validate timeframes parameter
       const timeframesParam = req.query.timeframes as string;
       if (!timeframesParam) {
-        return errorResponse(res, 'Timeframes query parameter is required', 400);
+        throw missingParameter('timeframes');
       }
 
       const timeframes = timeframesParam.split(',').map((tf) => tf.trim()) as Timeframe[];
@@ -228,24 +232,20 @@ export class OHLCVController {
       // Validate each timeframe
       for (const tf of timeframes) {
         if (!validTimeframes.includes(tf)) {
-          return errorResponse(
-            res,
-            `Invalid timeframe "${tf}". Must be one of: ${validTimeframes.join(', ')}`,
-            400
-          );
+          throw invalidTimeframe(tf, validTimeframes);
         }
       }
 
       // Limit to max 8 timeframes to prevent abuse
       if (timeframes.length > 8) {
-        return errorResponse(res, 'Maximum 8 timeframes allowed per request', 400);
+        throw invalidParameter('timeframes', 'Maximum 8 timeframes allowed per request');
       }
 
       // Validate market type parameter
       // Hyperliquid only supports perpetual markets, so auto-correct to 'perp' for Hyperliquid
       let marketType = (req.query.type as 'spot' | 'perp') || 'spot';
       if (marketType !== 'spot' && marketType !== 'perp') {
-        return errorResponse(res, 'Market type must be "spot" or "perp"', 400);
+        throw invalidMarketType(String(req.query.type));
       }
 
       // Hyperliquid only supports perpetual markets - auto-correct spot requests
@@ -351,13 +351,13 @@ export class OHLCVController {
 
       // If all timeframes failed, return an error
       if (successCount === 0) {
-        return errorResponse(res, 'Failed to fetch data for all timeframes', 500);
+        throw internalError('Failed to fetch data for all timeframes');
       }
 
       return successResponse(res, response);
     } catch (error) {
       console.error('Error in getMultiTimeframeOHLCV:', error);
-      return errorResponse(res, `Failed to fetch multi-timeframe OHLCV data: ${error}`, 500);
+      return handleError(res, error, 'Failed to fetch multi-timeframe OHLCV data');
     }
   }
 }
