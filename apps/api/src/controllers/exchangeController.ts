@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { successResponse, errorResponse } from '../utils/response';
+import { successResponse, handleError } from '../utils/response';
 import { ExchangeInfo } from '../types';
 
 /**
@@ -56,7 +56,7 @@ export class ExchangeController {
 
       return successResponse(res, exchanges);
     } catch (error) {
-      return errorResponse(res, 'Failed to list exchanges', 500);
+      return handleError(res, error, 'Failed to list exchanges');
     }
   }
 }

@@ -29,6 +29,7 @@ import {
   ScreenerFilters,
 } from '@lazuli/shared';
 import { parseSymbol } from '../utils/validation';
+import { isApiError } from '../errors';
 
 /**
  * Base currency symbols for price comparison
@@ -178,6 +179,11 @@ export class ScreenerService {
       return this.applySortAndFilter(response, sortBy, sortOrder, limit, filters);
     } catch (error) {
       console.error(`Error in getAltcoins for ${exchangeId}:`, error);
+      // Rethrow ApiErrors as-is, they're already properly classified
+      if (isApiError(error)) {
+        throw error;
+      }
+      // For other errors, wrap and rethrow to be handled by controller
       throw error;
     }
   }

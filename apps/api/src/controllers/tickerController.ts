@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { cacheService } from '../services/cacheService';
-import { successResponse, errorResponse } from '../utils/response';
+import { successResponse, handleError } from '../utils/response';
 import { SupportedExchange, Ticker, PaginationMeta } from '@lazuli/shared';
 import {
   validateInteger,
@@ -14,6 +14,7 @@ import {
   validateQuoteCurrency,
   parseSymbol,
 } from '../utils/validation';
+import { invalidExchange, tickerNotFound } from '../errors';
 
 /**
  * Controller for ticker and market data endpoints
@@ -42,7 +43,7 @@ export class TickerController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
+        throw invalidExchange(req.params.exchange);
       }
 
       // Validate query parameters with proper bounds and sanitization
@@ -143,7 +144,7 @@ export class TickerController {
       return successResponse(res, response);
     } catch (error) {
       console.error('Error in getAllTickers:', error);
-      return errorResponse(res, `Failed to fetch tickers: ${error}`, 500);
+      return handleError(res, error, 'Failed to fetch tickers');
     }
   }
 
@@ -200,31 +201,23 @@ export class TickerController {
     try {
       // Extract exchange and symbol parameters
       const { exchange, symbol } = req.params;
-      const exchangeId = exchange.toLowerCase() as SupportedExchange;
+      const exchangeId = validateExchange(exchange);
 
-      let ticker;
-
-      // Route to appropriate service based on exchange type
-      switch (exchangeId) {
-        case 'binance':
-        case 'bybit':
-        case 'okx':
-        case 'hyperliquid':
-        case 'upbit':
-          ticker = await ccxtService.getTicker(exchangeId, symbol);
-          break;
-        default:
-          return errorResponse(res, `Exchange ${exchange} not supported`, 400);
+      if (!exchangeId) {
+        throw invalidExchange(exchange);
       }
 
+      // Route to appropriate service based on exchange type
+      const ticker = await ccxtService.getTicker(exchangeId, symbol);
+
       if (!ticker) {
-        return errorResponse(res, `Ticker ${symbol} not found on ${exchange}`, 404);
+        throw tickerNotFound(symbol, exchange);
       }
 
       return successResponse(res, ticker);
     } catch (error) {
       console.error('Error in getTicker:', error);
-      return errorResponse(res, `Failed to fetch ticker: ${error}`, 500);
+      return handleError(res, error, 'Failed to fetch ticker');
     }
   }
 
@@ -248,7 +241,7 @@ export class TickerController {
       const exchangeId = validateExchange(req.params.exchange);
 
       if (!exchangeId) {
-        return errorResponse(res, `Exchange ${req.params.exchange} not supported`, 400);
+        throw invalidExchange(req.params.exchange);
       }
 
       // Validate query parameters with proper bounds and sanitization
@@ -338,7 +331,7 @@ export class TickerController {
       return successResponse(res, response);
     } catch (error) {
       console.error('Error in getMarkets:', error);
-      return errorResponse(res, `Failed to fetch markets: ${error}`, 500);
+      return handleError(res, error, 'Failed to fetch markets');
     }
   }
 }
