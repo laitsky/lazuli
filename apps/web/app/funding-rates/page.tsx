@@ -113,14 +113,14 @@ async function FundingSection({ exchange }: { exchange: SupportedExchange }) {
           <CardContent>
             <div
               className={`text-2xl font-bold font-display font-mono ${
-                funding.stats.avgFundingPercent >= 0 ? 'text-green-400' : 'text-red-400'
+                (funding.stats.avgFundingPercent ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'
               }`}
             >
-              {funding.stats.avgFundingPercent >= 0 ? '+' : ''}
-              {funding.stats.avgFundingPercent.toFixed(4)}%
+              {(funding.stats.avgFundingPercent ?? 0) >= 0 ? '+' : ''}
+              {(funding.stats.avgFundingPercent ?? 0).toFixed(4)}%
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {funding.stats.avgFundingPercent >= 0 ? 'Longs paying shorts' : 'Shorts paying longs'}
+              {(funding.stats.avgFundingPercent ?? 0) >= 0 ? 'Longs paying shorts' : 'Shorts paying longs'}
             </p>
           </CardContent>
         </Card>
@@ -134,10 +134,10 @@ async function FundingSection({ exchange }: { exchange: SupportedExchange }) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold font-display text-green-400 font-mono">
-              +{funding.stats.highestFunding.percent.toFixed(4)}%
+              +{(funding.stats.highestFunding?.percent ?? 0).toFixed(4)}%
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {funding.stats.highestFunding.symbol.replace('.P', '')}
+              {(funding.stats.highestFunding?.symbol ?? 'N/A').replace('.P', '')}
             </p>
           </CardContent>
         </Card>
@@ -151,10 +151,10 @@ async function FundingSection({ exchange }: { exchange: SupportedExchange }) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold font-display text-red-400 font-mono">
-              {funding.stats.lowestFunding.percent.toFixed(4)}%
+              {(funding.stats.lowestFunding?.percent ?? 0).toFixed(4)}%
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              {funding.stats.lowestFunding.symbol.replace('.P', '')}
+              {(funding.stats.lowestFunding?.symbol ?? 'N/A').replace('.P', '')}
             </p>
           </CardContent>
         </Card>
