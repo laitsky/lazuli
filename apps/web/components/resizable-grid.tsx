@@ -62,11 +62,17 @@ function ResizableGridItem({
   const startHeight = useRef(0);
   // Use ref to track current height for the end handler (avoids stale closure)
   const currentHeightRef = useRef(currentHeight);
+  // Use ref for callback to avoid effect re-running when callback reference changes
+  const onLayoutChangeRef = useRef(onLayoutChange);
 
-  // Keep the ref in sync with state
+  // Keep refs in sync
   useEffect(() => {
     currentHeightRef.current = currentHeight;
   }, [currentHeight]);
+
+  useEffect(() => {
+    onLayoutChangeRef.current = onLayoutChange;
+  }, [onLayoutChange]);
 
   /**
    * Handle mouse down on resize handle
@@ -76,8 +82,8 @@ function ResizableGridItem({
     e.preventDefault();
     setIsResizing(true);
     startY.current = e.clientY;
-    startHeight.current = currentHeight;
-  }, [currentHeight]);
+    startHeight.current = currentHeightRef.current;
+  }, []);
 
   /**
    * Handle touch start on resize handle (mobile support)
@@ -86,8 +92,8 @@ function ResizableGridItem({
     e.preventDefault();
     setIsResizing(true);
     startY.current = e.touches[0].clientY;
-    startHeight.current = currentHeight;
-  }, [currentHeight]);
+    startHeight.current = currentHeightRef.current;
+  }, []);
 
   /**
    * Handle mouse/touch move during resize
@@ -110,8 +116,8 @@ function ResizableGridItem({
 
     const handleEnd = () => {
       setIsResizing(false);
-      // Use ref to get the latest height value (avoids stale closure)
-      onLayoutChange(id, { height: currentHeightRef.current });
+      // Use refs to get latest values (avoids stale closures)
+      onLayoutChangeRef.current(id, { height: currentHeightRef.current });
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -125,7 +131,7 @@ function ResizableGridItem({
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleEnd);
     };
-  }, [isResizing, id, onLayoutChange, minHeight, maxHeight]);
+  }, [isResizing, id, minHeight, maxHeight]); // Removed onLayoutChange - using ref instead
 
   // Sync with external height changes (e.g., reset button)
   useEffect(() => {
@@ -171,11 +177,11 @@ function ResizableGridItem({
             if (e.key === 'ArrowUp') {
               const newHeight = Math.max(minHeight, currentHeight - 20);
               setCurrentHeight(newHeight);
-              onLayoutChange(id, { height: newHeight });
+              onLayoutChangeRef.current(id, { height: newHeight });
             } else if (e.key === 'ArrowDown') {
               const newHeight = Math.min(maxHeight, currentHeight + 20);
               setCurrentHeight(newHeight);
-              onLayoutChange(id, { height: newHeight });
+              onLayoutChangeRef.current(id, { height: newHeight });
             }
           }}
         >
@@ -253,16 +259,32 @@ export function ResizableGrid({
   resizable = true,
   className,
 }: ResizableGridProps) {
+  // Use refs to store current values so the callback doesn't need to depend on them
+  // This prevents the callback from being recreated when layouts change during resize
+  const layoutsRef = useRef(layouts);
+  const onLayoutsChangeRef = useRef(onLayoutsChange);
+
+  // Keep refs in sync with props
+  useEffect(() => {
+    layoutsRef.current = layouts;
+  }, [layouts]);
+
+  useEffect(() => {
+    onLayoutsChangeRef.current = onLayoutsChange;
+  }, [onLayoutsChange]);
+
   /**
    * Handle layout change for a single item
    * Updates the layouts array and calls the callback
+   * Uses refs to avoid recreating callback on every layout change
    */
   const handleLayoutChange = useCallback((id: string, changes: Partial<GridLayoutItem>) => {
-    const newLayouts = layouts.map((layout) =>
+    const currentLayouts = layoutsRef.current;
+    const newLayouts = currentLayouts.map((layout) =>
       layout.id === id ? { ...layout, ...changes } : layout
     );
-    onLayoutsChange(newLayouts);
-  }, [layouts, onLayoutsChange]);
+    onLayoutsChangeRef.current(newLayouts);
+  }, []); // Empty deps - uses refs for current values
 
   return (
     <div
@@ -308,10 +330,13 @@ export function useGridLayouts(
   storageKey: string,
   defaultLayouts: GridLayoutItem[]
 ): [GridLayoutItem[], (layouts: GridLayoutItem[]) => void, () => void] {
+  // Use ref to store default layouts to avoid re-running effect on every render
+  const defaultLayoutsRef = useRef(defaultLayouts);
   const [layouts, setLayoutsState] = useState<GridLayoutItem[]>(defaultLayouts);
   const [isHydrated, setIsHydrated] = useState(false);
 
   // Load layouts from localStorage on mount (client-side only)
+  // Only runs once on mount - uses ref to avoid dependency on defaultLayouts
   useEffect(() => {
     try {
       const stored = localStorage.getItem(storageKey);
@@ -321,7 +346,7 @@ export function useGridLayouts(
         // Merge stored layouts with defaults:
         // - Use stored values for items that exist in both
         // - Use default values for new items not in storage
-        const mergedLayouts = defaultLayouts.map((defaultLayout) => {
+        const mergedLayouts = defaultLayoutsRef.current.map((defaultLayout) => {
           const storedLayout = parsed.find((l) => l.id === defaultLayout.id);
           return storedLayout || defaultLayout;
         });
@@ -332,29 +357,29 @@ export function useGridLayouts(
       console.warn('Failed to load grid layouts from localStorage:', error);
     }
     setIsHydrated(true);
-  }, [storageKey, defaultLayouts]);
+  }, [storageKey]); // Only depend on storageKey, not defaultLayouts
 
   // Save layouts to localStorage whenever they change (after hydration)
   const setLayouts = useCallback((newLayouts: GridLayoutItem[]) => {
     setLayoutsState(newLayouts);
-    if (isHydrated) {
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(newLayouts));
-      } catch (error) {
-        console.warn('Failed to save grid layouts to localStorage:', error);
-      }
+    // Save synchronously to localStorage (isHydrated check not needed here
+    // since this is only called after user interaction)
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(newLayouts));
+    } catch (error) {
+      console.warn('Failed to save grid layouts to localStorage:', error);
     }
-  }, [storageKey, isHydrated]);
+  }, [storageKey]);
 
   // Reset to default layouts
   const resetLayouts = useCallback(() => {
-    setLayoutsState(defaultLayouts);
+    setLayoutsState(defaultLayoutsRef.current);
     try {
       localStorage.removeItem(storageKey);
     } catch (error) {
       console.warn('Failed to remove grid layouts from localStorage:', error);
     }
-  }, [storageKey, defaultLayouts]);
+  }, [storageKey]);
 
   return [layouts, setLayouts, resetLayouts];
 }
