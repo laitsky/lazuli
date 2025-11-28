@@ -35,16 +35,25 @@ interface ResizableGridItemProps {
   maxHeight?: number;
   /** Whether resizing is enabled */
   resizable?: boolean;
+  /** Maximum column span (default: 2) */
+  maxColSpan?: number;
 }
 
 /**
- * A single resizable grid item with a drag handle for vertical resizing
+ * Resize direction type
+ */
+type ResizeDirection = 'vertical' | 'horizontal' | null;
+
+/**
+ * A single resizable grid item with drag handles for vertical and horizontal resizing
  *
  * Features:
- * - Vertical resize handle at the bottom
+ * - Vertical resize handle at the bottom (changes height)
+ * - Horizontal resize handle at the right edge (toggles column span)
  * - Smooth resize animation
  * - Minimum and maximum height constraints
- * - Keyboard accessibility for resize handle
+ * - Keyboard accessibility for resize handles
+ * - When expanded horizontally, adjacent charts reflow below
  */
 function ResizableGridItem({
   id,
@@ -54,14 +63,24 @@ function ResizableGridItem({
   minHeight = 250,
   maxHeight = 800,
   resizable = true,
+  maxColSpan = 2,
 }: ResizableGridItemProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isResizing, setIsResizing] = useState(false);
+  const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
   const [currentHeight, setCurrentHeight] = useState(layout.height || 350);
+  const [currentColSpan, setCurrentColSpan] = useState(layout.colSpan);
+  const [horizontalDragDelta, setHorizontalDragDelta] = useState(0);
+
+  // Refs for tracking resize operations
   const startY = useRef(0);
+  const startX = useRef(0);
   const startHeight = useRef(0);
-  // Use ref to track current height for the end handler (avoids stale closure)
+  const startColSpan = useRef(1);
+  const containerWidth = useRef(0);
+
+  // Use ref to track current values for handlers (avoids stale closures)
   const currentHeightRef = useRef(currentHeight);
+  const currentColSpanRef = useRef(currentColSpan);
   // Use ref for callback to avoid effect re-running when callback reference changes
   const onLayoutChangeRef = useRef(onLayoutChange);
 
@@ -71,53 +90,135 @@ function ResizableGridItem({
   }, [currentHeight]);
 
   useEffect(() => {
+    currentColSpanRef.current = currentColSpan;
+  }, [currentColSpan]);
+
+  useEffect(() => {
     onLayoutChangeRef.current = onLayoutChange;
   }, [onLayoutChange]);
 
+  // Sync with external layout changes (e.g., reset button)
+  useEffect(() => {
+    if (layout.height && layout.height !== currentHeightRef.current && !resizeDirection) {
+      setCurrentHeight(layout.height);
+    }
+    if (layout.colSpan !== currentColSpanRef.current && !resizeDirection) {
+      setCurrentColSpan(layout.colSpan);
+    }
+  }, [layout.height, layout.colSpan, resizeDirection]);
+
   /**
-   * Handle mouse down on resize handle
-   * Initiates the resize operation
+   * Handle mouse down on vertical resize handle (bottom edge)
    */
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  const handleVerticalMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    setIsResizing(true);
+    e.stopPropagation();
+    setResizeDirection('vertical');
     startY.current = e.clientY;
     startHeight.current = currentHeightRef.current;
   }, []);
 
   /**
-   * Handle touch start on resize handle (mobile support)
+   * Handle touch start on vertical resize handle
    */
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+  const handleVerticalTouchStart = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
-    setIsResizing(true);
+    e.stopPropagation();
+    setResizeDirection('vertical');
     startY.current = e.touches[0].clientY;
     startHeight.current = currentHeightRef.current;
   }, []);
 
   /**
+   * Handle mouse down on horizontal resize handle (right edge)
+   */
+  const handleHorizontalMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizeDirection('horizontal');
+    startX.current = e.clientX;
+    startColSpan.current = currentColSpanRef.current;
+    if (containerRef.current) {
+      containerWidth.current = containerRef.current.offsetWidth;
+    }
+    setHorizontalDragDelta(0);
+  }, []);
+
+  /**
+   * Handle touch start on horizontal resize handle
+   */
+  const handleHorizontalTouchStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizeDirection('horizontal');
+    startX.current = e.touches[0].clientX;
+    startColSpan.current = currentColSpanRef.current;
+    if (containerRef.current) {
+      containerWidth.current = containerRef.current.offsetWidth;
+    }
+    setHorizontalDragDelta(0);
+  }, []);
+
+  /**
    * Handle mouse/touch move during resize
-   * Updates height based on drag distance
    */
   useEffect(() => {
-    if (!isResizing) return;
+    if (!resizeDirection) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const deltaY = e.clientY - startY.current;
-      const newHeight = Math.min(maxHeight, Math.max(minHeight, startHeight.current + deltaY));
-      setCurrentHeight(newHeight);
+      if (resizeDirection === 'vertical') {
+        const deltaY = e.clientY - startY.current;
+        const newHeight = Math.min(maxHeight, Math.max(minHeight, startHeight.current + deltaY));
+        setCurrentHeight(newHeight);
+      } else if (resizeDirection === 'horizontal') {
+        const deltaX = e.clientX - startX.current;
+        setHorizontalDragDelta(deltaX);
+
+        // Calculate threshold for toggling column span
+        // Expand to full width if dragged more than 30% of container width
+        // Collapse to half width if dragged back more than 30%
+        const threshold = containerWidth.current * 0.3;
+
+        if (startColSpan.current === 1 && deltaX > threshold) {
+          setCurrentColSpan(Math.min(maxColSpan, 2));
+        } else if (startColSpan.current === 2 && deltaX < -threshold) {
+          setCurrentColSpan(1);
+        } else {
+          setCurrentColSpan(startColSpan.current);
+        }
+      }
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      const deltaY = e.touches[0].clientY - startY.current;
-      const newHeight = Math.min(maxHeight, Math.max(minHeight, startHeight.current + deltaY));
-      setCurrentHeight(newHeight);
+      if (resizeDirection === 'vertical') {
+        const deltaY = e.touches[0].clientY - startY.current;
+        const newHeight = Math.min(maxHeight, Math.max(minHeight, startHeight.current + deltaY));
+        setCurrentHeight(newHeight);
+      } else if (resizeDirection === 'horizontal') {
+        const deltaX = e.touches[0].clientX - startX.current;
+        setHorizontalDragDelta(deltaX);
+
+        const threshold = containerWidth.current * 0.3;
+
+        if (startColSpan.current === 1 && deltaX > threshold) {
+          setCurrentColSpan(Math.min(maxColSpan, 2));
+        } else if (startColSpan.current === 2 && deltaX < -threshold) {
+          setCurrentColSpan(1);
+        } else {
+          setCurrentColSpan(startColSpan.current);
+        }
+      }
     };
 
     const handleEnd = () => {
-      setIsResizing(false);
-      // Use refs to get latest values (avoids stale closures)
-      onLayoutChangeRef.current(id, { height: currentHeightRef.current });
+      // Persist changes based on resize direction
+      if (resizeDirection === 'vertical') {
+        onLayoutChangeRef.current(id, { height: currentHeightRef.current });
+      } else if (resizeDirection === 'horizontal') {
+        onLayoutChangeRef.current(id, { colSpan: currentColSpanRef.current });
+      }
+      setResizeDirection(null);
+      setHorizontalDragDelta(0);
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -131,49 +232,47 @@ function ResizableGridItem({
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleEnd);
     };
-  }, [isResizing, id, minHeight, maxHeight]); // Removed onLayoutChange - using ref instead
+  }, [resizeDirection, id, minHeight, maxHeight, maxColSpan]);
 
-  // Sync with external height changes (e.g., reset button)
-  useEffect(() => {
-    if (layout.height && layout.height !== currentHeightRef.current && !isResizing) {
-      setCurrentHeight(layout.height);
-    }
-  }, [layout.height, isResizing]);
+  // Determine if we're showing expand or collapse hint
+  const isExpanded = currentColSpan >= maxColSpan;
+  const showExpandHint = resizeDirection === 'horizontal' && horizontalDragDelta > 50 && !isExpanded;
+  const showCollapseHint = resizeDirection === 'horizontal' && horizontalDragDelta < -50 && isExpanded;
 
   return (
     <div
       ref={containerRef}
       className={cn(
-        'relative group/resize',
-        isResizing && 'select-none'
+        'relative group/resize transition-all duration-200',
+        resizeDirection && 'select-none',
+        resizeDirection === 'horizontal' && 'z-30'
       )}
       style={{
         height: currentHeight,
-        gridColumn: `span ${layout.colSpan}`,
+        gridColumn: `span ${currentColSpan}`,
       }}
     >
       {/* Main content area */}
-      <div className="h-full w-full overflow-hidden">
+      <div className="h-full w-full overflow-hidden rounded-xl">
         {children}
       </div>
 
-      {/* Resize handle - bottom edge */}
+      {/* Vertical resize handle - bottom edge */}
       {resizable && (
         <div
           className={cn(
             'absolute bottom-0 left-0 right-0 h-3 cursor-ns-resize z-20',
             'flex items-center justify-center',
             'opacity-0 group-hover/resize:opacity-100 transition-opacity duration-200',
-            isResizing && 'opacity-100'
+            resizeDirection === 'vertical' && 'opacity-100'
           )}
-          onMouseDown={handleMouseDown}
-          onTouchStart={handleTouchStart}
+          onMouseDown={handleVerticalMouseDown}
+          onTouchStart={handleVerticalTouchStart}
           role="separator"
           aria-orientation="horizontal"
-          aria-label={`Resize ${id} chart`}
+          aria-label={`Resize ${id} chart height`}
           tabIndex={0}
           onKeyDown={(e) => {
-            // Arrow key support for accessibility
             if (e.key === 'ArrowUp') {
               const newHeight = Math.max(minHeight, currentHeight - 20);
               setCurrentHeight(newHeight);
@@ -185,17 +284,95 @@ function ResizableGridItem({
             }
           }}
         >
-          {/* Visual indicator for the resize handle */}
           <div className={cn(
             'w-16 h-1.5 rounded-full bg-white/20 hover:bg-primary/50 transition-colors',
-            isResizing && 'bg-primary'
+            resizeDirection === 'vertical' && 'bg-primary'
           )} />
         </div>
       )}
 
-      {/* Resize overlay to prevent iframe/chart interaction during resize */}
-      {isResizing && (
-        <div className="absolute inset-0 z-10 cursor-ns-resize" />
+      {/* Horizontal resize handle - right edge */}
+      {resizable && (
+        <div
+          className={cn(
+            'absolute top-0 right-0 bottom-0 w-3 cursor-ew-resize z-20',
+            'flex items-center justify-center',
+            'opacity-0 group-hover/resize:opacity-100 transition-opacity duration-200',
+            resizeDirection === 'horizontal' && 'opacity-100'
+          )}
+          onMouseDown={handleHorizontalMouseDown}
+          onTouchStart={handleHorizontalTouchStart}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`Resize ${id} chart width`}
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowRight' && currentColSpan < maxColSpan) {
+              const newColSpan = Math.min(maxColSpan, currentColSpan + 1);
+              setCurrentColSpan(newColSpan);
+              onLayoutChangeRef.current(id, { colSpan: newColSpan });
+            } else if (e.key === 'ArrowLeft' && currentColSpan > 1) {
+              const newColSpan = Math.max(1, currentColSpan - 1);
+              setCurrentColSpan(newColSpan);
+              onLayoutChangeRef.current(id, { colSpan: newColSpan });
+            }
+          }}
+        >
+          <div className={cn(
+            'h-16 w-1.5 rounded-full bg-white/20 hover:bg-primary/50 transition-colors',
+            resizeDirection === 'horizontal' && 'bg-primary'
+          )} />
+        </div>
+      )}
+
+      {/* Corner resize handle - bottom right */}
+      {resizable && (
+        <div
+          className={cn(
+            'absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize z-30',
+            'opacity-0 group-hover/resize:opacity-100 transition-opacity duration-200',
+            resizeDirection && 'opacity-100'
+          )}
+          onMouseDown={(e) => {
+            // Start both resize operations
+            handleVerticalMouseDown(e);
+          }}
+        >
+          <svg
+            className={cn(
+              'w-full h-full text-white/20 hover:text-primary/50 transition-colors',
+              resizeDirection && 'text-primary'
+            )}
+            viewBox="0 0 16 16"
+            fill="currentColor"
+          >
+            <path d="M14 14H12V12H14V14ZM14 10H12V8H14V10ZM10 14H8V12H10V14Z" />
+          </svg>
+        </div>
+      )}
+
+      {/* Expand/Collapse visual hint during horizontal resize */}
+      {(showExpandHint || showCollapseHint) && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
+          <div className={cn(
+            'px-4 py-2 rounded-lg text-sm font-medium',
+            'bg-primary/90 text-white shadow-lg',
+            'animate-pulse'
+          )}>
+            {showExpandHint ? 'Release to expand' : 'Release to collapse'}
+          </div>
+        </div>
+      )}
+
+      {/* Resize overlay to prevent chart interaction during resize */}
+      {resizeDirection && (
+        <div
+          className={cn(
+            'absolute inset-0 z-10',
+            resizeDirection === 'vertical' && 'cursor-ns-resize',
+            resizeDirection === 'horizontal' && 'cursor-ew-resize'
+          )}
+        />
       )}
     </div>
   );
@@ -219,6 +396,8 @@ interface ResizableGridProps {
   minHeight?: number;
   /** Maximum height for grid items */
   maxHeight?: number;
+  /** Maximum column span for grid items (default: columns value) */
+  maxColSpan?: number;
   /** Whether resizing is enabled */
   resizable?: boolean;
   /** Additional CSS classes */
@@ -256,9 +435,13 @@ export function ResizableGrid({
   gap = 24,
   minHeight = 250,
   maxHeight = 800,
+  maxColSpan,
   resizable = true,
   className,
 }: ResizableGridProps) {
+  // Default maxColSpan to columns value
+  const effectiveMaxColSpan = maxColSpan ?? columns;
+
   // Use refs to store current values so the callback doesn't need to depend on them
   // This prevents the callback from being recreated when layouts change during resize
   const layoutsRef = useRef(layouts);
@@ -302,6 +485,7 @@ export function ResizableGrid({
           onLayoutChange={handleLayoutChange}
           minHeight={minHeight}
           maxHeight={maxHeight}
+          maxColSpan={effectiveMaxColSpan}
           resizable={resizable}
         >
           {children(layout, index)}

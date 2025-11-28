@@ -632,7 +632,7 @@ export default function MultiTFPage() {
               {/* Resize hint */}
               <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-full border border-white/5">
                 <Maximize2 className="h-3 w-3" />
-                <span>Drag bottom edge to resize charts</span>
+                <span>Drag edges to resize • Right edge expands/collapses</span>
               </div>
               {/* Reset layout button */}
               <Button
