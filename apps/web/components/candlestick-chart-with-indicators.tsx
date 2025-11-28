@@ -10,13 +10,7 @@ import {
   CandlestickData,
   LineData,
 } from 'lightweight-charts';
-import {
-  Timeframe,
-  IndicatorDataPoint,
-  IndicatorLine,
-  RSIConfig,
-  DEFAULT_INDICATOR_PERIODS,
-} from '@lazuli/shared';
+import { Timeframe, IndicatorDataPoint, DEFAULT_INDICATOR_PERIODS } from '@lazuli/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,7 +22,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Settings2, TrendingUp, Activity, BarChart3 } from 'lucide-react';
+import { TrendingUp, Activity, BarChart3 } from 'lucide-react';
 
 /**
  * Predefined colors for indicator lines

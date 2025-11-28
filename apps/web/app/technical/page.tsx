@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -271,17 +271,11 @@ export default function TechnicalAnalysisPage() {
       });
   }, [tickers, searchQuery, quoteFilter]);
 
-  // Load technical indicators when symbol or timeframe changes
-  useEffect(() => {
-    if (selectedSymbol && selectedTimeframe) {
-      loadIndicators();
-    }
-  }, [selectedSymbol, selectedTimeframe]);
-
   /**
    * Load technical indicator data from the API
+   * Uses useCallback to ensure stable reference and proper dependency tracking
    */
-  async function loadIndicators() {
+  const loadIndicators = useCallback(async () => {
     if (!selectedSymbol) {
       setError('Please select a symbol');
       return;
@@ -315,7 +309,14 @@ export default function TechnicalAnalysisPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [selectedExchange, selectedSymbol, selectedTimeframe, marketType]);
+
+  // Load technical indicators when symbol, timeframe, or market type changes
+  useEffect(() => {
+    if (selectedSymbol && selectedTimeframe) {
+      loadIndicators();
+    }
+  }, [selectedSymbol, selectedTimeframe, loadIndicators]);
 
   return (
     <div className="space-y-6">
