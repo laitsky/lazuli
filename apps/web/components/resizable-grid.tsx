@@ -274,10 +274,12 @@ function ResizableGridItem({
           tabIndex={0}
           onKeyDown={(e) => {
             if (e.key === 'ArrowUp') {
+              e.preventDefault(); // Prevent page scroll
               const newHeight = Math.max(minHeight, currentHeight - 20);
               setCurrentHeight(newHeight);
               onLayoutChangeRef.current(id, { height: newHeight });
             } else if (e.key === 'ArrowDown') {
+              e.preventDefault(); // Prevent page scroll
               const newHeight = Math.min(maxHeight, currentHeight + 20);
               setCurrentHeight(newHeight);
               onLayoutChangeRef.current(id, { height: newHeight });
@@ -308,10 +310,12 @@ function ResizableGridItem({
           tabIndex={0}
           onKeyDown={(e) => {
             if (e.key === 'ArrowRight' && currentColSpan < maxColSpan) {
+              e.preventDefault(); // Prevent page scroll
               const newColSpan = Math.min(maxColSpan, currentColSpan + 1);
               setCurrentColSpan(newColSpan);
               onLayoutChangeRef.current(id, { colSpan: newColSpan });
             } else if (e.key === 'ArrowLeft' && currentColSpan > 1) {
+              e.preventDefault(); // Prevent page scroll
               const newColSpan = Math.max(1, currentColSpan - 1);
               setCurrentColSpan(newColSpan);
               onLayoutChangeRef.current(id, { colSpan: newColSpan });
@@ -325,7 +329,7 @@ function ResizableGridItem({
         </div>
       )}
 
-      {/* Corner resize handle - bottom right */}
+      {/* Corner resize handle - bottom right (triggers vertical resize) */}
       {resizable && (
         <div
           className={cn(
@@ -334,7 +338,7 @@ function ResizableGridItem({
             resizeDirection && 'opacity-100'
           )}
           onMouseDown={(e) => {
-            // Start both resize operations
+            // Corner handle triggers vertical resize for convenience
             handleVerticalMouseDown(e);
           }}
         >
@@ -517,7 +521,6 @@ export function useGridLayouts(
   // Use ref to store default layouts to avoid re-running effect on every render
   const defaultLayoutsRef = useRef(defaultLayouts);
   const [layouts, setLayoutsState] = useState<GridLayoutItem[]>(defaultLayouts);
-  const [isHydrated, setIsHydrated] = useState(false);
 
   // Load layouts from localStorage on mount (client-side only)
   // Only runs once on mount - uses ref to avoid dependency on defaultLayouts
@@ -540,14 +543,12 @@ export function useGridLayouts(
     } catch (error) {
       console.warn('Failed to load grid layouts from localStorage:', error);
     }
-    setIsHydrated(true);
   }, [storageKey]); // Only depend on storageKey, not defaultLayouts
 
-  // Save layouts to localStorage whenever they change (after hydration)
+  // Save layouts to localStorage whenever they change
   const setLayouts = useCallback((newLayouts: GridLayoutItem[]) => {
     setLayoutsState(newLayouts);
-    // Save synchronously to localStorage (isHydrated check not needed here
-    // since this is only called after user interaction)
+    // Save to localStorage (only called after user interaction)
     try {
       localStorage.setItem(storageKey, JSON.stringify(newLayouts));
     } catch (error) {
