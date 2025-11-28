@@ -14,14 +14,6 @@ import { Timeframe, IndicatorDataPoint, DEFAULT_INDICATOR_PERIODS } from '@lazul
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { TrendingUp, Activity, BarChart3 } from 'lucide-react';
 
 /**
@@ -457,103 +449,92 @@ export function CandlestickChartWithIndicators({
 
   return (
     <Card className="glass border-white/5">
-      <CardHeader className="pb-3 flex flex-row items-center justify-between">
-        <CardTitle className="text-base font-medium flex items-center gap-2">
-          <BarChart3 className="h-4 w-4 text-primary" />
-          {chartTitle}
-          {activeIndicatorCount > 0 && (
-            <Badge variant="secondary" className="ml-2 text-xs">
-              {activeIndicatorCount} indicator{activeIndicatorCount !== 1 ? 's' : ''}
-            </Badge>
-          )}
-        </CardTitle>
+      <CardHeader className="pb-3">
+        <div className="flex flex-col gap-4">
+          {/* Title Row */}
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-medium flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-primary" />
+              {chartTitle}
+              {activeIndicatorCount > 0 && (
+                <Badge variant="secondary" className="ml-2 text-xs">
+                  {activeIndicatorCount} indicator{activeIndicatorCount !== 1 ? 's' : ''}
+                </Badge>
+              )}
+            </CardTitle>
+          </div>
 
-        {showControls && (
-          <div className="flex items-center gap-2">
-            {/* SMA Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant={visibleSMA.size > 0 ? 'secondary' : 'outline'}
-                  size="sm"
-                  className="gap-1.5"
-                >
-                  <TrendingUp className="h-3.5 w-3.5" />
-                  SMA
-                  {visibleSMA.size > 0 && (
-                    <Badge variant="default" className="ml-1 h-4 px-1 text-[10px]">
-                      {visibleSMA.size}
-                    </Badge>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Simple Moving Average</DropdownMenuLabel>
-                <DropdownMenuSeparator />
+          {/* Indicator Controls */}
+          {showControls && (
+            <div className="flex flex-col gap-3">
+              {/* SMA Toggle Buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-[60px]">
+                  <TrendingUp className="h-3 w-3" />
+                  SMA:
+                </span>
                 {availableSMA.map((period) => (
-                  <DropdownMenuCheckboxItem
-                    key={period}
-                    checked={visibleSMA.has(period)}
-                    onCheckedChange={() => toggleSMA(period)}
+                  <Button
+                    key={`sma-${period}`}
+                    variant={visibleSMA.has(period) ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => toggleSMA(period)}
+                    className="h-7 px-2 text-xs gap-1.5"
                   >
                     <span
-                      className="w-3 h-3 rounded-full mr-2"
+                      className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: getIndicatorColor('sma', period) }}
                     />
-                    SMA {period}
-                  </DropdownMenuCheckboxItem>
+                    {period}
+                  </Button>
                 ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </div>
 
-            {/* EMA Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant={visibleEMA.size > 0 ? 'secondary' : 'outline'}
-                  size="sm"
-                  className="gap-1.5"
-                >
-                  <TrendingUp className="h-3.5 w-3.5" />
-                  EMA
-                  {visibleEMA.size > 0 && (
-                    <Badge variant="default" className="ml-1 h-4 px-1 text-[10px]">
-                      {visibleEMA.size}
-                    </Badge>
-                  )}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Exponential Moving Average</DropdownMenuLabel>
-                <DropdownMenuSeparator />
+              {/* EMA Toggle Buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-[60px]">
+                  <TrendingUp className="h-3 w-3" />
+                  EMA:
+                </span>
                 {availableEMA.map((period) => (
-                  <DropdownMenuCheckboxItem
-                    key={period}
-                    checked={visibleEMA.has(period)}
-                    onCheckedChange={() => toggleEMA(period)}
+                  <Button
+                    key={`ema-${period}`}
+                    variant={visibleEMA.has(period) ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => toggleEMA(period)}
+                    className="h-7 px-2 text-xs gap-1.5"
                   >
                     <span
-                      className="w-3 h-3 rounded-full mr-2"
+                      className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: getIndicatorColor('ema', period) }}
                     />
-                    EMA {period}
-                  </DropdownMenuCheckboxItem>
+                    {period}
+                  </Button>
                 ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </div>
 
-            {/* RSI Toggle */}
-            <Button
-              variant={showRSI ? 'secondary' : 'outline'}
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setShowRSI(!showRSI)}
-            >
-              <Activity className="h-3.5 w-3.5" />
-              RSI
-            </Button>
-          </div>
-        )}
+              {/* RSI Toggle */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-muted-foreground flex items-center gap-1.5 min-w-[60px]">
+                  <Activity className="h-3 w-3" />
+                  RSI:
+                </span>
+                <Button
+                  variant={showRSI ? 'secondary' : 'outline'}
+                  size="sm"
+                  onClick={() => setShowRSI(!showRSI)}
+                  className="h-7 px-2 text-xs gap-1.5"
+                >
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: INDICATOR_COLORS.rsi.line }}
+                  />
+                  {availableRSI[0] || 14}
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-0">
         {/* Main candlestick chart */}
