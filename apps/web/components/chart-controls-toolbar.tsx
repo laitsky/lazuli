@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Camera, LineChart, BarChart3, Volume2, VolumeX } from 'lucide-react';
+import { Camera, LineChart, Volume2, VolumeX } from 'lucide-react';
 
 /**
  * Props for the ChartControlsToolbar component
@@ -45,6 +44,8 @@ export function ChartControlsToolbar({
 }: ChartControlsToolbarProps) {
   return (
     <div
+      role="toolbar"
+      aria-label="Chart controls"
       className={cn(
         // Floating toolbar styling
         'absolute top-3 right-3 z-10',
@@ -78,7 +79,7 @@ export function ChartControlsToolbar({
       />
 
       {/* Separator */}
-      <div className="h-5 w-px bg-white/10 mx-0.5" />
+      <div role="separator" aria-orientation="vertical" className="h-5 w-px bg-white/10 mx-0.5" />
 
       {/* Screenshot Button */}
       <ToolbarButton
@@ -120,9 +121,12 @@ function ToolbarButton({
 }: ToolbarButtonProps) {
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled || isLoading}
       title={tooltip}
+      aria-label={tooltip}
+      aria-pressed={isActive}
       className={cn(
         // Base button styling
         'flex items-center gap-1.5 px-2 py-1.5 rounded-md',
@@ -148,10 +152,29 @@ function ToolbarButton({
 }
 
 /**
+ * Return type for the useChartControls hook
+ */
+interface ChartControlsState {
+  isLogScale: boolean;
+  setIsLogScale: (value: boolean) => void;
+  showVolume: boolean;
+  setShowVolume: (value: boolean) => void;
+  isCapturing: boolean;
+  captureScreenshot: (element: HTMLElement | null, filename?: string) => Promise<void>;
+}
+
+/**
  * Hook to manage chart control state
  * Provides state management for log scale, volume visibility, and screenshot functionality
+ *
+ * @param initialLogScale - Initial state for logarithmic scale (default: false)
+ * @param initialShowVolume - Initial state for volume visibility (default: true)
+ * @returns Chart controls state and actions
  */
-export function useChartControls(initialLogScale = false, initialShowVolume = true) {
+export function useChartControls(
+  initialLogScale = false,
+  initialShowVolume = true
+): ChartControlsState {
   const [isLogScale, setIsLogScale] = useState(initialLogScale);
   const [showVolume, setShowVolume] = useState(initialShowVolume);
   const [isCapturing, setIsCapturing] = useState(false);
