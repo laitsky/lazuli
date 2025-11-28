@@ -19,7 +19,7 @@
  * - Customizable column visibility
  */
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Table,
   TableBody,
@@ -28,7 +28,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -131,6 +130,8 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     ema: number[];
     rsi: number[];
   } | null>(null);
+  // Request counter to prevent race conditions when switching tickers quickly
+  const chartRequestIdRef = useRef(0);
 
   // Calculate data freshness (most recent timestamp from tickers)
   const dataFreshness = useMemo(() => {
@@ -427,6 +428,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   /**
    * Handle ticker row click to show chart panel
    * Fetches technical indicator data for the selected symbol
+   * Uses request counter to prevent race conditions when switching tickers quickly
    */
   const handleTickerClick = useCallback(
     async (ticker: Ticker) => {
@@ -437,6 +439,9 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
         setChartError(null);
         return;
       }
+
+      // Increment request counter to track this specific request
+      const requestId = ++chartRequestIdRef.current;
 
       setSelectedTicker(ticker);
       setChartLoading(true);
@@ -450,6 +455,11 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           limit: 300,
         });
 
+        // Only update state if this is still the latest request
+        if (requestId !== chartRequestIdRef.current) {
+          return; // Stale request, ignore response
+        }
+
         if (response.success && response.data) {
           setChartData(response.data.data);
           setChartIndicators(response.data.indicators);
@@ -457,10 +467,17 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           setChartError('Failed to load chart data');
         }
       } catch (error) {
+        // Only update error state if this is still the latest request
+        if (requestId !== chartRequestIdRef.current) {
+          return;
+        }
         console.error('Error fetching chart data:', error);
         setChartError('Failed to load chart data');
       } finally {
-        setChartLoading(false);
+        // Only update loading state if this is still the latest request
+        if (requestId === chartRequestIdRef.current) {
+          setChartLoading(false);
+        }
       }
     },
     [exchange, chartTimeframe, selectedTicker?.symbol]
@@ -469,12 +486,16 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   /**
    * Handle timeframe change for the chart
    * Refetches data with the new timeframe
+   * Uses request counter to prevent race conditions when switching timeframes quickly
    */
   const handleTimeframeChange = useCallback(
     async (newTimeframe: Timeframe) => {
       setChartTimeframe(newTimeframe);
 
       if (!selectedTicker) return;
+
+      // Increment request counter to track this specific request
+      const requestId = ++chartRequestIdRef.current;
 
       setChartLoading(true);
       setChartError(null);
@@ -486,6 +507,11 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           limit: 300,
         });
 
+        // Only update state if this is still the latest request
+        if (requestId !== chartRequestIdRef.current) {
+          return; // Stale request, ignore response
+        }
+
         if (response.success && response.data) {
           setChartData(response.data.data);
           setChartIndicators(response.data.indicators);
@@ -493,10 +519,17 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
           setChartError('Failed to load chart data');
         }
       } catch (error) {
+        // Only update error state if this is still the latest request
+        if (requestId !== chartRequestIdRef.current) {
+          return;
+        }
         console.error('Error fetching chart data:', error);
         setChartError('Failed to load chart data');
       } finally {
-        setChartLoading(false);
+        // Only update loading state if this is still the latest request
+        if (requestId === chartRequestIdRef.current) {
+          setChartLoading(false);
+        }
       }
     },
     [exchange, selectedTicker]
