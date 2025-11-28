@@ -1221,6 +1221,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                                     setChartError(null);
                                   }}
                                   className="h-6 w-6 p-0 text-muted-foreground hover:bg-white/10"
+                                  aria-label="Close chart"
                                 >
                                   <X className="h-3 w-3" />
                                 </Button>
