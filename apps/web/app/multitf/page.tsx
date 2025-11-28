@@ -38,14 +38,16 @@ export default function MultiTFPage() {
 
   /**
    * Default chart layout configuration
-   * Each chart starts with the same height, users can resize individually
-   * colSpan: 1 = half width, 2 = full width
+   * Each chart starts with the same height and 50% width, users can resize individually
+   * widthPercent: 30-100 for gradual width control
+   * colSpan: kept for backward compatibility (1 for <=50%, 2 for >50%)
    */
   const defaultLayouts: GridLayoutItem[] = timeframes.map((tf) => ({
     id: tf,
     colSpan: 1,
     rowSpan: 1,
     height: 350,
+    widthPercent: 50,
   }));
 
   // Use custom hook for layout persistence to localStorage
@@ -632,7 +634,7 @@ export default function MultiTFPage() {
               {/* Resize hint */}
               <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-full border border-white/5">
                 <Maximize2 className="h-3 w-3" />
-                <span>Drag edges to resize • Right edge expands/collapses</span>
+                <span>Drag edges to resize • Right edge adjusts width (30-100%)</span>
               </div>
               {/* Reset layout button */}
               <Button
@@ -669,11 +671,11 @@ export default function MultiTFPage() {
               return data && data.length > 0;
             })}
             onLayoutsChange={setChartLayouts}
-            columns={2}
             gap={24}
             minHeight={250}
             maxHeight={800}
-            className="md:grid-cols-2 grid-cols-1"
+            minWidthPercent={30}
+            maxWidthPercent={100}
           >
             {(layout) => {
               const tf = layout.id as Timeframe;

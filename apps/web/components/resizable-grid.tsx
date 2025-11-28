@@ -9,12 +9,14 @@ import { cn } from '@/lib/utils';
 export interface GridLayoutItem {
   /** Unique identifier for the grid item */
   id: string;
-  /** Column span (1-4) */
+  /** @deprecated Use widthPercent instead. Column span (1-4) for discrete sizing */
   colSpan: number;
   /** Row span (1-3) */
   rowSpan: number;
   /** Height in pixels (overrides rowSpan when set) */
   height?: number;
+  /** Width as a percentage (30-100). When items in a row exceed 100%, they wrap to next row */
+  widthPercent?: number;
 }
 
 /**
@@ -35,8 +37,12 @@ interface ResizableGridItemProps {
   maxHeight?: number;
   /** Whether resizing is enabled */
   resizable?: boolean;
-  /** Maximum column span (default: 2) */
-  maxColSpan?: number;
+  /** Minimum width percentage (default: 30) */
+  minWidthPercent?: number;
+  /** Maximum width percentage (default: 100) */
+  maxWidthPercent?: number;
+  /** Gap between items in pixels, used for width calculations */
+  gap?: number;
 }
 
 /**
@@ -49,11 +55,11 @@ type ResizeDirection = 'vertical' | 'horizontal' | null;
  *
  * Features:
  * - Vertical resize handle at the bottom (changes height)
- * - Horizontal resize handle at the right edge (toggles column span)
- * - Smooth resize animation
- * - Minimum and maximum height constraints
+ * - Horizontal resize handle at the right edge (gradual width adjustment)
+ * - Smooth resize animation with percentage-based widths
+ * - Minimum and maximum constraints for both height and width
  * - Keyboard accessibility for resize handles
- * - When expanded horizontally, adjacent charts reflow below
+ * - Items automatically wrap when combined widths exceed 100%
  */
 function ResizableGridItem({
   id,
@@ -63,24 +69,28 @@ function ResizableGridItem({
   minHeight = 250,
   maxHeight = 800,
   resizable = true,
-  maxColSpan = 2,
+  minWidthPercent = 30,
+  maxWidthPercent = 100,
+  gap = 24,
 }: ResizableGridItemProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const parentRef = useRef<HTMLDivElement | null>(null);
   const [resizeDirection, setResizeDirection] = useState<ResizeDirection>(null);
   const [currentHeight, setCurrentHeight] = useState(layout.height || 350);
-  const [currentColSpan, setCurrentColSpan] = useState(layout.colSpan);
-  const [horizontalDragDelta, setHorizontalDragDelta] = useState(0);
+  // Use widthPercent if available, otherwise derive from colSpan for backward compatibility
+  const initialWidthPercent = layout.widthPercent ?? (layout.colSpan === 2 ? 100 : 50);
+  const [currentWidthPercent, setCurrentWidthPercent] = useState(initialWidthPercent);
 
   // Refs for tracking resize operations
   const startY = useRef(0);
   const startX = useRef(0);
   const startHeight = useRef(0);
-  const startColSpan = useRef(1);
-  const containerWidth = useRef(0);
+  const startWidthPercent = useRef(50);
+  const parentWidth = useRef(0);
 
   // Use ref to track current values for handlers (avoids stale closures)
   const currentHeightRef = useRef(currentHeight);
-  const currentColSpanRef = useRef(currentColSpan);
+  const currentWidthPercentRef = useRef(currentWidthPercent);
   // Use ref for callback to avoid effect re-running when callback reference changes
   const onLayoutChangeRef = useRef(onLayoutChange);
 
@@ -90,8 +100,8 @@ function ResizableGridItem({
   }, [currentHeight]);
 
   useEffect(() => {
-    currentColSpanRef.current = currentColSpan;
-  }, [currentColSpan]);
+    currentWidthPercentRef.current = currentWidthPercent;
+  }, [currentWidthPercent]);
 
   useEffect(() => {
     onLayoutChangeRef.current = onLayoutChange;
@@ -102,10 +112,18 @@ function ResizableGridItem({
     if (layout.height && layout.height !== currentHeightRef.current && !resizeDirection) {
       setCurrentHeight(layout.height);
     }
-    if (layout.colSpan !== currentColSpanRef.current && !resizeDirection) {
-      setCurrentColSpan(layout.colSpan);
+    const externalWidthPercent = layout.widthPercent ?? (layout.colSpan === 2 ? 100 : 50);
+    if (externalWidthPercent !== currentWidthPercentRef.current && !resizeDirection) {
+      setCurrentWidthPercent(externalWidthPercent);
     }
-  }, [layout.height, layout.colSpan, resizeDirection]);
+  }, [layout.height, layout.widthPercent, layout.colSpan, resizeDirection]);
+
+  // Store parent reference for width calculations
+  useEffect(() => {
+    if (containerRef.current) {
+      parentRef.current = containerRef.current.parentElement as HTMLDivElement;
+    }
+  }, []);
 
   /**
    * Handle mouse down on vertical resize handle (bottom edge)
@@ -131,36 +149,44 @@ function ResizableGridItem({
 
   /**
    * Handle mouse down on horizontal resize handle (right edge)
+   * Captures starting position and parent width for percentage calculations
    */
   const handleHorizontalMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setResizeDirection('horizontal');
     startX.current = e.clientX;
-    startColSpan.current = currentColSpanRef.current;
-    if (containerRef.current) {
-      containerWidth.current = containerRef.current.offsetWidth;
+    startWidthPercent.current = currentWidthPercentRef.current;
+    if (parentRef.current) {
+      parentWidth.current = parentRef.current.offsetWidth;
     }
-    setHorizontalDragDelta(0);
   }, []);
 
   /**
    * Handle touch start on horizontal resize handle
+   * Captures starting position and parent width for percentage calculations
    */
   const handleHorizontalTouchStart = useCallback((e: React.TouchEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setResizeDirection('horizontal');
     startX.current = e.touches[0].clientX;
-    startColSpan.current = currentColSpanRef.current;
-    if (containerRef.current) {
-      containerWidth.current = containerRef.current.offsetWidth;
+    startWidthPercent.current = currentWidthPercentRef.current;
+    if (parentRef.current) {
+      parentWidth.current = parentRef.current.offsetWidth;
     }
-    setHorizontalDragDelta(0);
+  }, []);
+
+  /**
+   * Snap width percentage to nearest 5% for cleaner values
+   */
+  const snapToGrid = useCallback((percent: number): number => {
+    return Math.round(percent / 5) * 5;
   }, []);
 
   /**
    * Handle mouse/touch move during resize
+   * For horizontal resize, converts pixel movement to percentage change
    */
   useEffect(() => {
     if (!resizeDirection) return;
@@ -172,20 +198,13 @@ function ResizableGridItem({
         setCurrentHeight(newHeight);
       } else if (resizeDirection === 'horizontal') {
         const deltaX = e.clientX - startX.current;
-        setHorizontalDragDelta(deltaX);
-
-        // Calculate threshold for toggling column span
-        // Expand to full width if dragged more than 30% of container width
-        // Collapse to half width if dragged back more than 30%
-        const threshold = containerWidth.current * 0.3;
-
-        if (startColSpan.current === 1 && deltaX > threshold) {
-          setCurrentColSpan(Math.min(maxColSpan, 2));
-        } else if (startColSpan.current === 2 && deltaX < -threshold) {
-          setCurrentColSpan(1);
-        } else {
-          setCurrentColSpan(startColSpan.current);
-        }
+        // Convert pixel delta to percentage (relative to parent width)
+        const deltaPercent = (deltaX / parentWidth.current) * 100;
+        const newPercent = Math.min(
+          maxWidthPercent,
+          Math.max(minWidthPercent, startWidthPercent.current + deltaPercent)
+        );
+        setCurrentWidthPercent(newPercent);
       }
     };
 
@@ -196,17 +215,13 @@ function ResizableGridItem({
         setCurrentHeight(newHeight);
       } else if (resizeDirection === 'horizontal') {
         const deltaX = e.touches[0].clientX - startX.current;
-        setHorizontalDragDelta(deltaX);
-
-        const threshold = containerWidth.current * 0.3;
-
-        if (startColSpan.current === 1 && deltaX > threshold) {
-          setCurrentColSpan(Math.min(maxColSpan, 2));
-        } else if (startColSpan.current === 2 && deltaX < -threshold) {
-          setCurrentColSpan(1);
-        } else {
-          setCurrentColSpan(startColSpan.current);
-        }
+        // Convert pixel delta to percentage (relative to parent width)
+        const deltaPercent = (deltaX / parentWidth.current) * 100;
+        const newPercent = Math.min(
+          maxWidthPercent,
+          Math.max(minWidthPercent, startWidthPercent.current + deltaPercent)
+        );
+        setCurrentWidthPercent(newPercent);
       }
     };
 
@@ -215,10 +230,14 @@ function ResizableGridItem({
       if (resizeDirection === 'vertical') {
         onLayoutChangeRef.current(id, { height: currentHeightRef.current });
       } else if (resizeDirection === 'horizontal') {
-        onLayoutChangeRef.current(id, { colSpan: currentColSpanRef.current });
+        // Snap to nearest 5% for cleaner values
+        const snappedPercent = snapToGrid(currentWidthPercentRef.current);
+        setCurrentWidthPercent(snappedPercent);
+        // Also update colSpan for backward compatibility (1 for <=50%, 2 for >50%)
+        const colSpan = snappedPercent > 50 ? 2 : 1;
+        onLayoutChangeRef.current(id, { widthPercent: snappedPercent, colSpan });
       }
       setResizeDirection(null);
-      setHorizontalDragDelta(0);
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -232,24 +251,36 @@ function ResizableGridItem({
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleEnd);
     };
-  }, [resizeDirection, id, minHeight, maxHeight, maxColSpan]);
+  }, [resizeDirection, id, minHeight, maxHeight, minWidthPercent, maxWidthPercent, snapToGrid]);
 
-  // Determine if we're showing expand or collapse hint
-  const isExpanded = currentColSpan >= maxColSpan;
-  const showExpandHint = resizeDirection === 'horizontal' && horizontalDragDelta > 50 && !isExpanded;
-  const showCollapseHint = resizeDirection === 'horizontal' && horizontalDragDelta < -50 && isExpanded;
+  // Calculate width style with gap compensation
+  // When using flex-basis percentage, we need to account for gaps
+  const getWidthStyle = useCallback(() => {
+    // For 100% width, take full width
+    if (currentWidthPercent >= 100) {
+      return { flexBasis: '100%', maxWidth: '100%' };
+    }
+    // For partial widths, calculate with gap compensation
+    // If item is 50%, it shares row with potentially one other item, so subtract half gap
+    // Formula: calc(percent% - gap * (1 - percent/100))
+    const gapCompensation = gap * (1 - currentWidthPercent / 100);
+    return {
+      flexBasis: `calc(${currentWidthPercent}% - ${gapCompensation}px)`,
+      maxWidth: `calc(${currentWidthPercent}% - ${gapCompensation}px)`,
+    };
+  }, [currentWidthPercent, gap]);
 
   return (
     <div
       ref={containerRef}
       className={cn(
-        'relative group/resize transition-all duration-200',
+        'relative group/resize transition-all duration-200 flex-shrink-0',
         resizeDirection && 'select-none',
         resizeDirection === 'horizontal' && 'z-30'
       )}
       style={{
         height: currentHeight,
-        gridColumn: `span ${currentColSpan}`,
+        ...getWidthStyle(),
       }}
     >
       {/* Main content area */}
@@ -306,19 +337,21 @@ function ResizableGridItem({
           onTouchStart={handleHorizontalTouchStart}
           role="separator"
           aria-orientation="vertical"
-          aria-label={`Resize ${id} chart width`}
+          aria-label={`Resize ${id} chart width, currently ${Math.round(currentWidthPercent)}%`}
           tabIndex={0}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowRight' && currentColSpan < maxColSpan) {
+            if (e.key === 'ArrowRight' && currentWidthPercent < maxWidthPercent) {
               e.preventDefault(); // Prevent page scroll
-              const newColSpan = Math.min(maxColSpan, currentColSpan + 1);
-              setCurrentColSpan(newColSpan);
-              onLayoutChangeRef.current(id, { colSpan: newColSpan });
-            } else if (e.key === 'ArrowLeft' && currentColSpan > 1) {
+              const newPercent = Math.min(maxWidthPercent, currentWidthPercent + 5);
+              setCurrentWidthPercent(newPercent);
+              const colSpan = newPercent > 50 ? 2 : 1;
+              onLayoutChangeRef.current(id, { widthPercent: newPercent, colSpan });
+            } else if (e.key === 'ArrowLeft' && currentWidthPercent > minWidthPercent) {
               e.preventDefault(); // Prevent page scroll
-              const newColSpan = Math.max(1, currentColSpan - 1);
-              setCurrentColSpan(newColSpan);
-              onLayoutChangeRef.current(id, { colSpan: newColSpan });
+              const newPercent = Math.max(minWidthPercent, currentWidthPercent - 5);
+              setCurrentWidthPercent(newPercent);
+              const colSpan = newPercent > 50 ? 2 : 1;
+              onLayoutChangeRef.current(id, { widthPercent: newPercent, colSpan });
             }
           }}
         >
@@ -355,15 +388,14 @@ function ResizableGridItem({
         </div>
       )}
 
-      {/* Expand/Collapse visual hint during horizontal resize */}
-      {(showExpandHint || showCollapseHint) && (
+      {/* Width percentage indicator during horizontal resize */}
+      {resizeDirection === 'horizontal' && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
           <div className={cn(
             'px-4 py-2 rounded-lg text-sm font-medium',
-            'bg-primary/90 text-white shadow-lg',
-            'animate-pulse'
+            'bg-primary/90 text-white shadow-lg'
           )}>
-            {showExpandHint ? 'Release to expand' : 'Release to collapse'}
+            {Math.round(currentWidthPercent)}%
           </div>
         </div>
       )}
@@ -392,7 +424,7 @@ interface ResizableGridProps {
   onLayoutsChange: (layouts: GridLayoutItem[]) => void;
   /** Render function for each grid item */
   children: (item: GridLayoutItem, index: number) => ReactNode;
-  /** Number of columns in the grid (default: 2) */
+  /** @deprecated No longer used with flexbox layout */
   columns?: number;
   /** Gap between grid items in pixels (default: 24) */
   gap?: number;
@@ -400,8 +432,10 @@ interface ResizableGridProps {
   minHeight?: number;
   /** Maximum height for grid items */
   maxHeight?: number;
-  /** Maximum column span for grid items (default: columns value) */
-  maxColSpan?: number;
+  /** Minimum width percentage for grid items (default: 30) */
+  minWidthPercent?: number;
+  /** Maximum width percentage for grid items (default: 100) */
+  maxWidthPercent?: number;
   /** Whether resizing is enabled */
   resizable?: boolean;
   /** Additional CSS classes */
@@ -409,12 +443,13 @@ interface ResizableGridProps {
 }
 
 /**
- * A responsive grid container with resizable items
+ * A responsive flex container with resizable items
  *
  * Features:
- * - CSS Grid-based layout for responsive behavior
+ * - Flexbox-based layout with percentage widths
+ * - Gradual horizontal resizing (30-100% width)
  * - Individual item height customization
- * - Column span support (items can span multiple columns)
+ * - Items automatically wrap when combined widths exceed 100%
  * - Persists layout changes via callback
  * - Mobile-friendly with touch support
  *
@@ -422,8 +457,8 @@ interface ResizableGridProps {
  * ```tsx
  * <ResizableGrid
  *   layouts={[
- *     { id: '1h', colSpan: 2, rowSpan: 1, height: 500 },
- *     { id: '15m', colSpan: 1, rowSpan: 1, height: 350 },
+ *     { id: '1h', colSpan: 2, rowSpan: 1, height: 500, widthPercent: 70 },
+ *     { id: '15m', colSpan: 1, rowSpan: 1, height: 350, widthPercent: 30 },
  *   ]}
  *   onLayoutsChange={setLayouts}
  * >
@@ -435,17 +470,14 @@ export function ResizableGrid({
   layouts,
   onLayoutsChange,
   children,
-  columns = 2,
   gap = 24,
   minHeight = 250,
   maxHeight = 800,
-  maxColSpan,
+  minWidthPercent = 30,
+  maxWidthPercent = 100,
   resizable = true,
   className,
 }: ResizableGridProps) {
-  // Default maxColSpan to columns value
-  const effectiveMaxColSpan = maxColSpan ?? columns;
-
   // Use refs to store current values so the callback doesn't need to depend on them
   // This prevents the callback from being recreated when layouts change during resize
   const layoutsRef = useRef(layouts);
@@ -475,9 +507,8 @@ export function ResizableGrid({
 
   return (
     <div
-      className={cn('grid', className)}
+      className={cn('flex flex-wrap', className)}
       style={{
-        gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
         gap: `${gap}px`,
       }}
     >
@@ -489,7 +520,9 @@ export function ResizableGrid({
           onLayoutChange={handleLayoutChange}
           minHeight={minHeight}
           maxHeight={maxHeight}
-          maxColSpan={effectiveMaxColSpan}
+          minWidthPercent={minWidthPercent}
+          maxWidthPercent={maxWidthPercent}
+          gap={gap}
           resizable={resizable}
         >
           {children(layout, index)}
