@@ -133,17 +133,38 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   // Request counter to prevent race conditions when switching tickers quickly
   const chartRequestIdRef = useRef(0);
 
-  // Calculate data freshness (most recent timestamp from tickers)
-  const dataFreshness = useMemo(() => {
-    const timestamps = tickers.map((t) => t.timestamp).filter(Boolean);
-    if (timestamps.length === 0) return null;
-    const mostRecent = Math.max(...timestamps);
-    const ageMs = Date.now() - mostRecent;
-    const ageSec = Math.floor(ageMs / 1000);
-    if (ageSec < 60) return `${ageSec}s ago`;
-    const ageMin = Math.floor(ageSec / 60);
-    if (ageMin < 60) return `${ageMin}m ago`;
-    return `${Math.floor(ageMin / 60)}h ago`;
+  // Data freshness - calculated client-side only to avoid hydration mismatch
+  // (Date.now() differs between server and client)
+  const [dataFreshness, setDataFreshness] = useState<string | null>(null);
+
+  useEffect(() => {
+    const calculateFreshness = () => {
+      const timestamps = tickers.map((t) => t.timestamp).filter(Boolean);
+      if (timestamps.length === 0) {
+        setDataFreshness(null);
+        return;
+      }
+      const mostRecent = Math.max(...timestamps);
+      const ageMs = Date.now() - mostRecent;
+      const ageSec = Math.floor(ageMs / 1000);
+      if (ageSec < 60) {
+        setDataFreshness(`${ageSec}s ago`);
+      } else {
+        const ageMin = Math.floor(ageSec / 60);
+        if (ageMin < 60) {
+          setDataFreshness(`${ageMin}m ago`);
+        } else {
+          setDataFreshness(`${Math.floor(ageMin / 60)}h ago`);
+        }
+      }
+    };
+
+    // Calculate immediately on mount
+    calculateFreshness();
+
+    // Update every 10 seconds
+    const interval = setInterval(calculateFreshness, 10000);
+    return () => clearInterval(interval);
   }, [tickers]);
 
   // Check if current exchange is Hyperliquid (perpetual-only)
