@@ -76,7 +76,19 @@ export function CandlestickChart({
   }, [height, fillContainer]);
 
   useEffect(() => {
-    if (!chartContainerRef.current || data.length === 0) return;
+    // Track observers/listeners for cleanup
+    let resizeObserver: ResizeObserver | null = null;
+
+    // Early return if no container or data, but still return cleanup
+    if (!chartContainerRef.current || data.length === 0) {
+      return () => {
+        // Cleanup any existing chart when data becomes empty
+        if (chartRef.current) {
+          chartRef.current.remove();
+          chartRef.current = null;
+        }
+      };
+    }
 
     try {
       // Calculate initial height
@@ -136,7 +148,7 @@ export function CandlestickChart({
 
       // Use ResizeObserver for container-based resize detection
       // This is more efficient than window resize and works with CSS Grid resizing
-      const resizeObserver = new ResizeObserver(() => {
+      resizeObserver = new ResizeObserver(() => {
         // Use requestAnimationFrame to debounce resize updates
         requestAnimationFrame(resizeChart);
       });
@@ -149,19 +161,21 @@ export function CandlestickChart({
 
       // Also handle window resize as a fallback
       window.addEventListener('resize', resizeChart);
-
-      // Cleanup on unmount
-      return () => {
-        resizeObserver.disconnect();
-        window.removeEventListener('resize', resizeChart);
-        if (chartRef.current) {
-          chartRef.current.remove();
-          chartRef.current = null;
-        }
-      };
     } catch (error) {
       console.error('Error creating chart:', error);
     }
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      window.removeEventListener('resize', resizeChart);
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+      }
+    };
   }, [data, height, fillContainer, resizeChart]);
 
   // Generate chart title

@@ -60,6 +60,13 @@ function ResizableGridItem({
   const [currentHeight, setCurrentHeight] = useState(layout.height || 350);
   const startY = useRef(0);
   const startHeight = useRef(0);
+  // Use ref to track current height for the end handler (avoids stale closure)
+  const currentHeightRef = useRef(currentHeight);
+
+  // Keep the ref in sync with state
+  useEffect(() => {
+    currentHeightRef.current = currentHeight;
+  }, [currentHeight]);
 
   /**
    * Handle mouse down on resize handle
@@ -103,8 +110,8 @@ function ResizableGridItem({
 
     const handleEnd = () => {
       setIsResizing(false);
-      // Persist the new height to layout
-      onLayoutChange(id, { height: currentHeight });
+      // Use ref to get the latest height value (avoids stale closure)
+      onLayoutChange(id, { height: currentHeightRef.current });
     };
 
     document.addEventListener('mousemove', handleMouseMove);
@@ -118,14 +125,14 @@ function ResizableGridItem({
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleEnd);
     };
-  }, [isResizing, id, currentHeight, onLayoutChange, minHeight, maxHeight]);
+  }, [isResizing, id, onLayoutChange, minHeight, maxHeight]);
 
-  // Sync with external height changes
+  // Sync with external height changes (e.g., reset button)
   useEffect(() => {
-    if (layout.height && layout.height !== currentHeight && !isResizing) {
+    if (layout.height && layout.height !== currentHeightRef.current && !isResizing) {
       setCurrentHeight(layout.height);
     }
-  }, [layout.height]);
+  }, [layout.height, isResizing]);
 
   return (
     <div
@@ -310,11 +317,10 @@ export function useGridLayouts(
       const stored = localStorage.getItem(storageKey);
       if (stored) {
         const parsed = JSON.parse(stored) as GridLayoutItem[];
-        // Validate stored layouts have all required items
-        const storedIds = new Set(parsed.map((l) => l.id));
-        const defaultIds = new Set(defaultLayouts.map((l) => l.id));
 
-        // Merge: use stored values for existing items, add defaults for new items
+        // Merge stored layouts with defaults:
+        // - Use stored values for items that exist in both
+        // - Use default values for new items not in storage
         const mergedLayouts = defaultLayouts.map((defaultLayout) => {
           const storedLayout = parsed.find((l) => l.id === defaultLayout.id);
           return storedLayout || defaultLayout;
