@@ -10,6 +10,7 @@ import { superEmaController } from '../controllers/superEmaController';
 import { screenerController } from '../controllers/screenerController';
 import { fundingRateController } from '../controllers/fundingRateController';
 import { technicalIndicatorController } from '../controllers/technicalIndicatorController';
+import { orderBookController } from '../controllers/orderBookController';
 
 // Create Express router for API v1 endpoints
 const router: RouterType = Router();
@@ -67,6 +68,11 @@ router.get('/superema/:exchange/:symbol', async (req, res) => {
 // GET /api/v1/indicators/:exchange/:symbol - Get technical indicators (SMA, EMA, RSI)
 router.get('/indicators/:exchange/:symbol', async (req, res) => {
   await technicalIndicatorController.getIndicators(req, res);
+});
+
+// GET /api/v1/orderbook/:exchange/:symbol - Get order book (depth) data for a symbol
+router.get('/orderbook/:exchange/:symbol', async (req, res) => {
+  await orderBookController.getOrderBook(req, res);
 });
 
 // GET /api/v1/screener/:exchange - Get all altcoins with performance data for Alt Screener

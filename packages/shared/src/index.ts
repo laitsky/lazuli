@@ -547,3 +547,49 @@ export interface CrossExchangeFundingResponse {
     estimatedDailyYield: number; // Estimated daily yield from funding arbitrage
   }[];
 }
+
+// ============================================================================
+// Order Book Types
+// ============================================================================
+
+/**
+ * Single order in the order book
+ * Represents a price level with quantity
+ */
+export interface OrderBookEntry {
+  price: number; // Price level
+  amount: number; // Quantity at this price
+  total: number; // Cumulative total up to this level
+}
+
+/**
+ * Order book data structure
+ * Contains bid (buy) and ask (sell) orders sorted by price
+ *
+ * Bids are sorted from highest to lowest (best bid first)
+ * Asks are sorted from lowest to highest (best ask first)
+ */
+export interface OrderBook {
+  symbol: string; // Trading pair symbol (e.g., BTC-USDT or BTCUSDT.P)
+  exchange: string; // Exchange identifier
+  type: 'spot' | 'perp'; // Market type
+  bids: OrderBookEntry[]; // Buy orders (highest price first)
+  asks: OrderBookEntry[]; // Sell orders (lowest price first)
+  timestamp: number; // Data timestamp
+  nonce?: number; // Exchange-specific sequence number (if available)
+}
+
+/**
+ * Order book response from /orderbook/:exchange/:symbol
+ */
+export interface OrderBookResponse {
+  exchange: string; // Exchange identifier
+  symbol: string; // Trading pair symbol
+  type: 'spot' | 'perp'; // Market type
+  orderbook: OrderBook; // Order book data
+  depth: number; // Number of price levels returned
+  spread: number | null; // Bid-ask spread in price units
+  spreadPercent: number | null; // Bid-ask spread as percentage
+  midPrice: number | null; // Mid-market price
+  timestamp: number; // Response timestamp
+}

@@ -30,6 +30,7 @@ import {
   Percent,
   Search,
   Command,
+  BookOpen,
 } from 'lucide-react';
 
 /**
@@ -50,6 +51,11 @@ const navItems = [
     href: '/markets',
     label: 'Markets',
     icon: TrendingUp,
+  },
+  {
+    href: '/orderbook',
+    label: 'Order Book',
+    icon: BookOpen,
   },
   {
     href: '/alt-screener',
