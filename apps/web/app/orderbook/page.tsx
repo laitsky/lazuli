@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/page-header';
-import { LazuliAPI, formatVolume } from '@/lib/api-client';
+import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Ticker, OrderBookEntry } from '@lazuli/shared';
 import {
   Search,
@@ -17,7 +17,6 @@ import {
   TrendingDown,
   AlertCircle,
   Layers,
-  ArrowUpDown,
 } from 'lucide-react';
 
 /**
@@ -131,12 +130,10 @@ export default function OrderBookPage() {
     loadExchanges();
   }, []);
 
-  // Auto-switch market type and quote for specific exchanges
+  // Auto-switch market type and quote for Hyperliquid (perpetual-only exchange)
   useEffect(() => {
     if (selectedExchange === 'hyperliquid') {
-      if (marketType === 'spot') {
-        setMarketType('perp');
-      }
+      setMarketType('perp');
       setQuoteFilter('USDC');
       setSelectedSymbol('');
       setBids([]);
@@ -144,11 +141,10 @@ export default function OrderBookPage() {
     }
   }, [selectedExchange]);
 
+  // Auto-switch market type and quote for Upbit (spot-only exchange)
   useEffect(() => {
     if (selectedExchange === 'upbit') {
-      if (marketType === 'perp') {
-        setMarketType('spot');
-      }
+      setMarketType('spot');
       setQuoteFilter('KRW');
       setSelectedSymbol('');
       setBids([]);
