@@ -8,9 +8,18 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CandlestickChart } from '@/components/candlestick-chart';
 import { PageHeader } from '@/components/page-header';
+import { ResizableGrid, GridLayoutItem, useGridLayouts } from '@/components/resizable-grid';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
-import { Search, TrendingUp, LayoutGrid, Clock, AlertCircle } from 'lucide-react';
+import {
+  Search,
+  TrendingUp,
+  LayoutGrid,
+  Clock,
+  AlertCircle,
+  RotateCcw,
+  Maximize2,
+} from 'lucide-react';
 
 /**
  * Multi-timeframe analysis page
@@ -34,6 +43,26 @@ export default function MultiTFPage() {
 
   // Available timeframes to display
   const timeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
+
+  /**
+   * Default chart layout configuration
+   * Each chart starts with the same height and 50% width, users can resize individually
+   * widthPercent: 30-100 for gradual width control
+   * colSpan: kept for backward compatibility (1 for <=50%, 2 for >50%)
+   */
+  const defaultLayouts: GridLayoutItem[] = timeframes.map((tf) => ({
+    id: tf,
+    colSpan: 1,
+    rowSpan: 1,
+    height: 350,
+    widthPercent: 50,
+  }));
+
+  // Use custom hook for layout persistence to localStorage
+  const [chartLayouts, setChartLayouts, resetChartLayouts] = useGridLayouts(
+    'multitf-chart-layouts',
+    defaultLayouts
+  );
 
   /**
    * Get appropriate candle limit based on timeframe
@@ -454,11 +483,7 @@ export default function MultiTFPage() {
                   }}
                   className="rounded-md"
                   disabled={selectedExchange === 'upbit'}
-                  title={
-                    selectedExchange === 'upbit'
-                      ? 'Upbit only supports spot markets'
-                      : ''
-                  }
+                  title={selectedExchange === 'upbit' ? 'Upbit only supports spot markets' : ''}
                 >
                   Perpetual
                 </Button>
@@ -600,7 +625,7 @@ export default function MultiTFPage() {
       {/* Charts Grid */}
       {Object.keys(chartsData).length > 0 && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-8 duration-700">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <h2 className="text-3xl font-display font-bold flex items-center gap-3">
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-primary to-purple-400">
                 {selectedSymbol}
@@ -609,9 +634,28 @@ export default function MultiTFPage() {
                 on {exchanges.find((e) => e.id === selectedExchange)?.name}
               </span>
             </h2>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-full border border-white/5">
-              <Clock className="h-4 w-4" />
-              <span>Last updated: {new Date().toLocaleTimeString()}</span>
+            <div className="flex items-center gap-3">
+              {/* Resize hint */}
+              <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-full border border-white/5">
+                <Maximize2 className="h-3 w-3" />
+                <span>Drag edges to resize • Right edge adjusts width (30-100%)</span>
+              </div>
+              {/* Reset layout button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetChartLayouts}
+                className="gap-2 text-xs"
+                title="Reset all charts to default size"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset Layout
+              </Button>
+              {/* Last updated timestamp */}
+              <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-full border border-white/5">
+                <Clock className="h-4 w-4" />
+                <span>Last updated: {new Date().toLocaleTimeString()}</span>
+              </div>
             </div>
           </div>
 
@@ -623,26 +667,40 @@ export default function MultiTFPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {timeframes.map((tf) => {
+          {/* Resizable Charts Grid */}
+          <ResizableGrid
+            layouts={chartLayouts.filter((layout) => {
+              // Only include layouts that have data
+              const data = chartsData[layout.id as Timeframe];
+              return data && data.length > 0;
+            })}
+            onLayoutsChange={setChartLayouts}
+            gap={24}
+            minHeight={250}
+            maxHeight={800}
+            minWidthPercent={30}
+            maxWidthPercent={100}
+          >
+            {(layout) => {
+              const tf = layout.id as Timeframe;
               const data = chartsData[tf];
               if (!data || data.length === 0) return null;
 
               return (
-                <div key={tf} className="group">
-                  <div className="relative z-10 transition-transform duration-300 group-hover:-translate-y-1">
+                <div className="group h-full">
+                  <div className="relative z-10 h-full">
                     <CandlestickChart
                       data={data}
                       timeframe={tf}
                       symbol={selectedSymbol}
-                      height={350}
+                      fillContainer
                     />
                   </div>
-                  <div className="absolute inset-0 bg-primary/5 blur-xl rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10" />
+                  <div className="absolute inset-0 bg-primary/5 blur-xl rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10 pointer-events-none" />
                 </div>
               );
-            })}
-          </div>
+            }}
+          </ResizableGrid>
         </div>
       )}
 

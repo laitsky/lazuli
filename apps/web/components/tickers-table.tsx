@@ -19,7 +19,7 @@
  * - Customizable column visibility
  */
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Table,
   TableBody,
@@ -28,7 +28,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -54,8 +53,12 @@ import {
   Zap,
   Clock,
   Activity,
+  LineChart,
+  Loader2,
 } from 'lucide-react';
-import { Ticker } from '@lazuli/shared';
+import { Ticker, Timeframe, IndicatorDataPoint } from '@lazuli/shared';
+import { LazuliAPI } from '@/lib/api-client';
+import { CandlestickChartWithIndicators } from '@/components/candlestick-chart-with-indicators';
 import { formatCurrency, formatVolume, formatPercentage, getChangeColor } from '@/lib/api-client';
 
 interface TickersTableProps {
@@ -116,17 +119,52 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('none');
   const itemsPerPage = 20;
 
-  // Calculate data freshness (most recent timestamp from tickers)
-  const dataFreshness = useMemo(() => {
-    const timestamps = tickers.map((t) => t.timestamp).filter(Boolean);
-    if (timestamps.length === 0) return null;
-    const mostRecent = Math.max(...timestamps);
-    const ageMs = Date.now() - mostRecent;
-    const ageSec = Math.floor(ageMs / 1000);
-    if (ageSec < 60) return `${ageSec}s ago`;
-    const ageMin = Math.floor(ageSec / 60);
-    if (ageMin < 60) return `${ageMin}m ago`;
-    return `${Math.floor(ageMin / 60)}h ago`;
+  // Chart panel state
+  const [selectedTicker, setSelectedTicker] = useState<Ticker | null>(null);
+  const [chartData, setChartData] = useState<IndicatorDataPoint[] | null>(null);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartError, setChartError] = useState<string | null>(null);
+  const [chartTimeframe, setChartTimeframe] = useState<Timeframe>('1h');
+  const [chartIndicators, setChartIndicators] = useState<{
+    sma: number[];
+    ema: number[];
+    rsi: number[];
+  } | null>(null);
+  // Request counter to prevent race conditions when switching tickers quickly
+  const chartRequestIdRef = useRef(0);
+
+  // Data freshness - calculated client-side only to avoid hydration mismatch
+  // (Date.now() differs between server and client)
+  const [dataFreshness, setDataFreshness] = useState<string | null>(null);
+
+  useEffect(() => {
+    const calculateFreshness = () => {
+      const timestamps = tickers.map((t) => t.timestamp).filter(Boolean);
+      if (timestamps.length === 0) {
+        setDataFreshness(null);
+        return;
+      }
+      const mostRecent = Math.max(...timestamps);
+      const ageMs = Date.now() - mostRecent;
+      const ageSec = Math.floor(ageMs / 1000);
+      if (ageSec < 60) {
+        setDataFreshness(`${ageSec}s ago`);
+      } else {
+        const ageMin = Math.floor(ageSec / 60);
+        if (ageMin < 60) {
+          setDataFreshness(`${ageMin}m ago`);
+        } else {
+          setDataFreshness(`${Math.floor(ageMin / 60)}h ago`);
+        }
+      }
+    };
+
+    // Calculate immediately on mount
+    calculateFreshness();
+
+    // Update every 10 seconds
+    const interval = setInterval(calculateFreshness, 10000);
+    return () => clearInterval(interval);
   }, [tickers]);
 
   // Check if current exchange is Hyperliquid (perpetual-only)
@@ -358,6 +396,19 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
     }).format(num);
   };
 
+  // Calculate the number of visible columns for chart row colspan
+  const visibleColumnCount = useMemo(() => {
+    let count = 1; // Symbol column is always visible
+    if (columns.price) count++;
+    if (columns.change) count++;
+    if (columns.highLow) count++;
+    if (columns.volume) count++;
+    if (columns.spread) count++;
+    if (marketType === 'perp' && columns.funding) count++;
+    if (marketType === 'perp' && columns.openInterest) count++;
+    return count;
+  }, [columns, marketType]);
+
   // Helper to format funding rate as percentage
   const formatFundingRate = (rate: number | null | undefined) => {
     if (rate === null || rate === undefined) return '-';
@@ -407,6 +458,123 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
   const toggleColumn = (column: keyof ColumnVisibility) => {
     setColumns((prev) => ({ ...prev, [column]: !prev[column] }));
   };
+
+  /**
+   * Handle ticker row click to show chart panel
+   * Fetches technical indicator data for the selected symbol
+   * Uses request counter to prevent race conditions when switching tickers quickly
+   */
+  const handleTickerClick = useCallback(
+    async (ticker: Ticker) => {
+      // Toggle off if clicking the same ticker
+      if (selectedTicker?.symbol === ticker.symbol) {
+        setSelectedTicker(null);
+        setChartData(null);
+        setChartError(null);
+        return;
+      }
+
+      // Increment request counter to track this specific request
+      const requestId = ++chartRequestIdRef.current;
+
+      setSelectedTicker(ticker);
+      setChartLoading(true);
+      setChartError(null);
+      setChartData(null);
+
+      try {
+        const response = await LazuliAPI.getTechnicalIndicators(exchange, ticker.symbol, {
+          timeframe: chartTimeframe,
+          type: ticker.type,
+          limit: 300,
+        });
+
+        // Only update state if this is still the latest request
+        if (requestId !== chartRequestIdRef.current) {
+          return; // Stale request, ignore response
+        }
+
+        if (response.success && response.data) {
+          setChartData(response.data.data);
+          setChartIndicators(response.data.indicators);
+        } else {
+          setChartError('Failed to load chart data');
+        }
+      } catch (error) {
+        // Only update error state if this is still the latest request
+        if (requestId !== chartRequestIdRef.current) {
+          return;
+        }
+        console.error('Error fetching chart data:', error);
+        setChartError('Failed to load chart data');
+      } finally {
+        // Only update loading state if this is still the latest request
+        if (requestId === chartRequestIdRef.current) {
+          setChartLoading(false);
+        }
+      }
+    },
+    [exchange, chartTimeframe, selectedTicker?.symbol]
+  );
+
+  /**
+   * Handle timeframe change for the chart
+   * Refetches data with the new timeframe
+   * Uses request counter to prevent race conditions when switching timeframes quickly
+   */
+  const handleTimeframeChange = useCallback(
+    async (newTimeframe: Timeframe) => {
+      setChartTimeframe(newTimeframe);
+
+      if (!selectedTicker) return;
+
+      // Increment request counter to track this specific request
+      const requestId = ++chartRequestIdRef.current;
+
+      setChartLoading(true);
+      setChartError(null);
+
+      try {
+        const response = await LazuliAPI.getTechnicalIndicators(exchange, selectedTicker.symbol, {
+          timeframe: newTimeframe,
+          type: selectedTicker.type,
+          limit: 300,
+        });
+
+        // Only update state if this is still the latest request
+        if (requestId !== chartRequestIdRef.current) {
+          return; // Stale request, ignore response
+        }
+
+        if (response.success && response.data) {
+          setChartData(response.data.data);
+          setChartIndicators(response.data.indicators);
+        } else {
+          setChartError('Failed to load chart data');
+        }
+      } catch (error) {
+        // Only update error state if this is still the latest request
+        if (requestId !== chartRequestIdRef.current) {
+          return;
+        }
+        console.error('Error fetching chart data:', error);
+        setChartError('Failed to load chart data');
+      } finally {
+        // Only update loading state if this is still the latest request
+        if (requestId === chartRequestIdRef.current) {
+          setChartLoading(false);
+        }
+      }
+    },
+    [exchange, selectedTicker]
+  );
+
+  // Close chart when exchange changes
+  useEffect(() => {
+    setSelectedTicker(null);
+    setChartData(null);
+    setChartError(null);
+  }, [exchange]);
 
   return (
     <div className="bg-card rounded-xl border border-border overflow-hidden">
@@ -842,142 +1010,277 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
                   const isPositive = percentage >= 0;
                   const changeColor = getChangeColor(percentage);
                   const isHovered = hoveredRow === ticker.symbol;
+                  const isSelected = selectedTicker?.symbol === ticker.symbol;
                   const pricePosition = getPricePosition(ticker);
 
                   return (
-                    <TableRow
-                      key={ticker.symbol}
-                      className={`border-border transition-all duration-200 cursor-pointer ${
-                        isHovered ? 'bg-accent' : 'hover:bg-accent/50'
-                      }`}
-                      onMouseEnter={() => setHoveredRow(ticker.symbol)}
-                      onMouseLeave={() => setHoveredRow(null)}
-                      style={{ animationDelay: `${index * 20}ms` }}
-                    >
-                      <TableCell className="font-medium py-4">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`w-9 h-9 rounded-lg bg-secondary flex items-center justify-center text-sm font-bold text-muted-foreground border border-border transition-all duration-200 ${
-                              isHovered ? 'border-primary/30 text-primary' : ''
-                            }`}
-                          >
-                            {ticker.symbol.substring(0, 1)}
+                    <React.Fragment key={ticker.symbol}>
+                      <TableRow
+                        className={`border-border transition-all duration-200 cursor-pointer ${
+                          isSelected
+                            ? 'bg-primary/10 hover:bg-primary/15 border-l-2 border-l-primary'
+                            : isHovered
+                              ? 'bg-accent'
+                              : 'hover:bg-accent/50'
+                        }`}
+                        onMouseEnter={() => setHoveredRow(ticker.symbol)}
+                        onMouseLeave={() => setHoveredRow(null)}
+                        onClick={() => handleTickerClick(ticker)}
+                        style={{ animationDelay: `${index * 20}ms` }}
+                      >
+                        <TableCell className="font-medium py-4">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`w-9 h-9 rounded-lg bg-secondary flex items-center justify-center text-sm font-bold text-muted-foreground border border-border transition-all duration-200 ${
+                                isHovered ? 'border-primary/30 text-primary' : ''
+                              }`}
+                            >
+                              {ticker.symbol.substring(0, 1)}
+                            </div>
+                            <div>
+                              <div className="font-bold text-foreground flex items-center gap-2">
+                                {ticker.symbol}
+                                {isHovered && (
+                                  <ArrowUpRight className="h-3.5 w-3.5 text-primary animate-in fade-in slide-in-from-left-1 duration-200" />
+                                )}
+                              </div>
+                              <div className="text-xs text-muted-foreground hidden sm:flex items-center gap-1.5 mt-0.5">
+                                <span className="capitalize">{exchange}</span>
+                                <span className="text-border">•</span>
+                                <span
+                                  className={
+                                    ticker.type === 'spot'
+                                      ? 'text-[hsl(152_60%_50%)]'
+                                      : 'text-primary'
+                                  }
+                                >
+                                  {ticker.type === 'spot' ? 'Spot' : 'Perp'}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="font-bold text-foreground flex items-center gap-2">
-                              {ticker.symbol}
-                              {isHovered && (
-                                <ArrowUpRight className="h-3.5 w-3.5 text-primary animate-in fade-in slide-in-from-left-1 duration-200" />
+                        </TableCell>
+                        {columns.price && (
+                          <TableCell className="text-right font-mono font-medium text-base py-4">
+                            <span className={isHovered ? 'text-primary' : ''}>
+                              {formatCurrency(ticker.last)}
+                            </span>
+                          </TableCell>
+                        )}
+                        {columns.change && (
+                          <TableCell className="text-right py-4">
+                            <Badge
+                              variant="outline"
+                              className={`${changeColor} border-current/20 bg-current/10 font-mono px-2.5 py-1 transition-all ${
+                                isHovered ? 'scale-105' : ''
+                              }`}
+                            >
+                              {isPositive ? (
+                                <ArrowUpRight className="h-3 w-3 mr-1" />
+                              ) : (
+                                <ArrowDownRight className="h-3 w-3 mr-1" />
+                              )}
+                              {formatPercentage(percentage)}
+                            </Badge>
+                          </TableCell>
+                        )}
+                        {columns.highLow && (
+                          <TableCell className="text-right py-4 hidden lg:table-cell">
+                            <div className="flex flex-col items-end gap-1.5">
+                              {/* Price range text */}
+                              <div className="flex items-center gap-2 text-xs font-mono">
+                                <span className="text-red-400">
+                                  {formatCurrency(ticker.low24h)}
+                                </span>
+                                <span className="text-muted-foreground">-</span>
+                                <span className="text-green-400">
+                                  {formatCurrency(ticker.high24h)}
+                                </span>
+                              </div>
+                              {/* Visual range indicator */}
+                              <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden relative">
+                                {/* Gradient background showing the range */}
+                                <div className="absolute inset-0 bg-gradient-to-r from-red-500/30 via-yellow-500/30 to-green-500/30" />
+                                {/* Current price position indicator */}
+                                <div
+                                  className="absolute top-0 h-full w-1.5 bg-primary rounded-full shadow-[0_0_6px_rgba(59,130,246,0.8)] transition-all"
+                                  style={{
+                                    left: `calc(${Math.min(100, Math.max(0, pricePosition))}% - 3px)`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </TableCell>
+                        )}
+                        {columns.volume && (
+                          <TableCell className="text-right font-mono text-muted-foreground py-4">
+                            <span className="hidden sm:inline">
+                              {formatVolume(ticker.quoteVolume24h)}
+                            </span>
+                            <span className="sm:hidden">
+                              {formatCompactNumber(ticker.quoteVolume24h || 0)}
+                            </span>
+                          </TableCell>
+                        )}
+                        {columns.spread && (
+                          <TableCell className="text-right py-4 hidden xl:table-cell">
+                            <span
+                              className={`font-mono text-sm ${getSpreadColor(getSpread(ticker))}`}
+                            >
+                              {formatSpread(getSpread(ticker))}
+                            </span>
+                          </TableCell>
+                        )}
+                        {marketType === 'perp' && columns.funding && (
+                          <TableCell className="text-right py-4 hidden md:table-cell">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Percent className="h-3 w-3 text-muted-foreground" />
+                              <span
+                                className={`font-mono text-sm ${getFundingColor(ticker.fundingRate)}`}
+                              >
+                                {formatFundingRate(ticker.fundingRate)}
+                              </span>
+                            </div>
+                          </TableCell>
+                        )}
+                        {marketType === 'perp' && columns.openInterest && (
+                          <TableCell className="text-right py-4 hidden xl:table-cell">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <Activity className="h-3 w-3 text-muted-foreground" />
+                              <span className="font-mono text-sm text-muted-foreground">
+                                {formatOpenInterest(ticker.openInterest)}
+                              </span>
+                            </div>
+                          </TableCell>
+                        )}
+                      </TableRow>
+                      {/* Inline Chart Row - appears directly below the selected ticker */}
+                      {isSelected && (
+                        <TableRow className="bg-secondary/30 hover:bg-secondary/30 border-l-2 border-l-primary">
+                          <TableCell colSpan={visibleColumnCount} className="p-4">
+                            <div className="flex flex-col gap-4 animate-in slide-in-from-top-2 duration-200">
+                              {/* Chart Header */}
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                                    <LineChart className="h-4 w-4 text-primary" />
+                                  </div>
+                                  <div>
+                                    <h3 className="font-display font-medium text-sm flex items-center gap-2">
+                                      {ticker.symbol} Chart
+                                      <Badge
+                                        variant="secondary"
+                                        className={`text-[10px] ${
+                                          ticker.type === 'spot'
+                                            ? 'bg-green-500/20 text-green-500'
+                                            : 'bg-blue-500/20 text-blue-500'
+                                        }`}
+                                      >
+                                        {ticker.type === 'spot' ? 'Spot' : 'Perp'}
+                                      </Badge>
+                                    </h3>
+                                    <p className="text-[10px] text-muted-foreground">
+                                      Click row to close • {formatCurrency(ticker.last)}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Timeframe Selector */}
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                                    Timeframe:
+                                  </span>
+                                  <div className="flex gap-0.5 p-0.5 bg-white/5 rounded-lg">
+                                    {(['1m', '5m', '15m', '1h', '4h', '1d'] as Timeframe[]).map(
+                                      (tf) => (
+                                        <Button
+                                          key={tf}
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleTimeframeChange(tf);
+                                          }}
+                                          disabled={chartLoading}
+                                          className={`h-6 px-1.5 text-[10px] rounded transition-all ${
+                                            chartTimeframe === tf
+                                              ? 'bg-primary text-primary-foreground shadow-sm'
+                                              : 'text-muted-foreground hover:bg-white/10 hover:text-foreground'
+                                          }`}
+                                        >
+                                          {tf}
+                                        </Button>
+                                      )
+                                    )}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedTicker(null);
+                                      setChartData(null);
+                                      setChartError(null);
+                                    }}
+                                    className="h-6 w-6 p-0 text-muted-foreground hover:bg-white/10"
+                                    aria-label="Close chart"
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+
+                              {/* Chart Content */}
+                              {chartLoading && (
+                                <div className="flex items-center justify-center h-[350px] bg-card/50 rounded-xl border border-white/5">
+                                  <div className="flex flex-col items-center gap-2">
+                                    <Loader2 className="h-6 w-6 text-primary animate-spin" />
+                                    <p className="text-xs text-muted-foreground">
+                                      Loading chart...
+                                    </p>
+                                  </div>
+                                </div>
+                              )}
+
+                              {chartError && !chartLoading && (
+                                <div className="flex items-center justify-center h-[150px] bg-card/50 rounded-xl border border-destructive/20">
+                                  <div className="flex flex-col items-center gap-2">
+                                    <X className="h-6 w-6 text-destructive" />
+                                    <p className="text-xs text-muted-foreground">{chartError}</p>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleTickerClick(ticker);
+                                      }}
+                                      className="h-7 text-xs rounded-lg"
+                                    >
+                                      Retry
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {chartData && !chartLoading && !chartError && (
+                                <div onClick={(e) => e.stopPropagation()}>
+                                  <CandlestickChartWithIndicators
+                                    data={chartData}
+                                    timeframe={chartTimeframe}
+                                    symbol={ticker.symbol}
+                                    height={350}
+                                    availableSMA={chartIndicators?.sma || [20, 50, 200]}
+                                    availableEMA={chartIndicators?.ema || [9, 12, 21, 26]}
+                                    availableRSI={chartIndicators?.rsi || [14]}
+                                    showControls={true}
+                                  />
+                                </div>
                               )}
                             </div>
-                            <div className="text-xs text-muted-foreground hidden sm:flex items-center gap-1.5 mt-0.5">
-                              <span className="capitalize">{exchange}</span>
-                              <span className="text-border">•</span>
-                              <span
-                                className={
-                                  ticker.type === 'spot'
-                                    ? 'text-[hsl(152_60%_50%)]'
-                                    : 'text-primary'
-                                }
-                              >
-                                {ticker.type === 'spot' ? 'Spot' : 'Perp'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      </TableCell>
-                      {columns.price && (
-                        <TableCell className="text-right font-mono font-medium text-base py-4">
-                          <span className={isHovered ? 'text-primary' : ''}>
-                            {formatCurrency(ticker.last)}
-                          </span>
-                        </TableCell>
+                          </TableCell>
+                        </TableRow>
                       )}
-                      {columns.change && (
-                        <TableCell className="text-right py-4">
-                          <Badge
-                            variant="outline"
-                            className={`${changeColor} border-current/20 bg-current/10 font-mono px-2.5 py-1 transition-all ${
-                              isHovered ? 'scale-105' : ''
-                            }`}
-                          >
-                            {isPositive ? (
-                              <ArrowUpRight className="h-3 w-3 mr-1" />
-                            ) : (
-                              <ArrowDownRight className="h-3 w-3 mr-1" />
-                            )}
-                            {formatPercentage(percentage)}
-                          </Badge>
-                        </TableCell>
-                      )}
-                      {columns.highLow && (
-                        <TableCell className="text-right py-4 hidden lg:table-cell">
-                          <div className="flex flex-col items-end gap-1.5">
-                            {/* Price range text */}
-                            <div className="flex items-center gap-2 text-xs font-mono">
-                              <span className="text-red-400">{formatCurrency(ticker.low24h)}</span>
-                              <span className="text-muted-foreground">-</span>
-                              <span className="text-green-400">
-                                {formatCurrency(ticker.high24h)}
-                              </span>
-                            </div>
-                            {/* Visual range indicator */}
-                            <div className="w-24 h-1.5 bg-white/10 rounded-full overflow-hidden relative">
-                              {/* Gradient background showing the range */}
-                              <div className="absolute inset-0 bg-gradient-to-r from-red-500/30 via-yellow-500/30 to-green-500/30" />
-                              {/* Current price position indicator */}
-                              <div
-                                className="absolute top-0 h-full w-1.5 bg-primary rounded-full shadow-[0_0_6px_rgba(59,130,246,0.8)] transition-all"
-                                style={{
-                                  left: `calc(${Math.min(100, Math.max(0, pricePosition))}% - 3px)`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </TableCell>
-                      )}
-                      {columns.volume && (
-                        <TableCell className="text-right font-mono text-muted-foreground py-4">
-                          <span className="hidden sm:inline">
-                            {formatVolume(ticker.quoteVolume24h)}
-                          </span>
-                          <span className="sm:hidden">
-                            {formatCompactNumber(ticker.quoteVolume24h || 0)}
-                          </span>
-                        </TableCell>
-                      )}
-                      {columns.spread && (
-                        <TableCell className="text-right py-4 hidden xl:table-cell">
-                          <span
-                            className={`font-mono text-sm ${getSpreadColor(getSpread(ticker))}`}
-                          >
-                            {formatSpread(getSpread(ticker))}
-                          </span>
-                        </TableCell>
-                      )}
-                      {marketType === 'perp' && columns.funding && (
-                        <TableCell className="text-right py-4 hidden md:table-cell">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <Percent className="h-3 w-3 text-muted-foreground" />
-                            <span
-                              className={`font-mono text-sm ${getFundingColor(ticker.fundingRate)}`}
-                            >
-                              {formatFundingRate(ticker.fundingRate)}
-                            </span>
-                          </div>
-                        </TableCell>
-                      )}
-                      {marketType === 'perp' && columns.openInterest && (
-                        <TableCell className="text-right py-4 hidden xl:table-cell">
-                          <div className="flex items-center justify-end gap-1.5">
-                            <Activity className="h-3 w-3 text-muted-foreground" />
-                            <span className="font-mono text-sm text-muted-foreground">
-                              {formatOpenInterest(ticker.openInterest)}
-                            </span>
-                          </div>
-                        </TableCell>
-                      )}
-                    </TableRow>
+                    </React.Fragment>
                   );
                 })
               )}

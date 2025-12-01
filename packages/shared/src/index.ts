@@ -349,6 +349,98 @@ export interface AltScreenerResponse {
 }
 
 // ============================================================================
+// Technical Indicator Types
+// ============================================================================
+
+/**
+ * Configuration for which technical indicators to calculate
+ */
+export interface IndicatorConfig {
+  sma?: number[]; // Array of SMA periods to calculate (e.g., [20, 50, 200])
+  ema?: number[]; // Array of EMA periods to calculate (e.g., [12, 26])
+  rsi?: number[]; // Array of RSI periods to calculate (e.g., [14])
+}
+
+/**
+ * Single data point with OHLCV and calculated indicator values
+ *
+ * Each indicator type maps period numbers to their calculated values.
+ * Null values indicate insufficient data to calculate the indicator at that point.
+ */
+export interface IndicatorDataPoint {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  sma: Record<number, number | null>; // period -> SMA value
+  ema: Record<number, number | null>; // period -> EMA value
+  rsi: Record<number, number | null>; // period -> RSI value
+}
+
+/**
+ * Response structure for technical indicators endpoint
+ *
+ * Contains the requested indicators configuration and all calculated values
+ * aligned with the OHLCV timestamps.
+ */
+export interface TechnicalIndicatorResponse {
+  exchange: string;
+  symbol: string;
+  timeframe: Timeframe;
+  marketType: 'spot' | 'perp';
+  indicators: {
+    sma: number[]; // SMA periods that were calculated
+    ema: number[]; // EMA periods that were calculated
+    rsi: number[]; // RSI periods that were calculated
+  };
+  data: IndicatorDataPoint[];
+  candleCount: number;
+}
+
+/**
+ * Default technical indicator periods commonly used in trading
+ *
+ * SMA Periods:
+ * - 20: Short-term trend (about 1 month for daily candles)
+ * - 50: Medium-term trend (about 2.5 months for daily candles)
+ * - 200: Long-term trend (about 10 months for daily candles)
+ *
+ * EMA Periods:
+ * - 9/12/21/26: Common MACD and short-term trading periods
+ *
+ * RSI Period:
+ * - 14: Standard RSI period developed by J. Welles Wilder
+ */
+export const DEFAULT_INDICATOR_PERIODS = {
+  sma: [20, 50, 200],
+  ema: [9, 12, 21, 26],
+  rsi: [14],
+} as const;
+
+/**
+ * Indicator line configuration for chart overlays
+ */
+export interface IndicatorLine {
+  type: 'sma' | 'ema';
+  period: number;
+  color: string;
+  width?: number;
+  visible: boolean;
+}
+
+/**
+ * RSI panel configuration
+ */
+export interface RSIConfig {
+  period: number;
+  overbought: number; // Typically 70
+  oversold: number; // Typically 30
+  visible: boolean;
+}
+
+// ============================================================================
 // Funding Rate Analytics Types
 // ============================================================================
 
@@ -402,7 +494,12 @@ export interface CrossExchangeFunding {
 /**
  * Funding rate sentiment indicator
  */
-export type FundingSentiment = 'extremely_bullish' | 'bullish' | 'neutral' | 'bearish' | 'extremely_bearish';
+export type FundingSentiment =
+  | 'extremely_bullish'
+  | 'bullish'
+  | 'neutral'
+  | 'bearish'
+  | 'extremely_bearish';
 
 /**
  * Market funding statistics

@@ -1,7 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import { createChart, ColorType, Time, IChartApi, ISeriesApi, PriceScaleMode } from 'lightweight-charts';
+import {
+  createChart,
+  ColorType,
+  Time,
+  IChartApi,
+  ISeriesApi,
+  PriceScaleMode,
+} from 'lightweight-charts';
 import { OHLCV, Timeframe } from '@lazuli/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartControlsToolbar, useChartControls } from '@/components/chart-controls-toolbar';
@@ -16,8 +23,10 @@ interface CandlestickChartProps {
   timeframe: Timeframe;
   /** Optional chart title prefix (e.g., "BTC/USDT") */
   symbol?: string;
-  /** Chart height in pixels (default: 300) */
-  height?: number;
+  /** Chart height in pixels (default: 300). Set to 'auto' for container-based height */
+  height?: number | 'auto';
+  /** Whether to fill the parent container height (for resizable grids) */
+  fillContainer?: boolean;
   /** Whether to show the controls toolbar (default: true) */
   showToolbar?: boolean;
   /** Initial log scale setting (default: false) */
@@ -34,6 +43,9 @@ interface CandlestickChartProps {
  * - Toggle between logarithmic and linear price scale
  * - Show/hide volume histogram
  * - Screenshot current chart view
+ * - Responsive to container size changes (not just window resize)
+ * - Uses ResizeObserver for efficient resize detection
+ * - Supports both fixed height and container-fill modes
  *
  * @param props - Component props
  * @returns Rendered candlestick chart wrapped in a card
@@ -43,6 +55,7 @@ export function CandlestickChart({
   timeframe,
   symbol,
   height = 300,
+  fillContainer = false,
   showToolbar = true,
   initialLogScale = false,
   initialShowVolume = true,
@@ -55,14 +68,39 @@ export function CandlestickChart({
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
 
   // Chart controls state
-  const {
-    isLogScale,
-    setIsLogScale,
-    showVolume,
-    setShowVolume,
-    isCapturing,
-    captureScreenshot,
-  } = useChartControls(initialLogScale, initialShowVolume);
+  const { isLogScale, setIsLogScale, showVolume, setShowVolume, isCapturing, captureScreenshot } =
+    useChartControls(initialLogScale, initialShowVolume);
+
+  /**
+   * Resize the chart to fit its container
+   * Called by ResizeObserver and window resize events
+   */
+  const resizeChart = useCallback(() => {
+    if (!chartContainerRef.current || !chartRef.current) return;
+
+    const container = chartContainerRef.current;
+    const newWidth = container.clientWidth;
+
+    // Calculate height based on mode
+    let newHeight: number;
+    if (fillContainer && cardRef.current) {
+      // In fill mode, use the card's height minus the header
+      const cardHeight = cardRef.current.clientHeight;
+      const headerHeight = 52; // Approximate header height (pb-3 + title)
+      const contentPadding = 24; // CardContent padding
+      newHeight = Math.max(200, cardHeight - headerHeight - contentPadding);
+    } else if (height === 'auto') {
+      // Auto mode: use container width to calculate aspect ratio
+      newHeight = Math.max(200, Math.min(600, newWidth * 0.6));
+    } else {
+      newHeight = height;
+    }
+
+    chartRef.current.applyOptions({
+      width: newWidth,
+      height: newHeight,
+    });
+  }, [height, fillContainer]);
 
   /**
    * Handle screenshot capture
@@ -101,9 +139,34 @@ export function CandlestickChart({
    * Main chart creation and update effect
    */
   useEffect(() => {
-    if (!chartContainerRef.current || data.length === 0) return;
+    // Track observers/listeners for cleanup
+    let resizeObserver: ResizeObserver | null = null;
+
+    // Early return if no container or data, but still return cleanup
+    if (!chartContainerRef.current || data.length === 0) {
+      return () => {
+        // Cleanup any existing chart when data becomes empty
+        if (chartRef.current) {
+          chartRef.current.remove();
+          chartRef.current = null;
+          candlestickSeriesRef.current = null;
+          volumeSeriesRef.current = null;
+        }
+      };
+    }
 
     try {
+      // Calculate initial height
+      let initialHeight: number;
+      if (fillContainer && cardRef.current) {
+        const cardHeight = cardRef.current.clientHeight;
+        initialHeight = Math.max(200, cardHeight - 76);
+      } else if (height === 'auto') {
+        initialHeight = Math.max(200, chartContainerRef.current.clientWidth * 0.6);
+      } else {
+        initialHeight = height;
+      }
+
       // Create chart instance with v4 options
       const chart = createChart(chartContainerRef.current, {
         layout: {
@@ -115,7 +178,7 @@ export function CandlestickChart({
           horzLines: { color: '#1f2937' },
         },
         width: chartContainerRef.current.clientWidth,
-        height: height,
+        height: initialHeight,
         timeScale: {
           timeVisible: true,
           secondsVisible: false,
@@ -191,41 +254,49 @@ export function CandlestickChart({
       // Fit content to visible range
       chart.timeScale().fitContent();
 
-      // Handle window resize
-      const handleResize = () => {
-        if (chartContainerRef.current && chartRef.current) {
-          chartRef.current.applyOptions({
-            width: chartContainerRef.current.clientWidth,
-          });
-        }
-      };
+      // Use ResizeObserver for container-based resize detection
+      // This is more efficient than window resize and works with CSS Grid resizing
+      resizeObserver = new ResizeObserver(() => {
+        // Use requestAnimationFrame to debounce resize updates
+        requestAnimationFrame(resizeChart);
+      });
 
-      window.addEventListener('resize', handleResize);
+      // Observe both the chart container and the card (for height changes)
+      resizeObserver.observe(chartContainerRef.current);
+      if (cardRef.current) {
+        resizeObserver.observe(cardRef.current);
+      }
 
-      // Cleanup on unmount
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        if (chartRef.current) {
-          chartRef.current.remove();
-          chartRef.current = null;
-          candlestickSeriesRef.current = null;
-          volumeSeriesRef.current = null;
-        }
-      };
+      // Also handle window resize as a fallback
+      window.addEventListener('resize', resizeChart);
     } catch (error) {
       console.error('Error creating chart:', error);
     }
-  }, [data, height]); // Note: isLogScale and showVolume are handled by their own effects
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      window.removeEventListener('resize', resizeChart);
+      if (chartRef.current) {
+        chartRef.current.remove();
+        chartRef.current = null;
+        candlestickSeriesRef.current = null;
+        volumeSeriesRef.current = null;
+      }
+    };
+  }, [data, height, fillContainer, resizeChart, isLogScale, showVolume]);
 
   // Generate chart title
   const chartTitle = symbol ? `${symbol} - ${timeframe}` : timeframe;
 
   return (
-    <Card ref={cardRef}>
-      <CardHeader className="pb-3">
+    <Card ref={cardRef} className={fillContainer ? 'h-full flex flex-col' : undefined}>
+      <CardHeader className="pb-3 flex-shrink-0">
         <CardTitle className="text-base font-medium">{chartTitle}</CardTitle>
       </CardHeader>
-      <CardContent className="relative">
+      <CardContent className={`relative ${fillContainer ? 'flex-1 min-h-0' : ''}`}>
         {/* Chart Controls Toolbar */}
         {showToolbar && (
           <ChartControlsToolbar
@@ -238,7 +309,7 @@ export function CandlestickChart({
           />
         )}
         {/* Chart Container */}
-        <div ref={chartContainerRef} className="w-full" />
+        <div ref={chartContainerRef} className="w-full h-full" />
       </CardContent>
     </Card>
   );

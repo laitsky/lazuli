@@ -24,6 +24,7 @@ import {
   ScreenerFilters,
   FundingRateResponse,
   CrossExchangeFundingResponse,
+  TechnicalIndicatorResponse,
 } from '@lazuli/shared';
 
 // API base URL - defaults to localhost in development
@@ -136,6 +137,18 @@ export interface FundingRateQueryParams {
  */
 export interface CrossExchangeFundingQueryParams {
   limit?: number; // Maximum assets to compare (default: 50, max: 200)
+}
+
+/**
+ * Query parameters for Technical Indicators endpoint
+ */
+export interface TechnicalIndicatorQueryParams {
+  timeframe: Timeframe; // Required timeframe for candles
+  type?: 'spot' | 'perp'; // Market type (default: 'spot')
+  limit?: number; // Number of candles to fetch (default: 300, max: 1000)
+  sma?: string; // Comma-separated SMA periods (e.g., "20,50,200")
+  ema?: string; // Comma-separated EMA periods (e.g., "9,12,21,26")
+  rsi?: string; // Comma-separated RSI periods (e.g., "14")
 }
 
 /**
@@ -456,6 +469,41 @@ export class LazuliAPI {
   }
 
   /**
+   * Get technical indicators (SMA, EMA, RSI) for a specific symbol
+   * Calculates multiple indicators server-side for chart overlays
+   *
+   * @param exchange - Exchange to fetch data from
+   * @param symbol - Trading pair symbol (e.g., BTC-USDT)
+   * @param queryParams - Query parameters including timeframe and indicator periods
+   * @returns Technical indicator data aligned with OHLCV timestamps
+   *
+   * @example
+   * // Get default indicators (SMA 20,50,200; EMA 9,12,21,26; RSI 14)
+   * LazuliAPI.getTechnicalIndicators('binance', 'BTC-USDT', { timeframe: '1h' })
+   *
+   * // Get custom indicator periods
+   * LazuliAPI.getTechnicalIndicators('binance', 'BTC-USDT', {
+   *   timeframe: '4h',
+   *   sma: '10,20,50',
+   *   ema: '12,26',
+   *   rsi: '14'
+   * })
+   */
+  static async getTechnicalIndicators(
+    exchange: SupportedExchange,
+    symbol: string,
+    queryParams: TechnicalIndicatorQueryParams
+  ): Promise<ApiResponse<TechnicalIndicatorResponse>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    // Use 60s timeout for indicators (computation + OHLCV fetch)
+    return apiFetch<TechnicalIndicatorResponse>(
+      `${API_VERSION}/indicators/${exchange}/${encodedSymbol}`,
+      queryParams,
+      60000
+    );
+  }
+
+  /**
    * Get all altcoins with performance data for Alt Screener
    * Scans all altcoins (excluding BTC) and returns performance metrics
    * Uses extended timeout (120s) due to fetching data for many symbols
@@ -499,11 +547,7 @@ export class LazuliAPI {
     queryParams?: FundingRateQueryParams
   ): Promise<ApiResponse<FundingRateResponse>> {
     // Use 60s timeout for funding rates (fetches many symbols)
-    return apiFetch<FundingRateResponse>(
-      `${API_VERSION}/funding/${exchange}`,
-      queryParams,
-      60000
-    );
+    return apiFetch<FundingRateResponse>(`${API_VERSION}/funding/${exchange}`, queryParams, 60000);
   }
 
   /**
