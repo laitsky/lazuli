@@ -25,6 +25,7 @@ import {
   FundingRateResponse,
   CrossExchangeFundingResponse,
   TechnicalIndicatorResponse,
+  OrderBookResponse,
 } from '@lazuli/shared';
 
 // API base URL - defaults to localhost in development
@@ -149,6 +150,14 @@ export interface TechnicalIndicatorQueryParams {
   sma?: string; // Comma-separated SMA periods (e.g., "20,50,200")
   ema?: string; // Comma-separated EMA periods (e.g., "9,12,21,26")
   rsi?: string; // Comma-separated RSI periods (e.g., "14")
+}
+
+/**
+ * Query parameters for Order Book endpoint
+ */
+export interface OrderBookQueryParams {
+  type?: 'spot' | 'perp'; // Market type (default: 'spot')
+  limit?: number; // Number of price levels per side (default: 50, max: 500)
 }
 
 /**
@@ -565,6 +574,27 @@ export class LazuliAPI {
       `${API_VERSION}/funding/compare`,
       queryParams,
       90000
+    );
+  }
+
+  /**
+   * Get order book (market depth) data for a specific symbol
+   * Returns bid/ask orders sorted by price with cumulative totals
+   *
+   * @param exchange - Exchange to fetch order book from
+   * @param symbol - Trading pair symbol (e.g., BTC-USDT or BTCUSDT.P)
+   * @param queryParams - Optional query parameters (type, limit)
+   */
+  static async getOrderBook(
+    exchange: SupportedExchange,
+    symbol: string,
+    queryParams?: OrderBookQueryParams
+  ): Promise<ApiResponse<OrderBookResponse>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    // Order book data is time-sensitive, use default timeout
+    return apiFetch<OrderBookResponse>(
+      `${API_VERSION}/orderbook/${exchange}/${encodedSymbol}`,
+      queryParams
     );
   }
 }

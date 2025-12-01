@@ -1,5 +1,6 @@
 import ccxt from 'ccxt';
 import { Ticker, Market, OHLCV, Timeframe } from '../types';
+import { OrderBook, OrderBookEntry } from '@lazuli/shared';
 import { convertFromCCXTNotation, convertToCCXTNotation } from '../utils/validation';
 import {
   ExchangeError,
@@ -405,6 +406,84 @@ export class CCXTService {
       }));
     } catch (error) {
       console.error(`Error fetching OHLCV for ${symbol} on ${exchangeId}:`, error);
+      // If it's already an ExchangeError or ValidationError, rethrow it
+      if (error instanceof ExchangeError || error instanceof ValidationError) {
+        throw error;
+      }
+      // Classify CCXT errors into our standardized error types
+      throw classifyCcxtError(error, exchangeId);
+    }
+  }
+
+  /**
+   * Fetch order book (depth) data for a specific symbol
+   * Returns bids and asks sorted by price with cumulative totals
+   *
+   * @param exchangeId - Exchange identifier (binance, bybit, okx, etc.)
+   * @param symbol - Trading pair symbol in standardized notation (e.g., 'BTC-USDT' or 'BTCUSDT.P')
+   * @param marketType - Market type (spot or perp)
+   * @param limit - Number of price levels to fetch per side (default: 50, max varies by exchange)
+   * @returns OrderBook with bids and asks
+   */
+  async fetchOrderBook(
+    exchangeId: string,
+    symbol: string,
+    marketType: 'spot' | 'perp' = 'spot',
+    limit: number = 50
+  ): Promise<OrderBook> {
+    try {
+      // Convert our standardized symbol notation to CCXT format
+      // BTC-USDT -> BTC/USDT (spot)
+      // BTCUSDT.P -> BTC/USDT:USDT (perp)
+      const ccxtSymbol = convertToCCXTNotation(symbol, marketType);
+
+      // Get the appropriate exchange instance
+      const exchange = this.getExchange(exchangeId, marketType);
+
+      // Load markets if not already loaded
+      if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
+        await exchange.loadMarkets();
+      }
+
+      // Fetch order book from the exchange
+      // CCXT returns { bids: [[price, amount], ...], asks: [[price, amount], ...], timestamp, nonce }
+      const orderBookData = await exchange.fetchOrderBook(ccxtSymbol, limit);
+
+      // Transform bids with cumulative totals
+      // Bids are sorted from highest to lowest price (best bid first)
+      let bidCumulative = 0;
+      const bids: OrderBookEntry[] = orderBookData.bids.map((entry: [number, number]) => {
+        bidCumulative += entry[1];
+        return {
+          price: entry[0],
+          amount: entry[1],
+          total: bidCumulative,
+        };
+      });
+
+      // Transform asks with cumulative totals
+      // Asks are sorted from lowest to highest price (best ask first)
+      let askCumulative = 0;
+      const asks: OrderBookEntry[] = orderBookData.asks.map((entry: [number, number]) => {
+        askCumulative += entry[1];
+        return {
+          price: entry[0],
+          amount: entry[1],
+          total: askCumulative,
+        };
+      });
+
+      return {
+        symbol,
+        exchange: exchangeId,
+        type: marketType,
+        bids,
+        asks,
+        timestamp: orderBookData.timestamp || Date.now(),
+        nonce: orderBookData.nonce,
+      };
+    } catch (error) {
+      console.error(`Error fetching order book for ${symbol} on ${exchangeId}:`, error);
       // If it's already an ExchangeError or ValidationError, rethrow it
       if (error instanceof ExchangeError || error instanceof ValidationError) {
         throw error;
