@@ -494,7 +494,12 @@ export interface CrossExchangeFunding {
 /**
  * Funding rate sentiment indicator
  */
-export type FundingSentiment = 'extremely_bullish' | 'bullish' | 'neutral' | 'bearish' | 'extremely_bearish';
+export type FundingSentiment =
+  | 'extremely_bullish'
+  | 'bullish'
+  | 'neutral'
+  | 'bearish'
+  | 'extremely_bearish';
 
 /**
  * Market funding statistics

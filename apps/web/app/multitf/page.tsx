@@ -11,7 +11,15 @@ import { PageHeader } from '@/components/page-header';
 import { ResizableGrid, GridLayoutItem, useGridLayouts } from '@/components/resizable-grid';
 import { LazuliAPI } from '@/lib/api-client';
 import { SupportedExchange, Timeframe, Ticker, OHLCV } from '@lazuli/shared';
-import { Search, TrendingUp, LayoutGrid, Clock, AlertCircle, RotateCcw, Maximize2 } from 'lucide-react';
+import {
+  Search,
+  TrendingUp,
+  LayoutGrid,
+  Clock,
+  AlertCircle,
+  RotateCcw,
+  Maximize2,
+} from 'lucide-react';
 
 /**
  * Multi-timeframe analysis page
@@ -475,11 +483,7 @@ export default function MultiTFPage() {
                   }}
                   className="rounded-md"
                   disabled={selectedExchange === 'upbit'}
-                  title={
-                    selectedExchange === 'upbit'
-                      ? 'Upbit only supports spot markets'
-                      : ''
-                  }
+                  title={selectedExchange === 'upbit' ? 'Upbit only supports spot markets' : ''}
                 >
                   Perpetual
                 </Button>

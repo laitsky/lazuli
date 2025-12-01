@@ -284,9 +284,7 @@ function ResizableGridItem({
       }}
     >
       {/* Main content area */}
-      <div className="h-full w-full overflow-hidden rounded-xl">
-        {children}
-      </div>
+      <div className="h-full w-full overflow-hidden rounded-xl">{children}</div>
 
       {/* Vertical resize handle - bottom edge */}
       {resizable && (
@@ -317,10 +315,12 @@ function ResizableGridItem({
             }
           }}
         >
-          <div className={cn(
-            'w-16 h-1.5 rounded-full bg-white/20 hover:bg-primary/50 transition-colors',
-            resizeDirection === 'vertical' && 'bg-primary'
-          )} />
+          <div
+            className={cn(
+              'w-16 h-1.5 rounded-full bg-white/20 hover:bg-primary/50 transition-colors',
+              resizeDirection === 'vertical' && 'bg-primary'
+            )}
+          />
         </div>
       )}
 
@@ -355,10 +355,12 @@ function ResizableGridItem({
             }
           }}
         >
-          <div className={cn(
-            'h-16 w-1.5 rounded-full bg-white/20 hover:bg-primary/50 transition-colors',
-            resizeDirection === 'horizontal' && 'bg-primary'
-          )} />
+          <div
+            className={cn(
+              'h-16 w-1.5 rounded-full bg-white/20 hover:bg-primary/50 transition-colors',
+              resizeDirection === 'horizontal' && 'bg-primary'
+            )}
+          />
         </div>
       )}
 
@@ -391,10 +393,12 @@ function ResizableGridItem({
       {/* Width percentage indicator during horizontal resize */}
       {resizeDirection === 'horizontal' && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
-          <div className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium',
-            'bg-primary/90 text-white shadow-lg'
-          )}>
+          <div
+            className={cn(
+              'px-4 py-2 rounded-lg text-sm font-medium',
+              'bg-primary/90 text-white shadow-lg'
+            )}
+          >
             {Math.round(currentWidthPercent)}%
           </div>
         </div>
@@ -579,15 +583,18 @@ export function useGridLayouts(
   }, [storageKey]); // Only depend on storageKey, not defaultLayouts
 
   // Save layouts to localStorage whenever they change
-  const setLayouts = useCallback((newLayouts: GridLayoutItem[]) => {
-    setLayoutsState(newLayouts);
-    // Save to localStorage (only called after user interaction)
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(newLayouts));
-    } catch (error) {
-      console.warn('Failed to save grid layouts to localStorage:', error);
-    }
-  }, [storageKey]);
+  const setLayouts = useCallback(
+    (newLayouts: GridLayoutItem[]) => {
+      setLayoutsState(newLayouts);
+      // Save to localStorage (only called after user interaction)
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(newLayouts));
+      } catch (error) {
+        console.warn('Failed to save grid layouts to localStorage:', error);
+      }
+    },
+    [storageKey]
+  );
 
   // Reset to default layouts
   const resetLayouts = useCallback(() => {

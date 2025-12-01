@@ -113,7 +113,7 @@ export class TechnicalIndicatorController {
       const cacheKey = `indicators:${exchangeId}:${symbol}:${timeframe}:${marketType}:${limit}:sma${smaPeriods.join('-')}:ema${emaPeriods.join('-')}:rsi${rsiPeriods.join('-')}`;
 
       // Check cache first
-      let cachedResult = cacheService.get<TechnicalIndicatorResponse>(cacheKey);
+      const cachedResult = cacheService.get<TechnicalIndicatorResponse>(cacheKey);
 
       if (cachedResult) {
         console.log(`Cache hit for ${cacheKey}`);

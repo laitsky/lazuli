@@ -547,11 +547,7 @@ export class LazuliAPI {
     queryParams?: FundingRateQueryParams
   ): Promise<ApiResponse<FundingRateResponse>> {
     // Use 60s timeout for funding rates (fetches many symbols)
-    return apiFetch<FundingRateResponse>(
-      `${API_VERSION}/funding/${exchange}`,
-      queryParams,
-      60000
-    );
+    return apiFetch<FundingRateResponse>(`${API_VERSION}/funding/${exchange}`, queryParams, 60000);
   }
 
   /**

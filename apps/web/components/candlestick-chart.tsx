@@ -1,9 +1,17 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
-import { createChart, ColorType, Time, IChartApi } from 'lightweight-charts';
+import {
+  createChart,
+  ColorType,
+  Time,
+  IChartApi,
+  ISeriesApi,
+  PriceScaleMode,
+} from 'lightweight-charts';
 import { OHLCV, Timeframe } from '@lazuli/shared';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChartControlsToolbar, useChartControls } from '@/components/chart-controls-toolbar';
 
 /**
  * Props for the CandlestickChart component
@@ -19,6 +27,12 @@ interface CandlestickChartProps {
   height?: number | 'auto';
   /** Whether to fill the parent container height (for resizable grids) */
   fillContainer?: boolean;
+  /** Whether to show the controls toolbar (default: true) */
+  showToolbar?: boolean;
+  /** Initial log scale setting (default: false) */
+  initialLogScale?: boolean;
+  /** Initial volume visibility setting (default: true) */
+  initialShowVolume?: boolean;
 }
 
 /**
@@ -26,6 +40,9 @@ interface CandlestickChartProps {
  * Displays OHLCV (Open, High, Low, Close, Volume) data as a candlestick chart
  *
  * Features:
+ * - Toggle between logarithmic and linear price scale
+ * - Show/hide volume histogram
+ * - Screenshot current chart view
  * - Responsive to container size changes (not just window resize)
  * - Uses ResizeObserver for efficient resize detection
  * - Supports both fixed height and container-fill modes
@@ -39,10 +56,20 @@ export function CandlestickChart({
   symbol,
   height = 300,
   fillContainer = false,
+  showToolbar = true,
+  initialLogScale = false,
+  initialShowVolume = true,
 }: CandlestickChartProps) {
+  // Chart refs
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+
+  // Chart controls state
+  const { isLogScale, setIsLogScale, showVolume, setShowVolume, isCapturing, captureScreenshot } =
+    useChartControls(initialLogScale, initialShowVolume);
 
   /**
    * Resize the chart to fit its container
@@ -75,6 +102,42 @@ export function CandlestickChart({
     });
   }, [height, fillContainer]);
 
+  /**
+   * Handle screenshot capture
+   * Captures the entire card including title and chart
+   */
+  const handleScreenshot = useCallback(() => {
+    const filename = symbol
+      ? `${symbol.replace(/[/\\:*?"<>|]/g, '-')}_${timeframe}_${new Date().toISOString().split('T')[0]}.png`
+      : `chart_${timeframe}_${Date.now()}.png`;
+    captureScreenshot(cardRef.current, filename);
+  }, [captureScreenshot, symbol, timeframe]);
+
+  /**
+   * Update price scale mode (log vs linear)
+   */
+  useEffect(() => {
+    if (chartRef.current) {
+      chartRef.current.priceScale('right').applyOptions({
+        mode: isLogScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+      });
+    }
+  }, [isLogScale]);
+
+  /**
+   * Update volume series visibility
+   */
+  useEffect(() => {
+    if (volumeSeriesRef.current) {
+      volumeSeriesRef.current.applyOptions({
+        visible: showVolume,
+      });
+    }
+  }, [showVolume]);
+
+  /**
+   * Main chart creation and update effect
+   */
   useEffect(() => {
     // Track observers/listeners for cleanup
     let resizeObserver: ResizeObserver | null = null;
@@ -86,6 +149,8 @@ export function CandlestickChart({
         if (chartRef.current) {
           chartRef.current.remove();
           chartRef.current = null;
+          candlestickSeriesRef.current = null;
+          volumeSeriesRef.current = null;
         }
       };
     }
@@ -118,18 +183,52 @@ export function CandlestickChart({
           timeVisible: true,
           secondsVisible: false,
         },
+        rightPriceScale: {
+          mode: isLogScale ? PriceScaleMode.Logarithmic : PriceScaleMode.Normal,
+          borderVisible: false,
+        },
       });
 
       chartRef.current = chart;
 
-      // Transform OHLCV data to lightweight-charts format
+      // Transform OHLCV data to lightweight-charts format for candlesticks
       const candlestickData = data.map((candle) => ({
-        time: Math.floor(candle.timestamp / 1000) as Time, // Convert to Unix timestamp (seconds)
+        time: Math.floor(candle.timestamp / 1000) as Time,
         open: candle.open,
         high: candle.high,
         low: candle.low,
         close: candle.close,
       }));
+
+      // Transform OHLCV data to volume histogram format
+      const volumeData = data.map((candle) => ({
+        time: Math.floor(candle.timestamp / 1000) as Time,
+        value: candle.volume,
+        // Color based on price direction
+        color: candle.close >= candle.open ? 'rgba(34, 197, 94, 0.3)' : 'rgba(239, 68, 68, 0.3)',
+      }));
+
+      // Add volume histogram series (rendered first, so it appears behind candlesticks)
+      const volumeSeries = chart.addHistogramSeries({
+        color: 'rgba(100, 100, 100, 0.3)',
+        priceFormat: {
+          type: 'volume',
+        },
+        priceScaleId: 'volume', // Separate price scale for volume
+        visible: showVolume,
+      });
+
+      // Configure volume price scale (bottom 25% of chart)
+      chart.priceScale('volume').applyOptions({
+        scaleMargins: {
+          top: 0.8, // Volume takes bottom 20%
+          bottom: 0,
+        },
+        borderVisible: false,
+      });
+
+      volumeSeries.setData(volumeData);
+      volumeSeriesRef.current = volumeSeries;
 
       // Add candlestick series with v4 API
       const candlestickSeries = chart.addCandlestickSeries({
@@ -138,10 +237,19 @@ export function CandlestickChart({
         borderVisible: false,
         wickUpColor: '#22c55e',
         wickDownColor: '#ef4444',
+        priceScaleId: 'right',
       });
 
-      // Set data
+      // Configure price scale margins to make room for volume
+      chart.priceScale('right').applyOptions({
+        scaleMargins: {
+          top: 0.05,
+          bottom: 0.25, // Leave room for volume
+        },
+      });
+
       candlestickSeries.setData(candlestickData);
+      candlestickSeriesRef.current = candlestickSeries;
 
       // Fit content to visible range
       chart.timeScale().fitContent();
@@ -174,22 +282,33 @@ export function CandlestickChart({
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
+        candlestickSeriesRef.current = null;
+        volumeSeriesRef.current = null;
       }
     };
-  }, [data, height, fillContainer, resizeChart]);
+  }, [data, height, fillContainer, resizeChart, isLogScale, showVolume]);
 
   // Generate chart title
   const chartTitle = symbol ? `${symbol} - ${timeframe}` : timeframe;
 
   return (
-    <Card
-      ref={cardRef}
-      className={fillContainer ? 'h-full flex flex-col' : undefined}
-    >
+    <Card ref={cardRef} className={fillContainer ? 'h-full flex flex-col' : undefined}>
       <CardHeader className="pb-3 flex-shrink-0">
         <CardTitle className="text-base font-medium">{chartTitle}</CardTitle>
       </CardHeader>
-      <CardContent className={fillContainer ? 'flex-1 min-h-0' : undefined}>
+      <CardContent className={`relative ${fillContainer ? 'flex-1 min-h-0' : ''}`}>
+        {/* Chart Controls Toolbar */}
+        {showToolbar && (
+          <ChartControlsToolbar
+            isLogScale={isLogScale}
+            onLogScaleChange={setIsLogScale}
+            showVolume={showVolume}
+            onVolumeChange={setShowVolume}
+            onScreenshot={handleScreenshot}
+            isCapturing={isCapturing}
+          />
+        )}
+        {/* Chart Container */}
         <div ref={chartContainerRef} className="w-full h-full" />
       </CardContent>
     </Card>
