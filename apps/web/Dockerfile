@@ -98,6 +98,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3001
 ENV HOSTNAME="0.0.0.0"
 
+# Install wget for health checks (not included in Alpine by default)
+RUN apk add --no-cache wget
+
 # Create a non-root user for security best practices
 RUN addgroup --system --gid 1001 lazuli && \
     adduser --system --uid 1001 --ingroup lazuli lazuli

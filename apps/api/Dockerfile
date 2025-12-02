@@ -68,6 +68,10 @@ FROM oven/bun:1-alpine AS runner
 # Set production environment
 ENV NODE_ENV=production
 
+# Install wget for health checks (not included in Alpine by default)
+USER root
+RUN apk add --no-cache wget
+
 # Create a non-root user for security best practices
 RUN addgroup --system --gid 1001 lazuli && \
     adduser --system --uid 1001 --ingroup lazuli lazuli
@@ -89,7 +93,8 @@ WORKDIR /app/apps/api
 
 # Health check to verify the API is responding
 # Checks the /health endpoint every 30 seconds
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# start-period gives time for exchange markets to warm up
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
 
 # Run the TypeScript source directly with Bun
