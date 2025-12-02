@@ -82,7 +82,9 @@ app.use(notFoundHandler);
 app.use(globalErrorHandler);
 
 // Start the server
-app.listen(PORT, () => {
+// Bind to 0.0.0.0 to accept connections from any network interface (required for Docker)
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(Number(PORT), HOST, () => {
   console.log(`🚀 Lazuli API server running on port ${PORT}`);
   console.log(`📊 Live data endpoints: http://localhost:${PORT}/api/v1`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api/v1/docs`);
