@@ -1,6 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
+  // Enable standalone output for optimized Docker production builds
+  // This creates a self-contained output that doesn't require node_modules
+  output: 'standalone',
   typescript: {
     // Temporarily ignore TypeScript errors during build
     // TODO: Fix Link component typing issues with Next.js 16
