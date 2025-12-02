@@ -46,10 +46,8 @@ WORKDIR /app
 
 # First, copy only package.json files and lockfile for dependency installation
 # This layer will be cached unless dependencies change
+# Note: turbo prune --docker places bun.lockb inside out/json/ directory
 COPY --from=pruner /app/out/json/ .
-
-# Copy the binary lockfile explicitly (bun.lockb is a binary file)
-COPY --from=pruner /app/out/bun.lockb ./bun.lockb
 
 # Install dependencies with frozen lockfile for reproducible builds
 # --frozen-lockfile ensures the lockfile isn't modified during install
