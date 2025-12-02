@@ -37,13 +37,16 @@ services:
   # ---------------------------------------------------------------------------
   # Web Service - Next.js Frontend
   # ---------------------------------------------------------------------------
-  # Note: NEXT_PUBLIC_* vars are embedded at BUILD time, not runtime.
-  # API calls are made from the browser to http://localhost:3000 (default).
-  # The browser accesses the host-exposed API port, not Docker internal network.
+  # Note: NEXT_PUBLIC_* vars are embedded at BUILD time via build args.
+  # Set NEXT_PUBLIC_API_URL to your public API endpoint for production.
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        # Set your public API URL here for production deployment
+        # Example: https://api.yourdomain.com
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:3000}
     container_name: lazuli-web
     ports:
       - "3001:3001"

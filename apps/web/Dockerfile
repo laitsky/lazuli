@@ -70,6 +70,11 @@ WORKDIR /app
 # Copy everything from installer (dependencies + source code)
 COPY --from=installer /app .
 
+# Build argument for API URL (passed at build time)
+# This gets baked into the Next.js bundle for client-side requests
+ARG NEXT_PUBLIC_API_URL=http://localhost:3000
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 # Set environment for build
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
