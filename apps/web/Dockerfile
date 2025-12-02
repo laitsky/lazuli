@@ -120,8 +120,9 @@ USER lazuli
 EXPOSE 3001
 
 # Health check to verify the web app is responding
+# Use 127.0.0.1 instead of localhost to avoid IPv6 resolution issues
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3001 || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3001 || exit 1
 
 # Run the Next.js standalone server with Bun
 # The standalone server is located at apps/web/server.js after build

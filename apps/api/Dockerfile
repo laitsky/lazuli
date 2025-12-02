@@ -94,8 +94,9 @@ WORKDIR /app/apps/api
 # Health check to verify the API is responding
 # Checks the /health endpoint every 30 seconds
 # start-period gives time for exchange markets to warm up
+# Use 127.0.0.1 instead of localhost to avoid IPv6 resolution issues
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/health || exit 1
 
 # Run the TypeScript source directly with Bun
 # Bun has native TypeScript support, no transpilation needed
