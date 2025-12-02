@@ -1,16 +1,37 @@
 # =============================================================================
 # Lazuli - Docker Compose Configuration
 # =============================================================================
-# Runs both API and Web services with proper networking.
+# Runs API, Web, and Redis services with proper networking.
 #
 # Usage:
-#   docker compose up --build        # Build and run both services
+#   docker compose up --build        # Build and run all services
 #   docker compose up -d --build     # Run in background
 #   docker compose down              # Stop and remove containers
 #   docker compose logs -f           # Follow logs
+#
+# Redis (optional):
+#   Redis is included for distributed caching. To enable it, set in your .env:
+#   REDIS_ENABLED=true
 # =============================================================================
 
 services:
+  # ---------------------------------------------------------------------------
+  # Redis Service - Distributed Cache (Optional)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: lazuli-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
   # ---------------------------------------------------------------------------
   # API Service - Express.js Backend
   # ---------------------------------------------------------------------------
@@ -24,8 +45,15 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      # Redis configuration - uses Docker service name for host
+      - REDIS_ENABLED=${REDIS_ENABLED:-false}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
     env_file:
       - .env
+    depends_on:
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/health"]
       interval: 30s
@@ -63,3 +91,8 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+
+# Persistent volumes for data storage
+volumes:
+  redis_data:
+    driver: local
