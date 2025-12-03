@@ -137,6 +137,54 @@ export class CCXTService {
     return this.perpExchanges.has(exchangeId);
   }
 
+  /**
+   * Get list of all supported exchange IDs
+   * @returns Array of exchange identifiers
+   */
+  getSupportedExchanges(): string[] {
+    // Get unique exchange IDs from both spot and perp maps
+    const exchanges = new Set([
+      ...this.spotExchanges.keys(),
+      ...this.perpExchanges.keys(),
+    ]);
+    return Array.from(exchanges);
+  }
+
+  /**
+   * Pre-warm exchange markets on startup
+   * Loads markets for all supported exchanges in parallel to avoid
+   * slow first requests. Call this during server initialization.
+   * @returns Promise<void>
+   */
+  async warmup(): Promise<void> {
+    console.log('CCXT: Warming up exchange markets...');
+    const startTime = Date.now();
+    const exchanges = this.getSupportedExchanges();
+
+    // Load all exchange markets in parallel
+    const results = await Promise.allSettled(
+      exchanges.map(async (exchangeId) => {
+        try {
+          await this.loadMarkets(exchangeId);
+          console.log(`CCXT: ${exchangeId} markets loaded`);
+          return { exchangeId, success: true };
+        } catch (error) {
+          console.error(`CCXT: Failed to load ${exchangeId} markets:`, error);
+          return { exchangeId, success: false, error };
+        }
+      })
+    );
+
+    const duration = Date.now() - startTime;
+    const successful = results.filter(
+      (r) => r.status === 'fulfilled' && r.value.success
+    ).length;
+
+    console.log(
+      `CCXT: Warmup complete - ${successful}/${exchanges.length} exchanges loaded in ${duration}ms`
+    );
+  }
+
   async loadMarkets(exchangeId: string): Promise<void> {
     const loadPromises: Promise<any>[] = [];
 

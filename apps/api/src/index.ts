@@ -5,6 +5,7 @@ import routes from './routes';
 import { successResponse } from './utils/response';
 import { testDatabaseConnection } from './utils/supabase';
 import { cacheService } from './services/cacheService';
+import { ccxtService } from './services/ccxtService';
 import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler';
 
 // Load environment variables from .env file
@@ -81,7 +82,9 @@ app.use(notFoundHandler);
 app.use(globalErrorHandler);
 
 // Start the server
-app.listen(PORT, () => {
+// Bind to 0.0.0.0 to accept connections from any network interface (required for Docker)
+const HOST = process.env.HOST || '0.0.0.0';
+app.listen(Number(PORT), HOST, () => {
   console.log(`🚀 Lazuli API server running on port ${PORT}`);
   console.log(`📊 Live data endpoints: http://localhost:${PORT}/api/v1`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api/v1/docs`);
@@ -91,4 +94,10 @@ app.listen(PORT, () => {
   console.log('📋 Available exchanges: Binance, Bybit, OKX, Hyperliquid, Upbit');
   console.log('💡 Database features are optional - see /data/* endpoints');
   console.log('🔧 Interactive API testing available at /api/v1/docs');
+
+  // Pre-warm exchange markets in background to speed up first requests
+  // This loads market data for all exchanges so API responses are fast
+  ccxtService.warmup().catch((err) => {
+    console.error('Failed to warm up exchange markets:', err);
+  });
 });
