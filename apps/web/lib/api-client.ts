@@ -29,7 +29,11 @@ import {
 } from '@lazuli/shared';
 
 // API base URL - defaults to localhost in development
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const isServer = typeof window === 'undefined';
+// Use internal API URL when running on server (Docker network), public URL on client
+const API_BASE_URL = isServer
+  ? process.env.INTERNAL_API_URL || 'http://api:3000'
+  : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const API_VERSION = '/api/v1';
 
 // Default timeout for API requests (30 seconds)
@@ -391,7 +395,7 @@ export class LazuliAPI {
    * Health check - get API status
    */
   static async getHealth(): Promise<ApiResponse<HealthResponse>> {
-    return apiFetch<HealthResponse>('/health');
+    return apiFetch<HealthResponse>(`${API_VERSION}/health`);
   }
 
   /**

@@ -20,14 +20,31 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Configure middleware
+// Enable Cross-Origin Resource Sharing with Private Network Access support
+// The 'Access-Control-Allow-Origin' header is set based on environment:
+// - Production: Only allow the specific frontend origin
+// - Development: Allow all origins
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim())
+  : ['https://lazuli.now'];
+
 app.use(
   cors({
-    origin: true, // Allow all origins in development
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+      // Check if origin is in allowed list
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+        return callback(null, origin); // Return the specific origin, not true
+      }
+      return callback(null, false);
+    },
     credentials: true, // Enable credentials for Try It functionality
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   })
-); // Enable Cross-Origin Resource Sharing
+);
+
 app.use(express.json()); // Parse JSON request bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 
