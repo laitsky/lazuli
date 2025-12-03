@@ -12,7 +12,7 @@
  * - Handles both ApiError instances and generic errors
  */
 
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response, NextFunction, RequestHandler, ErrorRequestHandler } from 'express';
 import {
   ApiError,
   ErrorCode,
@@ -99,7 +99,7 @@ function normalizeError(error: unknown): ApiError {
  *
  * Usage: app.use(notFoundHandler) - should be placed after all route definitions
  */
-export function notFoundHandler(req: Request, res: Response): Response {
+export const notFoundHandler: RequestHandler = (req, res) => {
   const error = routeNotFound(req.path);
 
   logError(error, req);
@@ -113,8 +113,8 @@ export function notFoundHandler(req: Request, res: Response): Response {
     timestamp: error.timestamp,
   };
 
-  return res.status(error.statusCode).json(response);
-}
+  res.status(error.statusCode).json(response);
+};
 
 /**
  * Global error handler middleware
@@ -124,13 +124,13 @@ export function notFoundHandler(req: Request, res: Response): Response {
  *
  * Usage: app.use(globalErrorHandler) - should be placed last in middleware chain
  */
-export function globalErrorHandler(
-  err: unknown,
-  req: Request,
-  res: Response,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _next: NextFunction
-): Response {
+export const globalErrorHandler: ErrorRequestHandler = (
+  err,
+  req,
+  res,
+
+  _next
+) => {
   // Normalize the error to ApiError format
   const apiError = normalizeError(err);
 
@@ -147,8 +147,8 @@ export function globalErrorHandler(
     timestamp: apiError.timestamp,
   };
 
-  return res.status(apiError.statusCode).json(response);
-}
+  res.status(apiError.statusCode).json(response);
+};
 
 /**
  * Async handler wrapper that catches errors and passes them to the error handler

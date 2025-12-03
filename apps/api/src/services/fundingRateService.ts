@@ -136,61 +136,6 @@ export class FundingRateService {
   }
 
   /**
-   * Parse funding rate from CCXT ticker info
-   * Different exchanges return funding rate in different formats
-   */
-  private parseFundingRate(ticker: any, exchangeId: string): number | null {
-    // Try different paths where funding rate might be stored
-    const info = ticker.info || {};
-
-    // Binance: info.lastFundingRate
-    if (info.lastFundingRate !== undefined) {
-      return parseFloat(info.lastFundingRate);
-    }
-
-    // Bybit: info.fundingRate
-    if (info.fundingRate !== undefined) {
-      return parseFloat(info.fundingRate);
-    }
-
-    // OKX: info.fundingRate
-    if (info.fundingRate !== undefined) {
-      return parseFloat(info.fundingRate);
-    }
-
-    // Hyperliquid: info.funding
-    if (info.funding !== undefined) {
-      return parseFloat(info.funding);
-    }
-
-    // Generic fallback
-    if (ticker.fundingRate !== undefined && ticker.fundingRate !== null) {
-      return ticker.fundingRate;
-    }
-
-    return null;
-  }
-
-  /**
-   * Parse next funding time from CCXT ticker info
-   */
-  private parseNextFundingTime(ticker: any, exchangeId: string): number | null {
-    const info = ticker.info || {};
-
-    // Binance: info.nextFundingTime
-    if (info.nextFundingTime !== undefined) {
-      return parseInt(info.nextFundingTime);
-    }
-
-    // Bybit: info.nextFundingTime
-    if (info.nextFundingTime !== undefined) {
-      return parseInt(info.nextFundingTime);
-    }
-
-    return null;
-  }
-
-  /**
    * Extract base asset from symbol
    * Handles both CCXT notation (BTC/USDT:USDT) and our notation (BTCUSDT.P)
    */

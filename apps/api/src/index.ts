@@ -2,11 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes';
-import { successResponse } from './utils/response';
-import { testDatabaseConnection } from './utils/supabase';
 import { cacheService } from './services/cacheService';
 import { ccxtService } from './services/ccxtService';
 import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler';
+import { healthController } from './controllers/healthController';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -41,37 +40,8 @@ app.get('/', (_req, res) => {
 });
 
 // Health check endpoint for monitoring
-app.get('/health', async (_req, res) => {
-  // Test database connection only if database features are being used
-  let dbStatus = 'not_required';
-  try {
-    const hasDbCredentials = process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY;
-    if (hasDbCredentials) {
-      const connected = await testDatabaseConnection();
-      dbStatus = connected ? 'connected' : 'disconnected';
-    }
-  } catch (error) {
-    dbStatus = 'error';
-  }
-
-  // Get cache status and statistics
-  const cacheStats = cacheService.getStats();
-  const cacheStatus = {
-    backend: cacheStats.backend,
-    redisConnected: cacheStats.redisConnected,
-    hitRatio: cacheStats.hitRatio,
-    size: cacheStats.size,
-  };
-
-  // Return health data in standard API response format
-  successResponse(res, {
-    status: 'ok',
-    api: 'ready',
-    database: dbStatus,
-    cache: cacheStatus,
-    exchanges: ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'],
-    timestamp: Date.now(),
-  });
+app.get('/health', async (req, res) => {
+  await healthController.getHealth(req, res);
 });
 
 // Handle 404 errors for undefined routes using standardized error handling

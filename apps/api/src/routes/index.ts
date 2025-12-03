@@ -11,6 +11,7 @@ import { screenerController } from '../controllers/screenerController';
 import { fundingRateController } from '../controllers/fundingRateController';
 import { technicalIndicatorController } from '../controllers/technicalIndicatorController';
 import { orderBookController } from '../controllers/orderBookController';
+import { healthController } from '../controllers/healthController';
 
 // Create Express router for API v1 endpoints
 const router: RouterType = Router();
@@ -18,6 +19,11 @@ const router: RouterType = Router();
 // GET /api/v1/exchanges - List all supported exchanges
 router.get('/exchanges', async (req, res) => {
   await exchangeController.listExchanges(req, res);
+});
+
+// GET /api/v1/health - API health status
+router.get('/health', async (req, res) => {
+  await healthController.getHealth(req, res);
 });
 
 // GET /api/v1/tickers/:exchange - Get all tickers for an exchange

@@ -15,7 +15,7 @@ import {
   CustomIndexResponse,
   SupportedExchange,
 } from '../types';
-import { invalidWeights, dataNotFound, ApiError } from '../errors';
+import { invalidWeights, dataNotFound } from '../errors';
 
 /**
  * Benchmark symbols to compare against
@@ -74,7 +74,9 @@ export class CustomIndexService {
     const commonTimestamps = this.findCommonTimestamps(assetDataResults.map((r) => r.data));
 
     if (commonTimestamps.length === 0) {
-      throw dataNotFound('No common timestamps found across assets. Assets may have different trading hours.');
+      throw dataNotFound(
+        'No common timestamps found across assets. Assets may have different trading hours.'
+      );
     }
 
     // Calculate index performance

@@ -10,6 +10,8 @@ import {
   classifyCcxtError,
 } from '../errors';
 
+const dynamicCcxt = ccxt as typeof ccxt & Record<string, any>;
+
 export class CCXTService {
   private spotExchanges: Map<string, any>;
   private perpExchanges: Map<string, any>;
@@ -97,15 +99,20 @@ export class CCXTService {
 
     // Initialize Upbit (spot only - no perpetual markets)
     // Upbit is a major Korean exchange, primarily using KRW pairs but also supports USDT/BTC pairs
-    this.spotExchanges.set(
-      'upbit',
-      new ccxt.upbit({
-        enableRateLimit: true,
-        options: {
-          defaultType: 'spot',
-        },
-      })
-    );
+    const UpbitExchange = dynamicCcxt.upbit;
+    if (UpbitExchange) {
+      this.spotExchanges.set(
+        'upbit',
+        new UpbitExchange({
+          enableRateLimit: true,
+          options: {
+            defaultType: 'spot',
+          },
+        })
+      );
+    } else {
+      console.warn('CCXT: Upbit exchange class not available; skipping initialization');
+    }
   }
 
   private getExchange(exchangeId: string, marketType: 'spot' | 'perp' = 'spot'): any {
@@ -143,10 +150,7 @@ export class CCXTService {
    */
   getSupportedExchanges(): string[] {
     // Get unique exchange IDs from both spot and perp maps
-    const exchanges = new Set([
-      ...this.spotExchanges.keys(),
-      ...this.perpExchanges.keys(),
-    ]);
+    const exchanges = new Set([...this.spotExchanges.keys(), ...this.perpExchanges.keys()]);
     return Array.from(exchanges);
   }
 
@@ -176,9 +180,7 @@ export class CCXTService {
     );
 
     const duration = Date.now() - startTime;
-    const successful = results.filter(
-      (r) => r.status === 'fulfilled' && r.value.success
-    ).length;
+    const successful = results.filter((r) => r.status === 'fulfilled' && r.value.success).length;
 
     console.log(
       `CCXT: Warmup complete - ${successful}/${exchanges.length} exchanges loaded in ${duration}ms`

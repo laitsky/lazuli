@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { ccxtService } from '../services/ccxtService';
 import { cacheService } from '../services/cacheService';
 import { successResponse, handleError } from '../utils/response';
-import { SupportedExchange, Ticker, PaginationMeta } from '@lazuli/shared';
+import { Ticker, PaginationMeta } from '@lazuli/shared';
 import {
   validateInteger,
   validateSearchQuery,
