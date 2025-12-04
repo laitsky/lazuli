@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
 import routes from './routes';
 import { cacheService } from './services/cacheService';
 import { ccxtService } from './services/ccxtService';
@@ -8,7 +9,9 @@ import { notFoundHandler, globalErrorHandler } from './middleware/errorHandler';
 import { healthController } from './controllers/healthController';
 
 // Load environment variables from .env file
-dotenv.config();
+// Try loading from multiple locations to support both direct run and turborepo
+dotenv.config({ path: path.resolve(__dirname, '../.env') }); // apps/api/.env
+dotenv.config(); // Root .env (won't override existing vars)
 
 // Initialize cache service (connects to Redis if enabled)
 cacheService.initialize().catch((err) => {
