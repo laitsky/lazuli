@@ -5,9 +5,10 @@
  *
  * Interactive component for displaying and analyzing funding rate arbitrage opportunities.
  * Features sorting, filtering, and detailed information for each opportunity.
+ * Auto-refreshes every 10 seconds for near real-time data.
  */
 
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +23,7 @@ import {
 } from '@/components/ui/table';
 import { CrossExchangeFundingResponse, CrossExchangeFunding } from '@lazuli/shared';
 import { LazuliAPI, formatFundingRate } from '@/lib/api-client';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import {
   RefreshCw,
   Search,
@@ -32,6 +34,9 @@ import {
   TrendingUp,
   TrendingDown,
   Info,
+  Timer,
+  Pause,
+  Play,
 } from 'lucide-react';
 
 interface ArbitrageClientProps {
@@ -265,25 +270,53 @@ function AssetComparisonCard({ comparison }: { comparison: CrossExchangeFunding 
 }
 
 /**
+ * Auto-refresh interval in milliseconds (10 seconds)
+ */
+const AUTO_REFRESH_INTERVAL = 10000;
+
+/**
  * Main ArbitrageClient Component
  */
 export function ArbitrageClient({ initialData }: ArbitrageClientProps) {
-  const [data, setData] = useState<CrossExchangeFundingResponse>(initialData);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  // UI state
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<SortField>('spread');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'table' | 'cards'>('table');
 
-  // Set initial timestamp on mount
-  useEffect(() => {
-    setLastUpdated(new Date().toLocaleTimeString());
+  /**
+   * Fetch function for cross-exchange funding data
+   */
+  const fetchArbitrageData = useCallback(async () => {
+    return LazuliAPI.getCrossExchangeFunding({ limit: 100 });
   }, []);
+
+  /**
+   * Auto-refresh hook with 10-second interval
+   * Provides near real-time arbitrage opportunity updates
+   */
+  const {
+    data,
+    isRefreshing,
+    lastUpdatedString,
+    refresh,
+    pause,
+    resume,
+    isPaused,
+    countdown,
+  } = useAutoRefresh<CrossExchangeFundingResponse>({
+    fetchFn: fetchArbitrageData,
+    initialData,
+    interval: AUTO_REFRESH_INTERVAL,
+    fetchOnMount: false, // We have initial data from SSR
+  });
+
+  // Use initial data as fallback
+  const arbitrageData = data ?? initialData;
 
   // Filter and sort opportunities
   const filteredAndSortedOpportunities = useMemo(() => {
-    let filtered = data.arbitrageOpportunities;
+    let filtered = arbitrageData.arbitrageOpportunities;
 
     // Apply search filter
     if (searchQuery) {
@@ -328,17 +361,17 @@ export function ArbitrageClient({ initialData }: ArbitrageClientProps) {
     });
 
     return sorted;
-  }, [data.arbitrageOpportunities, searchQuery, sortField, sortOrder]);
+  }, [arbitrageData.arbitrageOpportunities, searchQuery, sortField, sortOrder]);
 
   // Filter comparisons for card view
   const filteredComparisons = useMemo(() => {
-    if (!searchQuery) return data.comparisons.filter((c) => c.arbitrageOpportunity);
+    if (!searchQuery) return arbitrageData.comparisons.filter((c) => c.arbitrageOpportunity);
 
     const query = searchQuery.toLowerCase();
-    return data.comparisons.filter(
+    return arbitrageData.comparisons.filter(
       (c) => c.baseAsset.toLowerCase().includes(query) && c.arbitrageOpportunity
     );
-  }, [data.comparisons, searchQuery]);
+  }, [arbitrageData.comparisons, searchQuery]);
 
   // Handle sort toggle
   const handleSort = useCallback(
@@ -353,36 +386,32 @@ export function ArbitrageClient({ initialData }: ArbitrageClientProps) {
     [sortField, sortOrder]
   );
 
-  // Refresh data
-  const handleRefresh = useCallback(async () => {
-    setIsRefreshing(true);
-
-    try {
-      const response = await LazuliAPI.getCrossExchangeFunding({ limit: 100 });
-
-      if (response.success && response.data) {
-        setData(response.data);
-        setLastUpdated(new Date().toLocaleTimeString());
-      }
-    } catch (error) {
-      console.error('Error refreshing arbitrage data:', error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, []);
-
   return (
     <div className="space-y-6">
       {/* Controls */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-muted-foreground">
-            Last updated: {lastUpdated ?? 'Loading...'} • {filteredAndSortedOpportunities.length}{' '}
-            opportunities
-          </div>
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <span>Last updated: {lastUpdatedString ?? 'Loading...'}</span>
+          <span className="hidden sm:inline">•</span>
+          <span className="hidden sm:inline">
+            {filteredAndSortedOpportunities.length} opportunities
+          </span>
+          {/* Auto-refresh countdown indicator */}
+          {!isPaused && (
+            <Badge variant="outline" className="gap-1.5 font-mono text-xs">
+              <Timer className="h-3 w-3" />
+              {countdown}s
+            </Badge>
+          )}
+          {isPaused && (
+            <Badge variant="secondary" className="gap-1.5 text-xs">
+              <Pause className="h-3 w-3" />
+              Paused
+            </Badge>
+          )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
@@ -410,15 +439,29 @@ export function ArbitrageClient({ initialData }: ArbitrageClientProps) {
               Cards
             </Button>
           </div>
+
+          {/* Pause/Resume button */}
           <Button
             variant="outline"
             size="sm"
-            onClick={handleRefresh}
+            onClick={isPaused ? resume : pause}
+            className="gap-2"
+            title={isPaused ? 'Resume auto-refresh' : 'Pause auto-refresh'}
+          >
+            {isPaused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+            <span className="hidden sm:inline">{isPaused ? 'Resume' : 'Pause'}</span>
+          </Button>
+
+          {/* Manual refresh button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={refresh}
             disabled={isRefreshing}
             className="gap-2"
           >
             <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
         </div>
       </div>
@@ -445,7 +488,7 @@ export function ArbitrageClient({ initialData }: ArbitrageClientProps) {
         viewMode === 'table' ? (
           <ArbitrageOpportunityTable
             opportunities={filteredAndSortedOpportunities}
-            comparisons={data.comparisons}
+            comparisons={arbitrageData.comparisons}
             sortField={sortField}
             sortOrder={sortOrder}
             onSort={handleSort}

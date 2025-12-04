@@ -22,7 +22,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { ApiResponse } from '@lazuli/shared';
 
 /**
@@ -143,6 +143,7 @@ export function useAutoRefresh<T>({
   // Refs for cleanup and tracking
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
   const fetchFnRef = useRef(fetchFn);
 
@@ -157,6 +158,12 @@ export function useAutoRefresh<T>({
    */
   const fetchData = useCallback(
     async (isInitial = false) => {
+      // Cancel any in-flight requests to prevent race conditions
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      abortControllerRef.current = new AbortController();
+
       // Set appropriate loading state
       if (isInitial) {
         setIsLoading(true);
@@ -181,6 +188,11 @@ export function useAutoRefresh<T>({
           onError?.(errorMsg);
         }
       } catch (err) {
+        // Ignore abort errors - they're expected when canceling requests
+        if (err instanceof Error && err.name === 'AbortError') {
+          return;
+        }
+
         if (!isMountedRef.current) return;
 
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
@@ -222,7 +234,7 @@ export function useAutoRefresh<T>({
     setCountdown(Math.floor(interval / 1000));
   }, [interval]);
 
-  // Initial fetch on mount
+  // Initial fetch on mount and cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -232,6 +244,10 @@ export function useAutoRefresh<T>({
 
     return () => {
       isMountedRef.current = false;
+      // Cancel any pending requests on unmount
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
     // Only run on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -289,8 +305,13 @@ export function useAutoRefresh<T>({
     };
   }, [interval, isPaused, isRefreshing]);
 
-  // Format last updated time
-  const lastUpdatedString = lastUpdated?.toLocaleTimeString() ?? null;
+  /**
+   * Format last updated time - memoized to avoid unnecessary re-computation
+   */
+  const lastUpdatedString = useMemo(
+    () => lastUpdated?.toLocaleTimeString() ?? null,
+    [lastUpdated]
+  );
 
   return {
     data,
