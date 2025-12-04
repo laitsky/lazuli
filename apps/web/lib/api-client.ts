@@ -31,8 +31,10 @@ import {
 // API base URL - defaults to localhost in development
 const isServer = typeof window === 'undefined';
 // Use internal API URL when running on server (Docker network), public URL on client
+// In Docker: INTERNAL_API_URL is set to http://api:3000 via docker-compose.yml
+// In local dev: Falls back to http://localhost:3000
 const API_BASE_URL = isServer
-  ? process.env.INTERNAL_API_URL || 'http://api:3000'
+  ? process.env.INTERNAL_API_URL || 'http://localhost:3000'
   : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 const API_VERSION = '/api/v1';
 
