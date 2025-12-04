@@ -296,7 +296,7 @@ export class ScreenerService {
               ohlcv: ohlcv || [],
               timestamp: ticker.timestamp,
             } as AltcoinPerformance;
-          } catch (error) {
+          } catch (_error) {
             // Return ticker with empty OHLCV on error
             const { base, quote } = parseSymbol(ticker.symbol);
             const priceInUSD = ticker.last!;

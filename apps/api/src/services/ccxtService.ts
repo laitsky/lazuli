@@ -9,6 +9,10 @@ import {
   invalidTimeframe,
   classifyCcxtError,
 } from '../errors';
+import { createServiceLogger } from '../utils/logger';
+
+// Create logger for CCXT service
+const log = createServiceLogger('ccxt');
 
 const dynamicCcxt = ccxt as typeof ccxt & Record<string, any>;
 
@@ -111,7 +115,7 @@ export class CCXTService {
         })
       );
     } else {
-      console.warn('CCXT: Upbit exchange class not available; skipping initialization');
+      log.warn('Upbit exchange class not available; skipping initialization');
     }
   }
 
@@ -161,7 +165,7 @@ export class CCXTService {
    * @returns Promise<void>
    */
   async warmup(): Promise<void> {
-    console.log('CCXT: Warming up exchange markets...');
+    log.info('Warming up exchange markets...');
     const startTime = Date.now();
     const exchanges = this.getSupportedExchanges();
 
@@ -170,10 +174,10 @@ export class CCXTService {
       exchanges.map(async (exchangeId) => {
         try {
           await this.loadMarkets(exchangeId);
-          console.log(`CCXT: ${exchangeId} markets loaded`);
+          log.debug('Markets loaded', { exchange: exchangeId });
           return { exchangeId, success: true };
         } catch (error) {
-          console.error(`CCXT: Failed to load ${exchangeId} markets:`, error);
+          log.error(`Failed to load ${exchangeId} markets`, error, { exchange: exchangeId });
           return { exchangeId, success: false, error };
         }
       })
@@ -182,9 +186,11 @@ export class CCXTService {
     const duration = Date.now() - startTime;
     const successful = results.filter((r) => r.status === 'fulfilled' && r.value.success).length;
 
-    console.log(
-      `CCXT: Warmup complete - ${successful}/${exchanges.length} exchanges loaded in ${duration}ms`
-    );
+    log.info('Warmup complete', {
+      successful,
+      total: exchanges.length,
+      duration: `${duration}ms`,
+    });
   }
 
   async loadMarkets(exchangeId: string): Promise<void> {
@@ -266,7 +272,7 @@ export class CCXTService {
       });
     } catch (error) {
       // Log the error but classify and rethrow it for proper handling upstream
-      console.error(`Error fetching ${type} tickers for ${exchangeId}:`, error);
+      log.error(`Error fetching ${type} tickers`, error, { exchange: exchangeId, type });
       // If it's already an ExchangeError, rethrow it
       if (error instanceof ExchangeError) {
         throw error;
@@ -325,7 +331,7 @@ export class CCXTService {
       });
     } catch (error) {
       // Log the error but classify and rethrow it for proper handling upstream
-      console.error(`Error fetching ${type} markets for ${exchangeId}:`, error);
+      log.error(`Error fetching ${type} markets`, error, { exchange: exchangeId, type });
       // If it's already an ExchangeError, rethrow it
       if (error instanceof ExchangeError) {
         throw error;
@@ -378,7 +384,7 @@ export class CCXTService {
       // Check if the timeframe exists in the exchange's supported timeframes
       return timeframe in exchange.timeframes;
     } catch (error) {
-      console.error(`Error checking timeframe support for ${exchangeId}:`, error);
+      log.error('Error checking timeframe support', error, { exchange: exchangeId, timeframe });
       return false;
     }
   }
@@ -400,7 +406,7 @@ export class CCXTService {
 
       return Object.keys(exchange.timeframes);
     } catch (error) {
-      console.error(`Error getting supported timeframes for ${exchangeId}:`, error);
+      log.error('Error getting supported timeframes', error, { exchange: exchangeId });
       return [];
     }
   }
@@ -455,7 +461,7 @@ export class CCXTService {
         volume: candle[5], // Volume in base currency
       }));
     } catch (error) {
-      console.error(`Error fetching OHLCV for ${symbol} on ${exchangeId}:`, error);
+      log.error('Error fetching OHLCV', error, { exchange: exchangeId, symbol, timeframe });
       // If it's already an ExchangeError or ValidationError, rethrow it
       if (error instanceof ExchangeError || error instanceof ValidationError) {
         throw error;
@@ -533,7 +539,7 @@ export class CCXTService {
         nonce: orderBookData.nonce,
       };
     } catch (error) {
-      console.error(`Error fetching order book for ${symbol} on ${exchangeId}:`, error);
+      log.error('Error fetching order book', error, { exchange: exchangeId, symbol, marketType });
       // If it's already an ExchangeError or ValidationError, rethrow it
       if (error instanceof ExchangeError || error instanceof ValidationError) {
         throw error;

@@ -15,6 +15,10 @@
  */
 
 import Redis from 'ioredis';
+import { createServiceLogger } from '../utils/logger';
+
+// Create logger for Redis cache service
+const log = createServiceLogger('redis');
 
 /**
  * Statistics tracking for cache performance monitoring
@@ -86,7 +90,7 @@ export class RedisCacheService {
         retryStrategy: (times: number) => {
           // Exponential backoff with max 30 seconds
           const delay = Math.min(times * 1000, 30000);
-          console.log(`Redis: Retry attempt ${times}, waiting ${delay}ms...`);
+          log.warn(`Retry attempt ${times}, waiting ${delay}ms`, { attempt: times, delay });
           return delay;
         },
         lazyConnect: false,
@@ -94,35 +98,35 @@ export class RedisCacheService {
 
       // Set up event handlers for connection monitoring
       this.client.on('connect', () => {
-        console.log('Redis: Connected successfully');
+        log.info('Connected successfully');
         this.stats.connected = true;
       });
 
       this.client.on('ready', () => {
-        console.log('Redis: Ready to accept commands');
+        log.info('Ready to accept commands');
       });
 
       this.client.on('error', (err: Error) => {
-        console.error('Redis: Connection error:', err.message);
+        log.error('Connection error', err);
         this.stats.connected = false;
       });
 
       this.client.on('close', () => {
-        console.log('Redis: Connection closed');
+        log.warn('Connection closed');
         this.stats.connected = false;
       });
 
       this.client.on('reconnecting', () => {
-        console.log('Redis: Attempting to reconnect...');
+        log.info('Attempting to reconnect...');
       });
 
       // Test the connection with a ping
       await this.client.ping();
       this.stats.connected = true;
-      console.log('Redis: Cache service initialized');
+      log.info('Cache service initialized', { host: this.config.host, port: this.config.port });
       return true;
     } catch (error) {
-      console.error('Redis: Failed to connect:', error);
+      log.error('Failed to connect', error);
       this.stats.connected = false;
       return false;
     }
@@ -144,7 +148,7 @@ export class RedisCacheService {
    */
   async set<T>(key: string, data: T, ttl?: number): Promise<void> {
     if (!this.client || !this.stats.connected) {
-      console.warn('Redis: Cannot set cache - not connected');
+      log.warn('Cannot set cache - not connected', { key });
       return;
     }
 
@@ -158,7 +162,7 @@ export class RedisCacheService {
       // Use SETEX for atomic set with expiration
       await this.client.setex(key, ttlSeconds, serialized);
     } catch (error) {
-      console.error(`Redis: Error setting key "${key}":`, error);
+      log.error(`Error setting key "${key}"`, error, { key });
     }
   }
 
@@ -185,7 +189,7 @@ export class RedisCacheService {
       // Deserialize JSON string back to object
       return JSON.parse(data) as T;
     } catch (error) {
-      console.error(`Redis: Error getting key "${key}":`, error);
+      log.error(`Error getting key "${key}"`, error, { key });
       this.stats.misses++;
       return null;
     }
@@ -206,7 +210,7 @@ export class RedisCacheService {
       const exists = await this.client.exists(key);
       return exists === 1;
     } catch (error) {
-      console.error(`Redis: Error checking key "${key}":`, error);
+      log.error(`Error checking key "${key}"`, error, { key });
       return false;
     }
   }
@@ -223,7 +227,7 @@ export class RedisCacheService {
     try {
       await this.client.del(key);
     } catch (error) {
-      console.error(`Redis: Error invalidating key "${key}":`, error);
+      log.error(`Error invalidating key "${key}"`, error, { key });
     }
   }
 
@@ -249,9 +253,7 @@ export class RedisCacheService {
 
       stream.on('data', (keys: string[]) => {
         // Remove prefix from keys since del() will add it again
-        const unprefixedKeys = keys.map((k) =>
-          k.replace(this.config.keyPrefix || '', '')
-        );
+        const unprefixedKeys = keys.map((k) => k.replace(this.config.keyPrefix || '', ''));
         keysToDelete.push(...unprefixedKeys);
       });
 
@@ -260,9 +262,10 @@ export class RedisCacheService {
           if (keysToDelete.length > 0) {
             try {
               await this.client!.del(...keysToDelete);
-              console.log(
-                `Redis: Invalidated ${keysToDelete.length} keys matching "${pattern}"`
-              );
+              log.info(`Invalidated keys matching pattern`, {
+                pattern,
+                count: keysToDelete.length,
+              });
             } catch (err) {
               reject(err);
             }
@@ -272,7 +275,7 @@ export class RedisCacheService {
         stream.on('error', reject);
       });
     } catch (error) {
-      console.error(`Redis: Error invalidating pattern "${pattern}":`, error);
+      log.error(`Error invalidating pattern "${pattern}"`, error, { pattern });
     }
   }
 
@@ -282,7 +285,7 @@ export class RedisCacheService {
    */
   async clear(): Promise<void> {
     await this.invalidatePattern('*');
-    console.log('Redis: Cache cleared');
+    log.info('Cache cleared');
   }
 
   /**
@@ -309,7 +312,7 @@ export class RedisCacheService {
           stream.on('end', resolve);
         });
       } catch (error) {
-        console.error('Redis: Error getting key count:', error);
+        log.error('Error getting key count', error);
       }
     }
 
@@ -333,7 +336,7 @@ export class RedisCacheService {
     try {
       return await this.client.info();
     } catch (error) {
-      console.error('Redis: Error getting server info:', error);
+      log.error('Error getting server info', error);
       return null;
     }
   }
@@ -347,7 +350,7 @@ export class RedisCacheService {
       await this.client.quit();
       this.client = null;
       this.stats.connected = false;
-      console.log('Redis: Disconnected');
+      log.info('Disconnected');
     }
   }
 
@@ -364,7 +367,7 @@ export class RedisCacheService {
     try {
       return await this.client.ttl(key);
     } catch (error) {
-      console.error(`Redis: Error getting TTL for "${key}":`, error);
+      log.error(`Error getting TTL for "${key}"`, error, { key });
       return -2;
     }
   }
@@ -386,7 +389,7 @@ export class RedisCacheService {
       const result = await this.client.expire(key, ttlSeconds);
       return result === 1;
     } catch (error) {
-      console.error(`Redis: Error extending TTL for "${key}":`, error);
+      log.error(`Error extending TTL for "${key}"`, error, { key, ttl });
       return false;
     }
   }
