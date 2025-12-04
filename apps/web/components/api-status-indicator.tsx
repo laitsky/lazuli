@@ -1,48 +1,38 @@
 /**
  * API Status Indicator - Terminal Luxe
- * Displays API health status with refined styling
+ * Displays API health status with refined styling and auto-refresh (10s interval)
  */
 
 'use client';
 
-import { useEffect, useState } from 'react';
 import { LazuliAPI } from '@/lib/api-client';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import type { HealthResponse } from '@lazuli/shared';
-import { Wifi, WifiOff, Server, RefreshCw, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
+import { Wifi, WifiOff, Server, RefreshCw, AlertCircle, CheckCircle2, Loader2, Timer } from 'lucide-react';
+
+/**
+ * Auto-refresh interval in milliseconds (10 seconds)
+ */
+const AUTO_REFRESH_INTERVAL = 10000;
 
 export function ApiStatusIndicator() {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  const fetchHealth = async (showRefreshState = false) => {
-    if (showRefreshState) setIsRefreshing(true);
-    try {
-      const response = await LazuliAPI.getHealth();
-
-      if (response.success) {
-        setHealth(response.data);
-        setError(null);
-        setLastUpdated(new Date());
-      } else {
-        setError(response.error || 'Unknown error');
-      }
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-      setError(errorMsg);
-    } finally {
-      setLoading(false);
-      setIsRefreshing(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchHealth();
-    const interval = setInterval(() => fetchHealth(false), 30000);
-    return () => clearInterval(interval);
-  }, []);
+  /**
+   * Auto-refresh hook for health check data
+   * Provides near real-time API status updates
+   */
+  const {
+    data: health,
+    isLoading: loading,
+    isRefreshing,
+    error,
+    lastUpdatedString,
+    refresh,
+    countdown,
+  } = useAutoRefresh<HealthResponse>({
+    fetchFn: () => LazuliAPI.getHealth(),
+    interval: AUTO_REFRESH_INTERVAL,
+    fetchOnMount: true,
+  });
 
   const isOnline = health?.status === 'ok';
 
@@ -67,16 +57,23 @@ export function ApiStatusIndicator() {
             <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
               API Status
             </span>
-            <button
-              onClick={() => fetchHealth(true)}
-              disabled={isRefreshing}
-              className="h-7 w-7 rounded-md bg-card border border-border hover:border-primary/30 flex items-center justify-center transition-colors disabled:opacity-50"
-              aria-label="Refresh status"
-            >
-              <RefreshCw
-                className={`h-3.5 w-3.5 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`}
-              />
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Countdown indicator */}
+              <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-1">
+                <Timer className="h-3 w-3" />
+                {countdown}s
+              </span>
+              <button
+                onClick={refresh}
+                disabled={isRefreshing}
+                className="h-7 w-7 rounded-md bg-card border border-border hover:border-primary/30 flex items-center justify-center transition-colors disabled:opacity-50"
+                aria-label="Refresh status"
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5 text-muted-foreground ${isRefreshing ? 'animate-spin' : ''}`}
+                />
+              </button>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <div
@@ -108,9 +105,9 @@ export function ApiStatusIndicator() {
               >
                 {loading ? 'Checking...' : isOnline ? 'Online' : 'Offline'}
               </p>
-              {lastUpdated && !loading && (
+              {lastUpdatedString && !loading && (
                 <p className="text-[10px] font-mono text-muted-foreground">
-                  Updated {lastUpdated.toLocaleTimeString()}
+                  Updated {lastUpdatedString}
                 </p>
               )}
             </div>
