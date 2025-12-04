@@ -32,6 +32,16 @@ import {
   Command,
   BookOpen,
 } from 'lucide-react';
+import { LazuliAPI } from '@/lib/api-client';
+
+/**
+ * System health status interface
+ */
+interface SystemHealth {
+  status: 'online' | 'degraded' | 'offline';
+  exchangeCount: number;
+  message: string;
+}
 
 /**
  * Navigation items with semantic icons
@@ -151,9 +161,61 @@ export function Navigation() {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
+  const [systemHealth, setSystemHealth] = useState<SystemHealth>({
+    status: 'offline',
+    exchangeCount: 0,
+    message: 'Connecting...',
+  });
 
   const closeMobileMenu = useCallback(() => {
     setIsMobileMenuOpen(false);
+  }, []);
+
+  // Fetch system health status periodically
+  useEffect(() => {
+    const fetchHealth = async () => {
+      try {
+        const response = await LazuliAPI.getHealth();
+        if (response.success && response.data) {
+          const exchangeCount = response.data.exchanges?.length || 0;
+          const isApiReady = response.data.api === 'ready';
+          const isDbConnected = response.data.database === 'connected';
+
+          // Determine overall status
+          let status: SystemHealth['status'] = 'online';
+          let message = `${exchangeCount} exchange${exchangeCount !== 1 ? 's' : ''} connected`;
+
+          if (!isApiReady) {
+            status = 'offline';
+            message = 'API not ready';
+          } else if (!isDbConnected) {
+            status = 'degraded';
+            message = `${exchangeCount} exchanges (DB offline)`;
+          }
+
+          setSystemHealth({ status, exchangeCount, message });
+        } else {
+          setSystemHealth({
+            status: 'offline',
+            exchangeCount: 0,
+            message: 'Connection failed',
+          });
+        }
+      } catch {
+        setSystemHealth({
+          status: 'offline',
+          exchangeCount: 0,
+          message: 'Connection failed',
+        });
+      }
+    };
+
+    // Initial fetch
+    fetchHealth();
+
+    // Poll every 30 seconds
+    const interval = setInterval(fetchHealth, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   // Detect desktop screen size
@@ -367,14 +429,25 @@ export function Navigation() {
           </motion.div>
         </div>
 
-        {/* Status Footer */}
+        {/* Status Footer - Dynamic health status from API */}
         <div className="border-t border-border px-4 py-4">
           <div className="flex items-center gap-3">
-            <div className="status-dot status-online" />
+            <div
+              className={cn(
+                'status-dot',
+                systemHealth.status === 'online' && 'status-online',
+                systemHealth.status === 'degraded' && 'status-warning',
+                systemHealth.status === 'offline' && 'status-offline'
+              )}
+            />
             <div className="flex flex-col">
-              <span className="text-xs font-medium text-foreground">System Online</span>
+              <span className="text-xs font-medium text-foreground">
+                {systemHealth.status === 'online' && 'System Online'}
+                {systemHealth.status === 'degraded' && 'System Degraded'}
+                {systemHealth.status === 'offline' && 'System Offline'}
+              </span>
               <span className="text-[10px] font-mono text-muted-foreground">
-                All exchanges connected
+                {systemHealth.message}
               </span>
             </div>
           </div>
