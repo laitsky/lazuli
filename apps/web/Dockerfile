@@ -21,6 +21,7 @@ FROM oven/bun:1-alpine AS pruner
 
 # Install turbo globally for the prune command
 RUN bun add -g turbo
+ENV PATH="/root/.bun/bin:${PATH}"
 
 WORKDIR /app
 
