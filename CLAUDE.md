@@ -11,7 +11,7 @@ Lazuli is a cryptocurrency trading tool that provides **real-time** data from mu
 - **Runtime**: Bun - Fast JavaScript runtime with built-in TypeScript support
 - **Monorepo**: Turborepo for efficient multi-package builds
 - **Language**: TypeScript with strict type checking
-- **API Framework**: Express.js REST API
+- **API Framework**: Elysia (Bun-native REST API)
 - **Web Framework**: Next.js with React
 - **Primary Data**: Live exchange APIs (CCXT)
 - **Database**: Supabase (PostgreSQL) - **OPTIONAL** for advanced features
@@ -54,7 +54,7 @@ bun run format
 ```
 lazuli/                      # Monorepo root
 ├── apps/
-│   ├── api/                # Express.js REST API
+│   ├── api/                # Elysia REST API
 │   │   ├── src/
 │   │   │   ├── index.ts    # Server entry point
 │   │   │   ├── routes/     # API route definitions

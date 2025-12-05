@@ -313,6 +313,6 @@ The code is:
 - Properly typed and validated
 - Secure and performant
 - Well-documented
-- Following React and Express best practices
+- Following React and Elysia best practices
 
 **Overall Grade: A-** (Excellent implementation with room for testing enhancements)

@@ -2,7 +2,7 @@
 # Lazuli API - Production Dockerfile
 # =============================================================================
 # Multi-stage build using Turborepo prune pattern for optimized Docker images.
-# This Dockerfile creates a minimal production image for the Express.js API.
+# This Dockerfile creates a minimal production image for the Elysia API.
 #
 # Build command (from monorepo root):
 #   docker build -f apps/api/Dockerfile -t lazuli-api .
@@ -79,7 +79,7 @@ RUN addgroup --system --gid 1001 lazuli && \
 WORKDIR /app
 
 # Copy the full application with all dependencies from installer stage
-# We need node_modules for the Express.js API runtime
+# We need node_modules for the Elysia API runtime
 COPY --from=installer --chown=lazuli:lazuli /app .
 
 # Switch to non-root user

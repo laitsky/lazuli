@@ -17,8 +17,6 @@ import '../config/environment';
  */
 
 import pino, { Logger, LoggerOptions, TransportTargetOptions } from 'pino';
-import { Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'crypto';
 import path from 'path';
 import fs from 'fs';
 
@@ -203,69 +201,11 @@ export function createLogger(module: string): Logger {
 }
 
 /**
- * Extended Express Request with request ID for tracing
+ * Request context interface with request ID for tracing
  */
-export interface RequestWithId extends Request {
+export interface RequestWithId {
   id: string;
   startTime: number;
-}
-
-/**
- * Request logging middleware
- * - Assigns unique request ID to each request
- * - Logs incoming requests
- * - Logs response completion with duration
- *
- * @param req - Express request object
- * @param res - Express response object
- * @param next - Express next function
- */
-export function requestLogger(req: Request, res: Response, next: NextFunction): void {
-  const requestWithId = req as RequestWithId;
-
-  // Generate or use existing request ID (useful for distributed tracing)
-  requestWithId.id = (req.headers['x-request-id'] as string) || randomUUID();
-  requestWithId.startTime = Date.now();
-
-  // Create a logger with request context
-  const logger = createLogger('http');
-
-  // Log incoming request
-  logger.info({
-    requestId: requestWithId.id,
-    method: req.method,
-    url: req.url,
-    userAgent: req.headers['user-agent'],
-    ip: req.ip || req.socket.remoteAddress,
-    msg: `→ ${req.method} ${req.url}`,
-  });
-
-  // Set request ID in response header for client correlation
-  res.setHeader('X-Request-ID', requestWithId.id);
-
-  // Log response when finished
-  res.on('finish', () => {
-    const duration = Date.now() - requestWithId.startTime;
-    const logData = {
-      requestId: requestWithId.id,
-      method: req.method,
-      url: req.url,
-      statusCode: res.statusCode,
-      duration: `${duration}ms`,
-      msg: `← ${req.method} ${req.url} ${res.statusCode} (${duration}ms)`,
-    };
-
-    // Log level based on status code
-    if (res.statusCode >= 500) {
-      logger.error(logData);
-    } else if (res.statusCode >= 400) {
-      logger.warn(logData);
-    } else {
-      logger.info(logData);
-    }
-  });
-
-  next();
 }
 
 /**

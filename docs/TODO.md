@@ -2,7 +2,7 @@
 
 ## ✅ Completed Features
 
-- [x] **Basic REST API structure** - Express.js with TypeScript
+- [x] **Basic REST API structure** - Elysia with TypeScript
 - [x] **CCXT integration** - Binance, Bybit, OKX (spot + perpetual markets)
 - [x] **Exchange integrations** - CCXT library for multiple exchanges
 - [x] **API Endpoints**:
@@ -18,7 +18,7 @@
 
 ### Architecture Overview
 
-- **Backend**: Node.js + Express + TypeScript
+- **Backend**: Bun + Elysia + TypeScript
 - **Exchange Integration**: CCXT (Binance, Bybit, OKX)
 - **Data Types**: Spot + Perpetual futures markets
 - **Response Format**: Standardized JSON with success/error handling

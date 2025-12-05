@@ -33,7 +33,7 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------------
-  # API Service - Express.js Backend
+  # API Service - Elysia Backend
   # ---------------------------------------------------------------------------
   api:
     build:
