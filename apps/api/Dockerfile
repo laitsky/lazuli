@@ -62,7 +62,8 @@ COPY --from=pruner /app/out/json/ .
 
 # Install dependencies with frozen lockfile for reproducible builds
 # --frozen-lockfile ensures the lockfile isn't modified during install
-RUN --mount=type=cache,target=/root/.bun bun install --frozen-lockfile --production
+# --ignore-scripts skips lifecycle scripts (e.g., husky prepare) not needed in Docker
+RUN --mount=type=cache,target=/root/.bun bun install --frozen-lockfile --production --ignore-scripts
 
 # Now copy the full pruned source code
 # This layer will be rebuilt when source code changes, but dependencies are cached
