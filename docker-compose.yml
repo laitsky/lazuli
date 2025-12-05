@@ -43,8 +43,8 @@ services:
         # Pass host user UID/GID for proper volume permissions
         # Get your UID with: id -u
         # Get your GID with: id -g
-        - UID=${UID:-1001}
-        - GID=${GID:-1001}
+        - UID=${HOST_UID:-1001}
+        - GID=${HOST_GID:-1001}
     container_name: lazuli-api
     ports:
       - "3000:3000"

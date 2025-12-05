@@ -51,9 +51,10 @@ log_error() {
 export_user_ids() {
     # Export current user's UID and GID for Docker build args
     # This ensures container user matches host user for volume permissions
-    export UID=$(id -u)
-    export GID=$(id -g)
-    log_info "Using UID=$UID, GID=$GID for container user"
+    # Note: We use HOST_UID/HOST_GID because UID is a read-only variable in bash
+    export HOST_UID=$(id -u)
+    export HOST_GID=$(id -g)
+    log_info "Using HOST_UID=$HOST_UID, HOST_GID=$HOST_GID for container user"
 }
 
 # -----------------------------------------------------------------------------
@@ -183,8 +184,8 @@ main() {
             echo "  --help       Show this help message"
             echo ""
             echo "Environment variables (auto-detected):"
-            echo "  UID          Host user ID (currently: $(id -u))"
-            echo "  GID          Host group ID (currently: $(id -g))"
+            echo "  HOST_UID     Host user ID (currently: $(id -u))"
+            echo "  HOST_GID     Host group ID (currently: $(id -g))"
             ;;
         *)
             stop_containers
