@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # =============================================================================
 # Lazuli Web - Production Dockerfile
 # =============================================================================
@@ -12,17 +13,27 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
+# Stage 0: Base
+# -----------------------------------------------------------------------------
+# Shared base image to keep cache mounts reusable across stages.
+# -----------------------------------------------------------------------------
+FROM oven/bun:1-alpine AS base
+
+WORKDIR /app
+
+# Keep Bun's install cache in a consistent location for BuildKit caching
+ENV BUN_INSTALL_CACHE_DIR=/root/.bun/install/cache
+
+# -----------------------------------------------------------------------------
 # Stage 1: Pruner
 # -----------------------------------------------------------------------------
 # Uses turbo prune to create a minimal monorepo subset containing only the
 # web package and its dependencies, reducing the build context significantly.
 # -----------------------------------------------------------------------------
-FROM oven/bun:1-alpine AS pruner
+FROM base AS pruner
 
 # Install turbo globally for the prune command
-RUN bun add -g turbo
-
-WORKDIR /app
+RUN --mount=type=cache,target=/root/.bun bun add -g turbo
 
 # Copy the entire monorepo for pruning
 # turbo prune needs access to all package.json files to understand dependencies
@@ -40,9 +51,7 @@ RUN turbo prune @lazuli/web --docker
 # Installs dependencies using the pruned package.json files.
 # This stage is separated to maximize Docker layer caching.
 # -----------------------------------------------------------------------------
-FROM oven/bun:1-alpine AS installer
-
-WORKDIR /app
+FROM base AS installer
 
 # First, copy only package.json files and lockfile for dependency installation
 # This layer will be cached unless dependencies change
@@ -51,7 +60,7 @@ COPY --from=pruner /app/out/json/ .
 
 # Install dependencies with frozen lockfile for reproducible builds
 # --frozen-lockfile ensures the lockfile isn't modified during install
-RUN bun install --frozen-lockfile
+RUN --mount=type=cache,target=/root/.bun bun install --frozen-lockfile
 
 # Now copy the full pruned source code
 # This layer will be rebuilt when source code changes, but dependencies are cached
@@ -63,9 +72,7 @@ COPY --from=pruner /app/out/full/ .
 # Builds the Next.js application for production.
 # Uses standalone output mode for minimal Docker images.
 # -----------------------------------------------------------------------------
-FROM oven/bun:1-alpine AS builder
-
-WORKDIR /app
+FROM base AS builder
 
 # Copy everything from installer (dependencies + source code)
 COPY --from=installer /app .
@@ -82,7 +89,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # Build the Next.js application
 # This creates the optimized production build in apps/web/.next
 # With output: 'standalone' in next.config.ts, it creates a self-contained server
-RUN bun run build --filter=@lazuli/web
+RUN --mount=type=cache,target=/root/.bun \
+    --mount=type=cache,target=/app/apps/web/.next/cache \
+    bun run build --filter=@lazuli/web
 
 # -----------------------------------------------------------------------------
 # Stage 4: Runner
@@ -90,7 +99,7 @@ RUN bun run build --filter=@lazuli/web
 # Minimal production image using the Next.js standalone output.
 # Only includes the necessary files to run the application.
 # -----------------------------------------------------------------------------
-FROM oven/bun:1-alpine AS runner
+FROM base AS runner
 
 # Set production environment
 ENV NODE_ENV=production

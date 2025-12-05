@@ -1,8 +1,9 @@
+# syntax=docker/dockerfile:1.7
 # =============================================================================
 # Lazuli API - Production Dockerfile
 # =============================================================================
 # Multi-stage build using Turborepo prune pattern for optimized Docker images.
-# This Dockerfile creates a minimal production image for the Express.js API.
+# This Dockerfile creates a minimal production image for the Elysia API.
 #
 # Build command (from monorepo root):
 #   docker build -f apps/api/Dockerfile -t lazuli-api .
@@ -12,17 +13,27 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
+# Stage 0: Base
+# -----------------------------------------------------------------------------
+# Shared base image to keep cache mounts reusable across stages.
+# -----------------------------------------------------------------------------
+FROM oven/bun:1-alpine AS base
+
+WORKDIR /app
+
+# Keep Bun's install cache in a consistent location for BuildKit caching
+ENV BUN_INSTALL_CACHE_DIR=/root/.bun/install/cache
+
+# -----------------------------------------------------------------------------
 # Stage 1: Pruner
 # -----------------------------------------------------------------------------
 # Uses turbo prune to create a minimal monorepo subset containing only the
 # API package and its dependencies, reducing the build context significantly.
 # -----------------------------------------------------------------------------
-FROM oven/bun:1-alpine AS pruner
+FROM base AS pruner
 
 # Install turbo globally for the prune command
-RUN bun add -g turbo
-
-WORKDIR /app
+RUN --mount=type=cache,target=/root/.bun bun add -g turbo
 
 # Copy the entire monorepo for pruning
 # turbo prune needs access to all package.json files to understand dependencies
@@ -40,9 +51,7 @@ RUN turbo prune @lazuli/api --docker
 # Installs dependencies using the pruned package.json files.
 # This stage is separated to maximize Docker layer caching.
 # -----------------------------------------------------------------------------
-FROM oven/bun:1-alpine AS installer
-
-WORKDIR /app
+FROM base AS installer
 
 # First, copy only package.json files and lockfile for dependency installation
 # This layer will be cached unless dependencies change
@@ -51,7 +60,7 @@ COPY --from=pruner /app/out/json/ .
 
 # Install dependencies with frozen lockfile for reproducible builds
 # --frozen-lockfile ensures the lockfile isn't modified during install
-RUN bun install --frozen-lockfile
+RUN --mount=type=cache,target=/root/.bun bun install --frozen-lockfile --production
 
 # Now copy the full pruned source code
 # This layer will be rebuilt when source code changes, but dependencies are cached
@@ -63,7 +72,7 @@ COPY --from=pruner /app/out/full/ .
 # Minimal production image that runs the API directly with Bun.
 # No build step needed - Bun runs TypeScript natively.
 # -----------------------------------------------------------------------------
-FROM oven/bun:1-alpine AS runner
+FROM base AS runner
 
 # Set production environment
 ENV NODE_ENV=production
@@ -79,7 +88,7 @@ RUN addgroup --system --gid 1001 lazuli && \
 WORKDIR /app
 
 # Copy the full application with all dependencies from installer stage
-# We need node_modules for the Express.js API runtime
+# We need node_modules for the Elysia API runtime
 COPY --from=installer --chown=lazuli:lazuli /app .
 
 # Switch to non-root user

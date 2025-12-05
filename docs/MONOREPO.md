@@ -88,7 +88,7 @@ lazuli/
 ├── .github/              # GitHub Actions workflows
 ├── .husky/               # Git hooks (Husky)
 ├── apps/                 # Applications
-│   ├── api/              # Express REST API
+│   ├── api/              # Elysia REST API
 │   │   ├── src/
 │   │   │   ├── controllers/
 │   │   │   ├── services/
