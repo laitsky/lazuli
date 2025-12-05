@@ -7,7 +7,7 @@ A modern full-stack monorepo application that provides **real-time** cryptocurre
 ## Features
 
 - 📊 **Beautiful Web Interface** - Modern Next.js frontend with real-time data
-- 🔌 **REST API** - Powerful TypeScript backend with Express.js
+- 🔌 **REST API** - Bun-native TypeScript backend with Elysia
 - 💱 **Multi-Exchange Support** - Binance, Bybit, and OKX
 - 🎯 **Live Trading Data** - Real-time prices, volumes, and market statistics
 - 📈 **Spot & Perpetual Markets** - Support for both market types
@@ -21,7 +21,7 @@ A modern full-stack monorepo application that provides **real-time** cryptocurre
 ```
 lazuli/
 ├── apps/
-│   ├── api/              # Backend REST API (Express.js + TypeScript)
+│   ├── api/              # Backend REST API (Elysia + TypeScript)
 │   │   ├── src/          # Source code
 │   │   ├── .env.example  # Environment template
 │   │   └── package.json  # API dependencies
@@ -174,7 +174,7 @@ Lazuli uses **Turborepo** with **Bun workspaces** for monorepo management:
 ### Backend (apps/api)
 
 - **Runtime**: Bun with native TypeScript support
-- **Framework**: Express.js
+- **Framework**: Elysia (Bun-native HTTP framework)
 - **Exchange APIs**: CCXT (Binance, Bybit, OKX)
 - **Database**: Supabase (PostgreSQL) - Optional
 - **Documentation**: OpenAPI 3.0 with Stoplight Elements

@@ -59,7 +59,7 @@ This project uses **Turborepo** for monorepo management. See [MONOREPO.md](./MON
 ```
 lazuli/
 ├── apps/
-│   ├── api/          # Express REST API
+│   ├── api/          # Elysia REST API
 │   └── web/          # Next.js frontend
 ├── packages/
 │   ├── shared/       # Shared TypeScript types

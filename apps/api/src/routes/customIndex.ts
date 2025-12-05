@@ -1,12 +1,11 @@
 /**
- * Custom Index Controller
+ * Custom Index Routes for Elysia
  * Handles API requests for custom index creation and performance calculation
- * Allows users to create weighted baskets of coins and compare performance
  */
 
-import { Request, Response } from 'express';
+import { Elysia, t } from 'elysia';
 import { customIndexService } from '../services/customIndexService';
-import { successResponse, handleError } from '../utils/response';
+import { successResponse } from '../utils/response';
 import { SupportedExchange, Timeframe, IndexAsset } from '@lazuli/shared';
 import { validateExchange, validateInteger } from '../utils/validation';
 import {
@@ -17,33 +16,18 @@ import {
   invalidWeights,
 } from '../errors';
 
-export class CustomIndexController {
-  /**
-   * Calculate custom index performance
-   *
-   * POST /api/v1/custom-index
-   *
-   * Request body:
-   * {
-   *   "name": "My Index",
-   *   "exchange": "binance",
-   *   "timeframe": "1h",
-   *   "assets": [
-   *     { "symbol": "BTC-USDT", "weight": 50 },
-   *     { "symbol": "ETH-USDT", "weight": 30 },
-   *     { "symbol": "SOL-USDT", "weight": 20 }
-   *   ],
-   *   "limit": 100
-   * }
-   *
-   * @param req - Express request with index configuration in body
-   * @param res - Express response object
-   * @returns Response with index performance and benchmark comparisons
-   */
-  async calculateIndex(req: Request, res: Response): Promise<Response> {
-    try {
-      // Extract and validate request body
-      const { name, exchange, timeframe, assets, limit } = req.body;
+// Valid timeframes
+const validTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
+
+/**
+ * Custom index routes plugin
+ */
+export const customIndexRoutes = new Elysia({ prefix: '/custom-index' })
+  // POST /api/v1/custom-index - Calculate custom index performance
+  .post(
+    '/',
+    async ({ body }) => {
+      const { name, exchange, timeframe, assets, limit } = body;
 
       // Validate required fields
       if (!name || typeof name !== 'string' || name.trim().length === 0) {
@@ -57,7 +41,6 @@ export class CustomIndexController {
       }
 
       // Validate timeframe
-      const validTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
       if (!timeframe || !validTimeframes.includes(timeframe as Timeframe)) {
         throw invalidTimeframe(timeframe || '', validTimeframes);
       }
@@ -110,13 +93,20 @@ export class CustomIndexController {
         validatedLimit
       );
 
-      return successResponse(res, result);
-    } catch (error) {
-      console.error('Error in calculateIndex:', error);
-      return handleError(res, error, 'Failed to calculate index');
+      return successResponse(result);
+    },
+    {
+      body: t.Object({
+        name: t.String(),
+        exchange: t.String(),
+        timeframe: t.String(),
+        assets: t.Array(
+          t.Object({
+            symbol: t.String(),
+            weight: t.Number(),
+          })
+        ),
+        limit: t.Optional(t.Number()),
+      }),
     }
-  }
-}
-
-// Export singleton instance for use in routes
-export const customIndexController = new CustomIndexController();
+  );
