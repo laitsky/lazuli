@@ -13,58 +13,38 @@
  */
 
 import { Request, Response, NextFunction, RequestHandler, ErrorRequestHandler } from 'express';
-import {
-  ApiError,
-  ErrorCode,
-  isApiError,
-  getErrorMessage,
-  routeNotFound,
-  internalError,
-} from '../errors';
+import { ApiError, isApiError, getErrorMessage, routeNotFound, internalError } from '../errors';
 import { ApiErrorResponse } from '../utils/response';
+import { createServiceLogger, RequestWithId } from '../utils/logger';
 
-/**
- * Error logging interface for structured error logs
- */
-interface ErrorLog {
-  timestamp: string;
-  code: ErrorCode;
-  message: string;
-  path: string;
-  method: string;
-  statusCode: number;
-  stack?: string;
-  details?: Record<string, unknown>;
-}
+// Create logger for error handling
+const log = createServiceLogger('errorHandler');
 
 /**
  * Logs an error with structured context
- * In production, this could be extended to send to external logging services
+ * Uses centralized logger for consistent formatting and log aggregation
  *
  * @param error - The ApiError to log
  * @param req - Express request object for context
  */
-function logError(error: ApiError, req: Request): void {
-  const errorLog: ErrorLog = {
-    timestamp: new Date().toISOString(),
+function logApiError(error: ApiError, req: Request): void {
+  const requestWithId = req as RequestWithId;
+
+  const errorContext = {
     code: error.code,
-    message: error.message,
     path: req.path,
     method: req.method,
     statusCode: error.statusCode,
     details: error.details,
+    requestId: requestWithId.id,
+    stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined,
   };
-
-  // Include stack trace in development mode
-  if (process.env.NODE_ENV !== 'production') {
-    errorLog.stack = error.stack;
-  }
 
   // Log based on severity (5xx errors are more severe)
   if (error.statusCode >= 500) {
-    console.error('[ERROR]', JSON.stringify(errorLog, null, 2));
+    log.error(error.message, error, errorContext);
   } else {
-    console.warn('[WARN]', JSON.stringify(errorLog));
+    log.warn(error.message, errorContext);
   }
 }
 
@@ -102,7 +82,7 @@ function normalizeError(error: unknown): ApiError {
 export const notFoundHandler: RequestHandler = (req, res) => {
   const error = routeNotFound(req.path);
 
-  logError(error, req);
+  logApiError(error, req);
 
   const response: ApiErrorResponse = {
     success: false,
@@ -135,7 +115,7 @@ export const globalErrorHandler: ErrorRequestHandler = (
   const apiError = normalizeError(err);
 
   // Log the error with request context
-  logError(apiError, req);
+  logApiError(apiError, req);
 
   // Build the response
   const response: ApiErrorResponse = {

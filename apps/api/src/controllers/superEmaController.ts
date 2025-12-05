@@ -80,7 +80,7 @@ export class SuperEmaController {
 
       // Create cache key
       const cacheKey = `superema:${exchangeId}:${symbol}:${timeframe}:${marketType}:${limit}:${maxPeriod}`;
-      let cachedResult = cacheService.get<SuperEMAResponse>(cacheKey);
+      const cachedResult = cacheService.get<SuperEMAResponse>(cacheKey);
 
       if (cachedResult) {
         console.log(`Cache hit for ${cacheKey}`);

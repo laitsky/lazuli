@@ -21,6 +21,10 @@
  */
 
 import { RedisCacheService } from './redisCacheService';
+import { createServiceLogger } from '../utils/logger';
+
+// Create logger for cache service
+const log = createServiceLogger('cache');
 
 /**
  * Interface for cache entries in the in-memory store
@@ -116,7 +120,10 @@ export class CacheService {
     const config = loadConfig();
 
     if (config.redisEnabled) {
-      console.log('Cache: Redis enabled, attempting connection...');
+      log.info('Redis enabled, attempting connection...', {
+        host: config.redisHost,
+        port: config.redisPort,
+      });
 
       this.redisCache = new RedisCacheService({
         host: config.redisHost,
@@ -131,16 +138,16 @@ export class CacheService {
       if (connected) {
         this.redisEnabled = true;
         this.redisConnected = true;
-        console.log('Cache: Using Redis as primary cache backend');
+        log.info('Using Redis as primary cache backend');
       } else {
-        console.warn('Cache: Redis connection failed, falling back to in-memory cache');
+        log.warn('Redis connection failed, falling back to in-memory cache');
         this.redisCache = null;
         this.redisEnabled = false;
         this.redisConnected = false;
       }
     } else {
-      console.log('Cache: Using in-memory cache (Redis not enabled)');
-      console.log('Cache: Set REDIS_ENABLED=true to enable Redis caching');
+      log.info('Using in-memory cache (Redis not enabled)');
+      log.debug('Set REDIS_ENABLED=true to enable Redis caching');
     }
   }
 
@@ -170,7 +177,7 @@ export class CacheService {
     // This enables shared caching across multiple API instances
     if (this.isRedisActive()) {
       this.redisCache!.set(key, data, effectiveTtl).catch((err) => {
-        console.error('Cache: Redis set error (memory cache still valid):', err);
+        log.error('Redis set error (memory cache still valid)', err, { key });
       });
     }
   }
@@ -228,7 +235,7 @@ export class CacheService {
         }
         // Fall through to memory cache if Redis miss
       } catch (err) {
-        console.error('Cache: Redis get error, checking memory:', err);
+        log.error('Redis get error, checking memory', err, { key });
       }
     }
 
@@ -288,7 +295,7 @@ export class CacheService {
         const exists = await this.redisCache!.has(key);
         if (exists) return true;
       } catch (err) {
-        console.error('Cache: Redis has error:', err);
+        log.error('Redis has error', err, { key });
       }
     }
     return this.has(key);
@@ -303,7 +310,7 @@ export class CacheService {
     // Invalidate in Redis if available
     if (this.isRedisActive()) {
       this.redisCache!.invalidate(key).catch((err) => {
-        console.error('Cache: Redis invalidate error:', err);
+        log.error('Redis invalidate error', err, { key });
       });
     }
 
@@ -320,7 +327,7 @@ export class CacheService {
     // Invalidate in Redis if available
     if (this.isRedisActive()) {
       this.redisCache!.invalidatePattern(pattern).catch((err) => {
-        console.error('Cache: Redis invalidatePattern error:', err);
+        log.error('Redis invalidatePattern error', err, { pattern });
       });
     }
 
@@ -343,7 +350,7 @@ export class CacheService {
     // Clear Redis if available
     if (this.isRedisActive()) {
       this.redisCache!.clear().catch((err) => {
-        console.error('Cache: Redis clear error:', err);
+        log.error('Redis clear error', err);
       });
     }
 
@@ -384,7 +391,7 @@ export class CacheService {
           redisStats,
         };
       } catch (err) {
-        console.error('Cache: Error getting Redis stats:', err);
+        log.error('Error getting Redis stats', err);
       }
     }
 
@@ -409,7 +416,7 @@ export class CacheService {
 
     if (oldestKey) {
       this.memoryCache.delete(oldestKey);
-      console.log(`Cache: Evicted LRU entry "${oldestKey}"`);
+      log.debug('Evicted LRU entry', { key: oldestKey });
     }
   }
 
@@ -433,7 +440,7 @@ export class CacheService {
 
       if (keysToDelete.length > 0) {
         this.memoryStats.size = this.memoryCache.size;
-        console.log(`Cache cleanup: removed ${keysToDelete.length} expired entries`);
+        log.debug('Cleanup: removed expired entries', { count: keysToDelete.length });
       }
     }, 60000); // Run every minute
   }
@@ -454,7 +461,7 @@ export class CacheService {
     }
 
     this.clear();
-    console.log('Cache service destroyed');
+    log.info('Cache service destroyed');
   }
 }
 
