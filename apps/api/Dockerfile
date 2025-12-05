@@ -35,7 +35,7 @@ ENV PATH="/root/.bun/bin:${PATH}"
 FROM base AS pruner
 
 # Install turbo globally for the prune command
-RUN --mount=type=cache,target=/root/.bun bun add -g turbo
+RUN bun add -g turbo
 
 # Copy the entire monorepo for pruning
 # turbo prune needs access to all package.json files to understand dependencies
