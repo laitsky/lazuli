@@ -39,6 +39,12 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      args:
+        # Pass host user UID/GID for proper volume permissions
+        # Get your UID with: id -u
+        # Get your GID with: id -g
+        - UID=${UID:-1001}
+        - GID=${GID:-1001}
     container_name: lazuli-api
     ports:
       - "3000:3000"
@@ -49,8 +55,17 @@ services:
       - REDIS_ENABLED=${REDIS_ENABLED:-false}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # File logging configuration
+      - LOG_FILE_ENABLED=true
+      - LOG_FILE_PATH=./logs
+      - LOG_FILE_FREQUENCY=daily
+      - LOG_FILE_MAX_FILES=14
     env_file:
       - .env
+    volumes:
+      # Bind mount for direct log file access on host
+      # Logs will be in ./logs/api directory relative to docker-compose.yml
+      - ./logs/api:/app/apps/api/logs
     depends_on:
       redis:
         condition: service_healthy

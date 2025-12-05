@@ -84,15 +84,26 @@ ENV NODE_ENV=production
 USER root
 RUN apk add --no-cache wget
 
+# Build arguments for dynamic user ID mapping
+# Allows matching container user to host user for volume permissions
+# Default: 1001 (standard non-root user)
+ARG UID=1001
+ARG GID=1001
+
 # Create a non-root user for security best practices
-RUN addgroup --system --gid 1001 lazuli && \
-    adduser --system --uid 1001 --ingroup lazuli lazuli
+# Uses dynamic UID/GID to match host user for proper volume permissions
+RUN addgroup --system --gid ${GID} lazuli && \
+    adduser --system --uid ${UID} --ingroup lazuli lazuli
 
 WORKDIR /app
 
 # Copy the full application with all dependencies from installer stage
 # We need node_modules for the Elysia API runtime
 COPY --from=installer --chown=lazuli:lazuli /app .
+
+# Create logs directory with proper ownership for file logging
+# This directory will be mounted as a volume in docker-compose
+RUN mkdir -p /app/apps/api/logs && chown lazuli:lazuli /app/apps/api/logs
 
 # Switch to non-root user
 USER lazuli
