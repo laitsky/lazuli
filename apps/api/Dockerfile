@@ -23,6 +23,8 @@ WORKDIR /app
 
 # Keep Bun's install cache in a consistent location for BuildKit caching
 ENV BUN_INSTALL_CACHE_DIR=/root/.bun/install/cache
+# Add Bun global bin to PATH for globally installed packages (e.g., turbo)
+ENV PATH="/root/.bun/bin:${PATH}"
 
 # -----------------------------------------------------------------------------
 # Stage 1: Pruner
@@ -34,7 +36,6 @@ FROM base AS pruner
 
 # Install turbo globally for the prune command
 RUN --mount=type=cache,target=/root/.bun bun add -g turbo
-ENV PATH="/root/.bun/bin:${PATH}"
 
 # Copy the entire monorepo for pruning
 # turbo prune needs access to all package.json files to understand dependencies
