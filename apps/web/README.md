@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lazuli Web Frontend
+
+A beautiful cryptocurrency trading interface built with React, Vite, and Tailwind CSS.
 
 ## Getting Started
 
-First, run the development server:
+First, install the dependencies:
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+bun install
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then, run the development server:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+bun run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open [http://localhost:3001](http://localhost:3001) with your browser to see the result.
 
-## Learn More
+## Available Scripts
 
-To learn more about Next.js, take a look at the following resources:
+- `bun run dev` - Start development server with hot reload
+- `bun run build` - Build for production
+- `bun run preview` - Preview production build locally
+- `bun run lint` - Run ESLint
+- `bun run type-check` - Run TypeScript type checking
+- `bun run clean` - Clean build artifacts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Tech Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Runtime**: [Bun](https://bun.sh) - Fast JavaScript runtime
+- **Build Tool**: [Vite](https://vitejs.dev) - Next generation frontend tooling
+- **Framework**: [React](https://react.dev) - UI library
+- **Routing**: [React Router](https://reactrouter.com) - Client-side routing
+- **Styling**: [Tailwind CSS](https://tailwindcss.com) - Utility-first CSS
+- **Charts**: [Lightweight Charts](https://tradingview.github.io/lightweight-charts/) - Financial charts
+- **Animation**: [Framer Motion](https://www.framer.com/motion/) - Animation library
 
-## Deploy on Vercel
+## Project Structure
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+src/
+├── components/    # Reusable UI components
+├── pages/         # Page components
+├── lib/           # Utilities and API client
+├── hooks/         # Custom React hooks
+├── styles/        # Global styles
+└── assets/        # Static assets
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Environment Variables
+
+Create a `.env` file in the root of the web app:
+
+```
+VITE_API_URL=http://localhost:3000
+```
