@@ -3,13 +3,14 @@
   "version": "0.1.0-alpha",
   "description": "Lazuli Web Frontend - Beautiful cryptocurrency trading interface",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "bun --bun next dev -p 3001",
-    "build": "bun --bun next build",
-    "start": "bun --bun next start -p 3001",
-    "lint": "bun --bun next lint --max-warnings 0",
+    "dev": "bunx --bun vite",
+    "build": "bunx --bun vite build",
+    "preview": "bunx --bun vite preview",
+    "lint": "eslint .",
     "type-check": "tsc --noEmit",
-    "clean": "rm -rf .next .turbo"
+    "clean": "rm -rf dist .turbo node_modules/.vite"
   },
   "dependencies": {
     "@lazuli/shared": "*",
@@ -23,22 +24,26 @@
     "html2canvas": "^1.4.1",
     "lightweight-charts": "^4.2.3",
     "lucide-react": "^0.552.0",
-    "next": "16.0.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-router-dom": "^7.1.1",
     "recharts": "^3.4.1",
     "tailwind-merge": "^3.3.1"
   },
   "devDependencies": {
-    "@lazuli/eslint-config": "*",
-    "@lazuli/typescript-config": "*",
+    "@eslint/js": "^9.17.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9",
-    "eslint-config-next": "16.0.1",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.14.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "typescript-eslint": "^8.18.1",
+    "vite": "^6.0.5"
   }
 }
