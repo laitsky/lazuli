@@ -3,7 +3,7 @@
 # Lazuli Web - Production Dockerfile
 # =============================================================================
 # Multi-stage build using Turborepo prune pattern for optimized Docker images.
-# This Dockerfile creates a minimal production image for the Next.js frontend.
+# This Dockerfile creates a minimal production image for the Vite frontend.
 #
 # Build command (from monorepo root):
 #   docker build -f apps/web/Dockerfile -t lazuli-web .
@@ -72,8 +72,7 @@ COPY --from=pruner /app/out/full/ .
 # -----------------------------------------------------------------------------
 # Stage 3: Builder
 # -----------------------------------------------------------------------------
-# Builds the Next.js application for production.
-# Uses standalone output mode for minimal Docker images.
+# Builds the Vite application for production.
 # -----------------------------------------------------------------------------
 FROM base AS builder
 
@@ -81,34 +80,29 @@ FROM base AS builder
 COPY --from=installer /app .
 
 # Build argument for API URL (passed at build time)
-# This gets baked into the Next.js bundle for client-side requests
-ARG NEXT_PUBLIC_API_URL=http://localhost:3000
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+# This gets baked into the Vite bundle for client-side requests
+ARG VITE_API_URL=http://localhost:3000
+ENV VITE_API_URL=$VITE_API_URL
 
 # Set environment for build
 ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
 
-# Build the Next.js application
-# This creates the optimized production build in apps/web/.next
-# With output: 'standalone' in next.config.ts, it creates a self-contained server
+# Build the Vite application
+# This creates the optimized production build in apps/web/dist
 RUN --mount=type=cache,target=/root/.bun \
-    --mount=type=cache,target=/app/apps/web/.next/cache \
     bun run build --filter=@lazuli/web
 
 # -----------------------------------------------------------------------------
 # Stage 4: Runner
 # -----------------------------------------------------------------------------
-# Minimal production image using the Next.js standalone output.
+# Minimal production image serving static files with a simple HTTP server.
 # Only includes the necessary files to run the application.
 # -----------------------------------------------------------------------------
 FROM base AS runner
 
 # Set production environment
 ENV NODE_ENV=production
-ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3001
-ENV HOSTNAME="0.0.0.0"
 
 # Install wget for health checks (not included in Alpine by default)
 RUN apk add --no-cache wget
@@ -119,11 +113,8 @@ RUN addgroup --system --gid 1001 lazuli && \
 
 WORKDIR /app
 
-# Copy the standalone server and required files
-# The standalone output includes a minimal Node.js server and all dependencies
-COPY --from=builder --chown=lazuli:lazuli /app/apps/web/.next/standalone ./
-COPY --from=builder --chown=lazuli:lazuli /app/apps/web/.next/static ./apps/web/.next/static
-COPY --from=builder --chown=lazuli:lazuli /app/apps/web/public ./apps/web/public
+# Copy the built static files
+COPY --from=builder --chown=lazuli:lazuli /app/apps/web/dist ./dist
 
 # Switch to non-root user
 USER lazuli
@@ -136,7 +127,6 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3001 || exit 1
 
-# Run the Next.js standalone server with Bun
-# The standalone server is located at apps/web/server.js after build
-WORKDIR /app/apps/web
-CMD ["bun", "run", "server.js"]
+# Serve the static files using Bun's built-in server
+# Using bunx to run serve package for static file serving
+CMD ["bunx", "serve", "-s", "dist", "-l", "3001"]
