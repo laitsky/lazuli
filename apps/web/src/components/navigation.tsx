@@ -28,6 +28,7 @@ import {
   Search,
   Command,
   BookOpen,
+  Flame,
 } from 'lucide-react';
 import { LazuliAPI } from '@/lib/api-client';
 
@@ -73,6 +74,11 @@ const navItems = [
     href: '/funding-rates',
     label: 'Funding Rates',
     icon: Percent,
+  },
+  {
+    href: '/liquidations',
+    label: 'Liquidations',
+    icon: Flame,
   },
   {
     href: '/multitf',

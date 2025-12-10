@@ -18,10 +18,12 @@ import { superEmaRoutes } from './routes/superEma';
 import { screenerRoutes } from './routes/screener';
 import { indicatorRoutes } from './routes/indicators';
 import { orderBookRoutes } from './routes/orderBook';
+import { liquidationRoutes } from './routes/liquidation';
 
 // Import services
 import { cacheService } from './services/cacheService';
 import { ccxtService } from './services/ccxtService';
+import { liquidationWebSocketService } from './services/liquidationWebSocketService';
 
 // Import utilities
 import { createServiceLogger, logTransportStatus } from './utils/logger';
@@ -80,6 +82,7 @@ const app = new Elysia()
       .use(screenerRoutes)
       .use(indicatorRoutes)
       .use(orderBookRoutes)
+      .use(liquidationRoutes)
   )
   // Root redirect to API documentation
   .get('/', ({ redirect }) => redirect('/api/v1/docs'))
@@ -115,6 +118,12 @@ log.info('Supported exchanges: Binance, Bybit, OKX, Hyperliquid, Upbit');
 // This loads market data for all exchanges so API responses are fast
 ccxtService.warmup().catch((err) => {
   log.error('Failed to warm up exchange markets', err);
+});
+
+// Start Binance WebSocket connection for real-time liquidation data
+// Binance REST API is deprecated, so we use WebSocket stream instead
+liquidationWebSocketService.connect('binance').catch((err) => {
+  log.error('Failed to connect to Binance liquidation WebSocket', err);
 });
 
 // Export app for testing purposes

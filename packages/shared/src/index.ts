@@ -598,3 +598,9 @@ export interface OrderBookResponse {
   midPrice: number | null; // Mid-market price
   timestamp: number; // Response timestamp
 }
+
+// ============================================================================
+// Liquidation Monitor Types
+// ============================================================================
+
+export * from './liquidation';

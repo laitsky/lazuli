@@ -30,6 +30,7 @@ import {
   ExternalLink,
   Settings,
   RefreshCw,
+  Flame,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -65,6 +66,13 @@ const navigationItems = [
     description: 'Scan altcoins for opportunities',
     icon: Zap,
     keywords: ['altcoins', 'screener', 'scan', 'movers'],
+  },
+  {
+    href: '/liquidations',
+    label: 'Liquidations',
+    description: 'Real-time liquidation monitor',
+    icon: Flame,
+    keywords: ['liquidation', 'cascade', 'forced', 'margin', 'rekt'],
   },
   {
     href: '/multitf',

@@ -24,6 +24,14 @@ import {
   CrossExchangeFundingResponse,
   TechnicalIndicatorResponse,
   OrderBookResponse,
+  LiquidationEvent,
+  LiquidationStats,
+  LiquidationHeatmap,
+  CascadeAlert,
+  LiquidationZone,
+  AggregatedLiquidations,
+  LiveLiquidationFeed,
+  LiquidationExchange,
 } from '@lazuli/shared';
 
 // API base URL - defaults to localhost in development
@@ -158,6 +166,78 @@ export interface TechnicalIndicatorQueryParams {
 export interface OrderBookQueryParams {
   type?: 'spot' | 'perp'; // Market type (default: 'spot')
   limit?: number; // Number of price levels per side (default: 50, max: 500)
+}
+
+/**
+ * Query parameters for Liquidation endpoints
+ */
+export interface LiquidationQueryParams {
+  limit?: number; // Maximum number of liquidations (default: 100, max: 500)
+  symbol?: string; // Optional symbol filter (e.g., "BTCUSDT")
+  since?: number; // Timestamp in ms to fetch liquidations since
+}
+
+/**
+ * Query parameters for Liquidation Stats endpoint
+ */
+export interface LiquidationStatsQueryParams {
+  period?: '1h' | '4h' | '24h'; // Time period for stats (default: '24h')
+  symbol?: string; // Optional symbol filter
+}
+
+/**
+ * Query parameters for Liquidation Heatmap endpoint
+ */
+export interface LiquidationHeatmapQueryParams {
+  buckets?: number; // Number of price buckets (default: 50, min: 10, max: 100)
+}
+
+/**
+ * Query parameters for Cascade Alerts endpoint
+ */
+export interface CascadeAlertsQueryParams {
+  threshold?: number; // Minimum USD value to trigger cascade (default: $1M)
+}
+
+/**
+ * Response structure for liquidation list endpoints
+ */
+export interface LiquidationResponse {
+  exchange: string;
+  symbol: string;
+  liquidations: LiquidationEvent[];
+  count: number;
+  timestamp: number;
+}
+
+/**
+ * Response structure for cascade alerts endpoint
+ */
+export interface CascadeAlertsResponse {
+  cascades: CascadeAlert[];
+  count: number;
+  threshold: number;
+  timestamp: number;
+}
+
+/**
+ * Response structure for liquidation zones endpoint
+ */
+export interface LiquidationZonesResponse {
+  zones: LiquidationZone[];
+  count: number;
+  exchange: string;
+  symbol: string;
+  timestamp: number;
+}
+
+/**
+ * Response structure for supported exchanges endpoint
+ */
+export interface SupportedLiquidationExchangesResponse {
+  exchanges: LiquidationExchange[];
+  count: number;
+  timestamp: number;
 }
 
 /**
@@ -562,6 +642,163 @@ export class LazuliAPI {
       queryParams
     );
   }
+
+  // ============================================================================
+  // Liquidation Monitor API Methods
+  // ============================================================================
+
+  /**
+   * Get list of exchanges that support liquidation data
+   */
+  static async getSupportedLiquidationExchanges(): Promise<
+    ApiResponse<SupportedLiquidationExchangesResponse>
+  > {
+    return apiFetch<SupportedLiquidationExchangesResponse>(`${API_VERSION}/liquidations/supported`);
+  }
+
+  /**
+   * Get recent liquidations from an exchange
+   *
+   * @param exchange - Exchange identifier (binance, bybit, okx, hyperliquid)
+   * @param queryParams - Optional query parameters (limit, symbol, since)
+   */
+  static async getLiquidations(
+    exchange: LiquidationExchange,
+    queryParams?: LiquidationQueryParams
+  ): Promise<ApiResponse<LiquidationResponse>> {
+    return apiFetch<LiquidationResponse>(`${API_VERSION}/liquidations/${exchange}`, queryParams);
+  }
+
+  /**
+   * Get liquidations for a specific symbol on an exchange
+   *
+   * @param exchange - Exchange identifier
+   * @param symbol - Trading pair symbol (e.g., "BTCUSDT")
+   * @param queryParams - Optional query parameters (limit, since)
+   */
+  static async getLiquidationsBySymbol(
+    exchange: LiquidationExchange,
+    symbol: string,
+    queryParams?: Omit<LiquidationQueryParams, 'symbol'>
+  ): Promise<ApiResponse<LiquidationResponse>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    return apiFetch<LiquidationResponse>(
+      `${API_VERSION}/liquidations/${exchange}/${encodedSymbol}`,
+      queryParams
+    );
+  }
+
+  /**
+   * Get aggregated liquidations across all exchanges for a symbol
+   * Combines data from Binance, Bybit, OKX, and Hyperliquid
+   *
+   * @param symbol - Trading pair symbol (e.g., "BTCUSDT")
+   * @param limit - Maximum number of liquidations to return (default: 50)
+   */
+  static async getAggregatedLiquidations(
+    symbol: string,
+    limit?: number
+  ): Promise<ApiResponse<AggregatedLiquidations>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    return apiFetch<AggregatedLiquidations>(
+      `${API_VERSION}/liquidations/aggregate/${encodedSymbol}`,
+      limit ? { limit } : undefined
+    );
+  }
+
+  /**
+   * Get liquidation statistics for analytics dashboard
+   * Includes volume, counts, long/short ratio, intensity, top symbols
+   *
+   * @param exchange - Exchange identifier
+   * @param queryParams - Optional query parameters (period, symbol)
+   */
+  static async getLiquidationStats(
+    exchange: LiquidationExchange,
+    queryParams?: LiquidationStatsQueryParams
+  ): Promise<ApiResponse<LiquidationStats>> {
+    return apiFetch<LiquidationStats>(`${API_VERSION}/liquidations/stats/${exchange}`, queryParams);
+  }
+
+  /**
+   * Get liquidation heatmap data for visualization
+   * Shows liquidation density at different price levels
+   *
+   * @param exchange - Exchange identifier
+   * @param symbol - Trading pair symbol (e.g., "BTCUSDT.P")
+   * @param queryParams - Optional query parameters (buckets)
+   */
+  static async getLiquidationHeatmap(
+    exchange: LiquidationExchange,
+    symbol: string,
+    queryParams?: LiquidationHeatmapQueryParams
+  ): Promise<ApiResponse<LiquidationHeatmap>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    return apiFetch<LiquidationHeatmap>(
+      `${API_VERSION}/liquidations/heatmap/${exchange}/${encodedSymbol}`,
+      queryParams
+    );
+  }
+
+  /**
+   * Get active cascade alerts across all exchanges
+   * Triggered when liquidation volume exceeds threshold
+   *
+   * @param queryParams - Optional query parameters (threshold)
+   */
+  static async getCascadeAlerts(
+    queryParams?: CascadeAlertsQueryParams
+  ): Promise<ApiResponse<CascadeAlertsResponse>> {
+    return apiFetch<CascadeAlertsResponse>(`${API_VERSION}/liquidations/cascades`, queryParams);
+  }
+
+  /**
+   * Get high-risk liquidation zones for a symbol
+   * Identifies price areas with historically high liquidation activity
+   *
+   * @param exchange - Exchange identifier
+   * @param symbol - Trading pair symbol
+   */
+  static async getLiquidationZones(
+    exchange: LiquidationExchange,
+    symbol: string
+  ): Promise<ApiResponse<LiquidationZonesResponse>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    return apiFetch<LiquidationZonesResponse>(
+      `${API_VERSION}/liquidations/zones/${exchange}/${encodedSymbol}`
+    );
+  }
+
+  /**
+   * Get live liquidation feed with rolling statistics
+   * Includes recent events, 1m/5m/15m summaries, and active cascades
+   *
+   * @param exchange - Exchange identifier
+   * @param queryParams - Optional query parameters (symbol, limit)
+   */
+  static async getLiquidationFeed(
+    exchange: LiquidationExchange,
+    queryParams?: { symbol?: string; limit?: number }
+  ): Promise<ApiResponse<LiveLiquidationFeed>> {
+    return apiFetch<LiveLiquidationFeed>(
+      `${API_VERSION}/liquidations/feed/${exchange}`,
+      queryParams
+    );
+  }
+
+  /**
+   * Get WebSocket connection status for liquidation streams
+   */
+  static async getLiquidationWebSocketStatus(): Promise<
+    ApiResponse<{
+      connections: Record<LiquidationExchange, { connected: boolean; lastMessage: number }>;
+      recentEventsCount: number;
+      isConnected: boolean;
+      timestamp: number;
+    }>
+  > {
+    return apiFetch(`${API_VERSION}/liquidations/ws/status`);
+  }
 }
 
 /**
@@ -666,4 +903,141 @@ export function getFundingColor(rate: number | null): string {
   if (rate < -0.01) return 'text-red-500'; // Strong negative
   if (rate < 0) return 'text-red-400'; // Negative
   return 'text-muted-foreground'; // Neutral
+}
+
+// ============================================================================
+// Liquidation Utility Functions
+// ============================================================================
+
+/**
+ * Format liquidation value with appropriate unit
+ * Values under $1K show exact amount, larger values use K/M/B suffixes
+ */
+export function formatLiquidationValue(value: number): string {
+  if (value >= 1e9) {
+    return `$${(value / 1e9).toFixed(2)}B`;
+  } else if (value >= 1e6) {
+    return `$${(value / 1e6).toFixed(2)}M`;
+  } else if (value >= 1e3) {
+    return `$${(value / 1e3).toFixed(1)}K`;
+  } else {
+    return `$${value.toFixed(0)}`;
+  }
+}
+
+/**
+ * Format time ago from timestamp
+ * Returns human-readable relative time (e.g., "2s ago", "5m ago")
+ */
+export function formatTimeAgo(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+
+  if (diff < 1000) {
+    return 'just now';
+  } else if (diff < 60000) {
+    const seconds = Math.floor(diff / 1000);
+    return `${seconds}s ago`;
+  } else if (diff < 3600000) {
+    const minutes = Math.floor(diff / 60000);
+    return `${minutes}m ago`;
+  } else if (diff < 86400000) {
+    const hours = Math.floor(diff / 3600000);
+    return `${hours}h ago`;
+  } else {
+    const days = Math.floor(diff / 86400000);
+    return `${days}d ago`;
+  }
+}
+
+/**
+ * Get color class for liquidation side
+ * Long liquidation = bearish (red), Short liquidation = bullish (green)
+ */
+export function getLiquidationSideColor(side: 'long' | 'short'): string {
+  return side === 'long' ? 'text-red-500 dark:text-red-400' : 'text-green-500 dark:text-green-400';
+}
+
+/**
+ * Get background color class for liquidation side
+ */
+export function getLiquidationSideBgColor(side: 'long' | 'short'): string {
+  return side === 'long'
+    ? 'bg-red-500/10 border-red-500/30'
+    : 'bg-green-500/10 border-green-500/30';
+}
+
+/**
+ * Get color class for cascade severity
+ */
+export function getCascadeSeverityColor(severity: 'warning' | 'critical' | 'extreme'): string {
+  switch (severity) {
+    case 'warning':
+      return 'text-yellow-500 dark:text-yellow-400';
+    case 'critical':
+      return 'text-red-500 dark:text-red-400';
+    case 'extreme':
+      return 'text-purple-500 dark:text-purple-400';
+    default:
+      return 'text-muted-foreground';
+  }
+}
+
+/**
+ * Get background color class for cascade severity
+ */
+export function getCascadeSeverityBgColor(severity: 'warning' | 'critical' | 'extreme'): string {
+  switch (severity) {
+    case 'warning':
+      return 'bg-yellow-500/10 border-yellow-500/30';
+    case 'critical':
+      return 'bg-red-500/10 border-red-500/30';
+    case 'extreme':
+      return 'bg-purple-500/10 border-purple-500/30';
+    default:
+      return 'bg-muted border-border';
+  }
+}
+
+/**
+ * Get color class for liquidation zone risk level
+ */
+export function getZoneRiskColor(risk: 'low' | 'medium' | 'high' | 'extreme'): string {
+  switch (risk) {
+    case 'low':
+      return 'text-blue-500 dark:text-blue-400';
+    case 'medium':
+      return 'text-yellow-500 dark:text-yellow-400';
+    case 'high':
+      return 'text-orange-500 dark:text-orange-400';
+    case 'extreme':
+      return 'text-red-500 dark:text-red-400';
+    default:
+      return 'text-muted-foreground';
+  }
+}
+
+/**
+ * Format long/short ratio with visual indicator
+ */
+export function formatLongShortRatio(ratio: number): {
+  text: string;
+  indicator: 'bullish' | 'bearish' | 'neutral';
+} {
+  if (ratio === Infinity) {
+    return { text: 'All Longs', indicator: 'bearish' };
+  }
+  if (ratio === 0) {
+    return { text: 'All Shorts', indicator: 'bullish' };
+  }
+
+  const formatted = ratio.toFixed(2);
+
+  if (ratio > 1.5) {
+    return { text: formatted, indicator: 'bearish' };
+  }
+  if (ratio < 0.67) {
+    return { text: formatted, indicator: 'bullish' };
+  }
+  return { text: formatted, indicator: 'neutral' };
 }

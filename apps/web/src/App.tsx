@@ -18,6 +18,7 @@ const MultiTFPage = lazy(() => import('./pages/multitf'));
 const SyntheticPairPage = lazy(() => import('./pages/synthetic-pair'));
 const CustomIndexPage = lazy(() => import('./pages/custom-index'));
 const SuperEMAPage = lazy(() => import('./pages/superema'));
+const LiquidationsPage = lazy(() => import('./pages/liquidations'));
 
 /**
  * Main Application Component
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="/synthetic-pair" element={<SyntheticPairPage />} />
           <Route path="/custom-index" element={<CustomIndexPage />} />
           <Route path="/superema" element={<SuperEMAPage />} />
+          <Route path="/liquidations" element={<LiquidationsPage />} />
         </Routes>
       </Suspense>
     </Layout>
