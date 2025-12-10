@@ -25,6 +25,37 @@ import { invalidExchange, tickerNotFound } from '../errors';
 // Create logger for ticker routes
 const log = createServiceLogger('tickers');
 
+/** Cache TTL for tickers - slightly longer than worker poll interval */
+const TICKER_CACHE_TTL = 10000;
+
+/**
+ * Get all tickers for an exchange from cache, with fallback to direct fetch
+ * Used by both list and single ticker endpoints to avoid code duplication
+ *
+ * @param exchangeId - The validated exchange identifier
+ * @returns Array of all tickers for the exchange
+ */
+async function getTickersWithCacheFallback(exchangeId: string): Promise<Ticker[]> {
+  const cacheKey = `tickers:${exchangeId}:raw`;
+  let tickers = cacheService.get<Ticker[]>(cacheKey);
+
+  // Cache is populated by MarketDataWorker every 5 seconds
+  // Fallback to direct fetch only on cold start (cache miss)
+  if (!tickers) {
+    log.debug('Cache miss (cold start), fetching from exchange', {
+      cacheKey,
+      exchange: exchangeId,
+    });
+    tickers = await ccxtService.getAllTickers(exchangeId);
+    // Cache with TTL slightly longer than worker interval
+    cacheService.set(cacheKey, tickers, TICKER_CACHE_TTL);
+  } else {
+    log.debug('Cache hit', { cacheKey });
+  }
+
+  return tickers;
+}
+
 /**
  * Sort tickers by specified field and order
  */
@@ -86,19 +117,8 @@ export const tickerRoutes = new Elysia()
       const sortBy = validateTickerSortBy(query.sortBy);
       const sortOrder = validateSortOrder(query.sortOrder);
 
-      // Cache key is exchange-specific only (not filter-specific)
-      const cacheKey = `tickers:${exchangeId}:raw`;
-      let allTickers = cacheService.get<Ticker[]>(cacheKey);
-
-      // If not cached, fetch from exchange
-      if (!allTickers) {
-        log.debug('Cache miss, fetching from exchange', { cacheKey, exchange: exchangeId });
-        allTickers = await ccxtService.getAllTickers(exchangeId);
-        // Cache the raw results for 30 seconds
-        cacheService.set(cacheKey, allTickers, 30000);
-      } else {
-        log.debug('Cache hit', { cacheKey });
-      }
+      // Get tickers from cache (or fallback to direct fetch on cold start)
+      const allTickers = await getTickersWithCacheFallback(exchangeId);
 
       // Apply filters
       let filteredTickers = allTickers;
@@ -187,7 +207,11 @@ export const tickerRoutes = new Elysia()
         throw invalidExchange(params.exchange);
       }
 
-      const ticker = await ccxtService.getTicker(exchangeId, params.symbol);
+      // Get tickers from cache (or fallback to direct fetch on cold start)
+      const allTickers = await getTickersWithCacheFallback(exchangeId);
+
+      // Find the specific ticker in the cached list
+      const ticker = allTickers.find((t) => t.symbol === params.symbol);
 
       if (!ticker) {
         throw tickerNotFound(params.symbol, params.exchange);

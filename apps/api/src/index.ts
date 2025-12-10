@@ -22,6 +22,7 @@ import { orderBookRoutes } from './routes/orderBook';
 // Import services
 import { cacheService } from './services/cacheService';
 import { ccxtService } from './services/ccxtService';
+import { marketDataWorker } from './services/marketDataWorker';
 
 // Import utilities
 import { createServiceLogger, logTransportStatus } from './utils/logger';
@@ -116,6 +117,11 @@ log.info('Supported exchanges: Binance, Bybit, OKX, Hyperliquid, Upbit');
 ccxtService.warmup().catch((err) => {
   log.error('Failed to warm up exchange markets', err);
 });
+
+// Start market data worker to populate cache with ticker data
+// The worker polls exchanges every 5 seconds and updates the cache
+// This implements a "write-behind" cache warming strategy
+marketDataWorker.start();
 
 // Export app for testing purposes
 export { app };
