@@ -1,10 +1,18 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
   <defs>
+    <style>
+      @font-face {
+        font-family: 'Clash Display';
+        src: url('/fonts/ClashDisplay-Variable.woff2') format('woff2');
+        font-weight: 200 700;
+        font-style: normal;
+      }
+    </style>
     <linearGradient id="lazuliGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#d4a574"/>
-      <stop offset="100%" style="stop-color:#c4956a"/>
+      <stop offset="0%" style="stop-color:#4169E1"/>
+      <stop offset="100%" style="stop-color:#1E3A8A"/>
     </linearGradient>
   </defs>
   <rect width="32" height="32" rx="6" fill="url(#lazuliGradient)"/>
-  <text x="16" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="700" fill="#1a1612" text-anchor="middle" letter-spacing="-0.5">L</text>
+  <text x="16" y="23" font-family="'Clash Display', system-ui, sans-serif" font-size="20" font-weight="700" fill="#ffffff" text-anchor="middle">L</text>
 </svg>

@@ -1,23 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48">
   <defs>
+    <style>
+      @font-face {
+        font-family: 'Clash Display';
+        src: url('/fonts/ClashDisplay-Variable.woff2') format('woff2');
+        font-weight: 200 700;
+        font-style: normal;
+      }
+    </style>
     <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#d4a574"/>
-      <stop offset="100%" style="stop-color:#c4956a"/>
+      <stop offset="0%" style="stop-color:#4169E1"/>
+      <stop offset="100%" style="stop-color:#1E3A8A"/>
     </linearGradient>
   </defs>
-  <!-- Lazuli wordmark - Clash Display Semibold, converted to paths -->
-  <g fill="url(#logoGradient)">
-    <!-- L -->
-    <path d="M0 8h6.5v24.5h15.5v5.5H0V8z"/>
-    <!-- a -->
-    <path d="M29.5 17.2c2.8-2.2 6-3.2 9.5-3.2 3.2 0 5.7 0.9 7.5 2.7 1.8 1.8 2.7 4.4 2.7 7.8V38h-6v-2.8c-1.8 2.2-4.5 3.3-8 3.3-2.8 0-5-0.7-6.7-2.2-1.7-1.5-2.5-3.4-2.5-5.8 0-2.5 0.9-4.5 2.8-5.9 1.9-1.4 4.5-2.1 7.9-2.1h6.3v-0.8c0-1.6-0.5-2.8-1.4-3.6-1-0.8-2.4-1.2-4.2-1.2-2.4 0-4.8 0.8-7.2 2.4l-2.7-4.1h2zm13.2 13.3v-2.3h-5.5c-3 0-4.5 1-4.5 3.1 0 1 0.4 1.8 1.3 2.4 0.9 0.6 2 0.9 3.5 0.9 2 0 3.7-0.6 5.2-1.8v-2.3z"/>
-    <!-- z -->
-    <path d="M54 33l11.5-14h-11V14h19v5l-11.5 14h12V38H54v-5z"/>
-    <!-- u -->
-    <path d="M79 14h6.2v14.5c0 2 0.5 3.5 1.4 4.4 1 1 2.3 1.5 4.1 1.5 1.8 0 3.2-0.5 4.2-1.5 1-1 1.5-2.5 1.5-4.4V14h6.2v15c0 3.5-1.1 6.2-3.2 8.2-2.2 2-5 3-8.6 3-3.6 0-6.5-1-8.6-3-2.2-2-3.2-4.7-3.2-8.2V14z"/>
-    <!-- l -->
-    <path d="M109 8h6.2v30H109V8z"/>
-    <!-- i -->
-    <path d="M122 8h6.5v6h-6.5V8zm0.1 6h6.2v24h-6.2V14z"/>
-  </g>
+  <text x="0" y="36" font-family="'Clash Display', system-ui, sans-serif" font-size="38" font-weight="600" fill="url(#logoGradient)" letter-spacing="-1">Lazuli</text>
 </svg>
