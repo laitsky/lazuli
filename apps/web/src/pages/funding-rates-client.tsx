@@ -64,7 +64,7 @@ interface FundingRateClientProps {
   exchange: SupportedExchange;
 }
 
-type SortField = 'symbol' | 'rate' | 'annualized' | 'volume' | 'openInterest';
+type SortField = 'symbol' | 'rate' | 'annualized' | 'volume';
 type SortOrder = 'asc' | 'desc';
 
 /**
@@ -167,9 +167,6 @@ function FundingRateTable({
             <TableHead className="text-right hidden sm:table-cell">
               <SortButton field="volume">24h Volume</SortButton>
             </TableHead>
-            <TableHead className="text-right hidden xl:table-cell">
-              <SortButton field="openInterest">Open Interest</SortButton>
-            </TableHead>
             <TableHead className="text-center w-[100px]">Sentiment</TableHead>
           </TableRow>
         </TableHeader>
@@ -209,9 +206,6 @@ function FundingRateTable({
                 </TableCell>
                 <TableCell className="text-right hidden sm:table-cell font-mono text-sm text-muted-foreground">
                   {formatVolume(item.volume24h)}
-                </TableCell>
-                <TableCell className="text-right hidden xl:table-cell font-mono text-sm text-muted-foreground">
-                  {formatVolume(item.openInterest)}
                 </TableCell>
                 <TableCell className="text-center">
                   {isPositive ? (
@@ -419,10 +413,6 @@ export function FundingRateClient({
         case 'volume':
           aValue = a.volume24h ?? 0;
           bValue = b.volume24h ?? 0;
-          break;
-        case 'openInterest':
-          aValue = a.openInterest ?? 0;
-          bValue = b.openInterest ?? 0;
           break;
         default:
           aValue = Math.abs(a.fundingRatePercent);

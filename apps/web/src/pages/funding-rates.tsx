@@ -1,6 +1,9 @@
 /**
  * Funding Rates Page - Terminal Luxe
  * Funding rate analytics for perpetual markets
+ *
+ * Uses lazy loading pattern - funding rates load first (fast),
+ * cross-exchange data loads separately in background
  */
 
 import { useEffect, useState } from 'react';
@@ -29,13 +32,15 @@ export default function FundingRatesPage() {
     ? (selectedExchange as SupportedExchange)
     : 'binance';
 
+  // Separate loading states for independent sections
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
   const [fundingData, setFundingData] = useState<FundingRateResponse | null>(null);
   const [crossExchangeData, setCrossExchangeData] = useState<CrossExchangeFundingResponse | null>(
     null
   );
-  const [loading, setLoading] = useState(true);
+  const [loadingFunding, setLoadingFunding] = useState(true);
 
+  // Fetch exchanges list (one-time, fast)
   useEffect(() => {
     async function fetchExchanges() {
       const response = await LazuliAPI.getExchanges();
@@ -46,31 +51,58 @@ export default function FundingRatesPage() {
     fetchExchanges();
   }, []);
 
+  // Fetch funding rates for selected exchange (priority - loads first)
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchFundingData() {
-      setLoading(true);
+      setLoadingFunding(true);
+      setFundingData(null);
 
-      const [fundingResponse, crossExchangeResponse] = await Promise.all([
-        LazuliAPI.getFundingRates(exchange, {
-          sortBy: 'rate',
-          sortOrder: 'desc',
-        }),
-        LazuliAPI.getCrossExchangeFunding({
-          limit: 5,
-        }),
-      ]);
+      const fundingResponse = await LazuliAPI.getFundingRates(exchange, {
+        sortBy: 'rate',
+        sortOrder: 'desc',
+      });
 
-      if (fundingResponse.success && fundingResponse.data) {
+      if (!cancelled && fundingResponse.success && fundingResponse.data) {
         setFundingData(fundingResponse.data);
       }
 
-      if (crossExchangeResponse.success && crossExchangeResponse.data) {
+      if (!cancelled) {
+        setLoadingFunding(false);
+      }
+    }
+
+    fetchFundingData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [exchange]);
+
+  // Fetch cross-exchange data separately (heavy - loads in background)
+  // This doesn't block the main funding rate display
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchCrossExchangeData() {
+      // Reset cross-exchange data when exchange changes
+      setCrossExchangeData(null);
+
+      const crossExchangeResponse = await LazuliAPI.getCrossExchangeFunding({
+        limit: 5,
+      });
+
+      if (!cancelled && crossExchangeResponse.success && crossExchangeResponse.data) {
         setCrossExchangeData(crossExchangeResponse.data);
       }
-
-      setLoading(false);
     }
-    fetchFundingData();
+
+    fetchCrossExchangeData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [exchange]);
 
   return (
@@ -105,8 +137,8 @@ export default function FundingRatesPage() {
         ))}
       </div>
 
-      {/* Loading State */}
-      {loading && (
+      {/* Loading State for Funding Data */}
+      {loadingFunding && (
         <div className="space-y-6">
           <div className="grid gap-4 md:grid-cols-4">
             {[1, 2, 3, 4].map((i) => (
@@ -125,8 +157,8 @@ export default function FundingRatesPage() {
         </div>
       )}
 
-      {/* Funding Content */}
-      {!loading && fundingData && (
+      {/* Funding Content - renders as soon as funding data is ready */}
+      {!loadingFunding && fundingData && (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
           {/* Stats Overview */}
           <div className="grid gap-4 md:grid-cols-4">
@@ -197,6 +229,7 @@ export default function FundingRatesPage() {
           </div>
 
           {/* Funding Rate Table (Client Component) */}
+          {/* Cross-exchange data passed separately - will show when ready */}
           <FundingRateClient
             initialData={fundingData}
             initialCrossExchangeData={crossExchangeData}
