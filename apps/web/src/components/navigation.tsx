@@ -49,11 +49,12 @@ const navItems = [
     label: 'Dashboard',
     icon: LayoutDashboard,
   },
-  {
-    href: '/exchanges',
-    label: 'Exchanges',
-    icon: Globe,
-  },
+  // TODO: Revamp exchanges page
+  // {
+  //   href: '/exchanges',
+  //   label: 'Exchanges',
+  //   icon: Globe,
+  // },
   {
     href: '/markets',
     label: 'Markets',
