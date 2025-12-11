@@ -15,7 +15,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
-  Globe,
   TrendingUp,
   LayoutGrid,
   GitMerge,

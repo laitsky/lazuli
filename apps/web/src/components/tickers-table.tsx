@@ -299,7 +299,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
 
   // Filter and sort tickers
   const filteredAndSortedTickers = useMemo(() => {
-    let result = tickers.filter((t) => {
+    const filtered = tickers.filter((t) => {
       const matchesSearch = t.symbol.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesQuote = getQuoteCurrency(t.symbol).toUpperCase() === quoteFilter;
       const matchesType = t.type === marketType;
@@ -321,7 +321,7 @@ export function TickersTable({ tickers, exchange }: TickersTableProps) {
       return matchesSearch && matchesQuote && matchesType && matchesQuickFilter;
     });
 
-    result.sort((a, b) => {
+    const result = [...filtered].sort((a, b) => {
       let comparison = 0;
       switch (sortField) {
         case 'symbol':

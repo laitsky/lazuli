@@ -17,6 +17,7 @@
 import { useMemo, memo, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { OHLCV, BaseCurrency } from '@lazuli/shared';
+import { formatPriceWithCurrency } from '@/lib/format';
 
 /**
  * Props for the AltcoinMiniChart component
@@ -40,22 +41,6 @@ interface AltcoinMiniChartProps {
   symbol?: string;
   /** Enable interactive hover tracking (default: false for performance) */
   interactive?: boolean;
-}
-
-/**
- * Format price with appropriate decimal places
- */
-function formatPrice(price: number, baseCurrency: BaseCurrency = 'USD'): string {
-  if (baseCurrency === 'USD') {
-    if (price >= 1000) return `$${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-    if (price >= 1) return `$${price.toFixed(2)}`;
-    if (price >= 0.01) return `$${price.toFixed(4)}`;
-    return `$${price.toFixed(6)}`;
-  }
-  // For crypto base currencies, show more precision
-  if (price >= 1) return price.toFixed(4);
-  if (price >= 0.0001) return price.toFixed(6);
-  return price.toFixed(8);
 }
 
 /**
@@ -398,17 +383,18 @@ function AltcoinMiniChartComponent({
                 <div className="font-mono font-medium text-foreground">
                   {baseCurrency !== 'USD' ? (
                     <>
-                      {formatPrice(hover.price / basePrice, baseCurrency)} {baseCurrency}
+                      {formatPriceWithCurrency(hover.price / basePrice, baseCurrency)}{' '}
+                      {baseCurrency}
                     </>
                   ) : (
-                    formatPrice(hover.price, 'USD')
+                    formatPriceWithCurrency(hover.price, 'USD')
                   )}
                 </div>
 
                 {/* USD equivalent when not in USD mode */}
                 {baseCurrency !== 'USD' && (
                   <div className="text-muted-foreground text-[10px]">
-                    ≈ {formatPrice(hover.price, 'USD')}
+                    ≈ {formatPriceWithCurrency(hover.price, 'USD')}
                   </div>
                 )}
 

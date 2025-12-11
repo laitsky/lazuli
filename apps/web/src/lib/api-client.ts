@@ -573,11 +573,32 @@ export class LazuliAPI {
  */
 export function formatCurrency(value: number | null): string {
   if (value === null) return 'N/A';
+
+  // Use dynamic precision for small values (memecoins, micro-cap tokens)
+  const absValue = Math.abs(value);
+  let minDecimals = 2;
+  let maxDecimals = 2;
+
+  if (absValue < 1) {
+    // For prices < $1, calculate precision based on magnitude
+    // Count leading zeros and add 4 significant digits
+    if (absValue > 0) {
+      const str = absValue.toExponential();
+      const exponent = parseInt(str.split('e')[1], 10);
+      maxDecimals = Math.min(Math.abs(exponent) + 4, 12);
+      minDecimals = maxDecimals;
+    }
+  } else if (absValue < 1000) {
+    // For prices >= $1 but < $1000, show 4 decimals
+    minDecimals = 4;
+    maxDecimals = 4;
+  }
+
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: minDecimals,
+    maximumFractionDigits: maxDecimals,
   }).format(value);
 }
 

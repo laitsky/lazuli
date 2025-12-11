@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AltcoinMiniChart } from './altcoin-mini-chart';
 import { formatCurrency, formatVolume, formatPercentage, getChangeColor } from '@/lib/api-client';
+import { formatPrice, formatPriceWithCurrency } from '@/lib/format';
 import { AltcoinPerformance, BaseCurrency, ScreenerSortBy } from '@lazuli/shared';
 
 import {
@@ -523,20 +524,6 @@ interface AltcoinCardProps {
 function AltcoinCard({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProps) {
   const displayPrice = baseCurrency === 'USD' ? altcoin.price : altcoin.priceInBase;
 
-  // Smart price formatting based on value magnitude
-  const formatBasePrice = (price: number): string => {
-    if (price >= 1) return price.toFixed(4);
-    if (price >= 0.0001) return price.toFixed(6);
-    return price.toFixed(8);
-  };
-
-  const formatUsdPrice = (price: number): string => {
-    if (price >= 1000) return `$${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-    if (price >= 1) return `$${price.toFixed(2)}`;
-    if (price >= 0.01) return `$${price.toFixed(4)}`;
-    return `$${price.toFixed(6)}`;
-  };
-
   return (
     <Card className="glass border-white/5 hover:border-primary/30 transition-all duration-200 overflow-hidden group">
       <CardContent className="p-3">
@@ -549,12 +536,12 @@ function AltcoinCard({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProp
             </div>
             <div className="text-xs text-muted-foreground font-mono truncate">
               {baseCurrency === 'USD' ? (
-                formatUsdPrice(displayPrice)
+                formatPriceWithCurrency(displayPrice, 'USD')
               ) : (
                 <>
-                  {formatBasePrice(displayPrice)} {baseCurrency}{' '}
+                  {formatPrice(displayPrice)} {baseCurrency}{' '}
                   <span className="text-muted-foreground/60">
-                    ({formatUsdPrice(altcoin.price)})
+                    ({formatPriceWithCurrency(altcoin.price, 'USD')})
                   </span>
                 </>
               )}
@@ -603,20 +590,6 @@ function AltcoinCard({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProp
 function AltcoinListItem({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProps) {
   const displayPrice = baseCurrency === 'USD' ? altcoin.price : altcoin.priceInBase;
 
-  // Smart price formatting based on value magnitude
-  const formatBasePrice = (price: number): string => {
-    if (price >= 1) return price.toFixed(4);
-    if (price >= 0.0001) return price.toFixed(6);
-    return price.toFixed(8);
-  };
-
-  const formatUsdPrice = (price: number): string => {
-    if (price >= 1000) return `$${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-    if (price >= 1) return `$${price.toFixed(2)}`;
-    if (price >= 0.01) return `$${price.toFixed(4)}`;
-    return `$${price.toFixed(6)}`;
-  };
-
   return (
     <Card className="glass border-white/5 hover:border-primary/30 transition-all duration-200">
       <CardContent className="p-3">
@@ -647,13 +620,13 @@ function AltcoinListItem({ altcoin, baseCurrency, basePrice, rank }: AltcoinCard
           <div className="text-right min-w-[120px]">
             <div className="font-mono text-sm">
               {baseCurrency === 'USD'
-                ? formatUsdPrice(displayPrice)
-                : `${formatBasePrice(displayPrice)} ${baseCurrency}`}
+                ? formatPriceWithCurrency(displayPrice, 'USD')
+                : `${formatPrice(displayPrice)} ${baseCurrency}`}
             </div>
             {/* Show USD equivalent when not in USD mode */}
             {baseCurrency !== 'USD' && (
               <div className="text-xs text-muted-foreground/60">
-                {formatUsdPrice(altcoin.price)}
+                {formatPriceWithCurrency(altcoin.price, 'USD')}
               </div>
             )}
           </div>

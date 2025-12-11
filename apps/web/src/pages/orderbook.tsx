@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageHeader } from '@/components/page-header';
 import { LazuliAPI } from '@/lib/api-client';
+import { formatPrice } from '@/lib/format';
 import { SupportedExchange, Ticker, OrderBookEntry } from '@lazuli/shared';
 import {
   Search,
@@ -103,19 +104,6 @@ export default function OrderBookPage() {
       ETH: '\u039E',
     };
     return icons[currency] || null;
-  };
-
-  /**
-   * Format price with appropriate precision
-   */
-  const formatPrice = (price: number): string => {
-    if (price >= 1000)
-      return price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (price >= 1)
-      return price.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-    if (price >= 0.0001)
-      return price.toLocaleString('en-US', { minimumFractionDigits: 6, maximumFractionDigits: 6 });
-    return price.toLocaleString('en-US', { minimumFractionDigits: 8, maximumFractionDigits: 8 });
   };
 
   /**
