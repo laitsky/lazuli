@@ -1,7 +1,7 @@
 {
   "name": "@lazuli/web",
   "version": "0.1.0-alpha",
-  "description": "Lazuli Web Frontend - Beautiful cryptocurrency trading interface",
+  "description": "Lazuli Web Frontend - Command the Hidden Markets",
   "private": true,
   "type": "module",
   "scripts": {

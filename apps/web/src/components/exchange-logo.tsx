@@ -12,26 +12,18 @@ interface ExchangeLogoProps extends React.HTMLAttributes<HTMLDivElement> {
 export function ExchangeLogo({ exchangeId, className, ...props }: ExchangeLogoProps) {
   const id = exchangeId.toLowerCase();
 
-  let src = '';
-  let alt = '';
+  // Exchange logo mappings - logos stored in /public/exchanges/
+  const exchangeLogos: Record<string, { src: string; alt: string }> = {
+    binance: { src: '/exchanges/binance.png', alt: 'Binance Logo' },
+    bybit: { src: '/exchanges/bybit.png', alt: 'Bybit Logo' },
+    okx: { src: '/exchanges/okx.png', alt: 'OKX Logo' },
+    hyperliquid: { src: '/exchanges/hyperliquid.png', alt: 'Hyperliquid Logo' },
+    upbit: { src: '/exchanges/upbit.png', alt: 'Upbit Logo' },
+  };
 
-  if (id === 'binance') {
-    src = 'https://upload.wikimedia.org/wikipedia/commons/5/57/Binance_Logo.png';
-    alt = 'Binance Logo';
-  } else if (id === 'bybit') {
-    src = 'https://altcoinsbox.com/wp-content/uploads/2022/10/bybit-logo-white.jpg';
-    alt = 'Bybit Logo';
-  } else if (id === 'okx') {
-    src = 'https://altcoinsbox.com/wp-content/uploads/2023/03/okx-logo-300x300.webp';
-    alt = 'OKX Logo';
-  } else if (id === 'hyperliquid') {
-    src = 'https://avatars.githubusercontent.com/u/125463758?s=200&v=4';
-    alt = 'Hyperliquid Logo';
-  } else if (id === 'upbit') {
-    src =
-      'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2a/Upbit_Logo.svg/1024px-Upbit_Logo.svg.png';
-    alt = 'Upbit Logo';
-  } else {
+  const logo = exchangeLogos[id];
+
+  if (!logo) {
     // Fallback for unknown exchanges
     return (
       <div
@@ -45,7 +37,12 @@ export function ExchangeLogo({ exchangeId, className, ...props }: ExchangeLogoPr
 
   return (
     <div className={cn('relative overflow-hidden', className)} {...props}>
-      <img src={src} alt={alt} className="w-full h-full object-contain p-1" loading="lazy" />
+      <img
+        src={logo.src}
+        alt={logo.alt}
+        className="w-full h-full object-contain p-1"
+        loading="lazy"
+      />
     </div>
   );
 }
