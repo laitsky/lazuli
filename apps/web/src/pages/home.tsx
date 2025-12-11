@@ -77,7 +77,7 @@ export default function HomePage() {
                 <span className="gradient-text">Hidden Markets</span>
               </h1>
               <p className="text-lg text-muted-foreground max-w-lg leading-relaxed">
-                The unified, high-performance market intelligence platform for the sovereign trader.
+                Unified market intelligence platform for the sovereign trader.
               </p>
             </div>
 

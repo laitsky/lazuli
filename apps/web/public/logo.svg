@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 48">
+  <defs>
+    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#d4a574"/>
+      <stop offset="100%" style="stop-color:#c4956a"/>
+    </linearGradient>
+  </defs>
+  <!-- Lazuli wordmark in Clash Display style - geometric, bold -->
+  <text x="0" y="34" font-family="system-ui, -apple-system, BlinkMacSystemFont, sans-serif" font-size="36" font-weight="600" fill="url(#logoGradient)" letter-spacing="-1">Lazuli</text>
+</svg>

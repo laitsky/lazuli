@@ -313,22 +313,14 @@ export function Navigation() {
       >
         {/* Logo Section */}
         <div className="flex h-[72px] items-center border-b border-border px-6">
-          <Link to="/" className="group flex items-center gap-3" onClick={closeMobileMenu}>
-            {/* Logo Mark */}
-            <div className="relative flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
-              <span className="text-lg font-display font-bold text-primary-foreground tracking-tight">
-                L
-              </span>
-              {/* Subtle glow on hover */}
-              <div className="absolute inset-0 rounded-lg bg-primary/30 blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-500 -z-10" />
-            </div>
+          <Link to="/" className="group flex items-center" onClick={closeMobileMenu}>
             {/* Logo Text */}
             <div className="flex flex-col">
               <span className="text-lg font-display font-semibold tracking-tight text-foreground">
                 Lazuli
               </span>
               <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Terminal
+                Market Intelligence
               </span>
             </div>
           </Link>
