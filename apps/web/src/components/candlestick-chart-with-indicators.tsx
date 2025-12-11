@@ -9,6 +9,7 @@ import {
   LineData,
 } from 'lightweight-charts';
 import { Timeframe, IndicatorDataPoint, DEFAULT_INDICATOR_PERIODS } from '@lazuli/shared';
+import { calculatePricePrecision, formatPrice } from '@/lib/format';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -178,6 +179,17 @@ export function CandlestickChartWithIndicators({
     return { candlesticks, smaData, emaData, rsiData, rsiPeriod };
   }, [data, availableSMA, availableEMA, availableRSI]);
 
+  // Calculate price precision based on the minimum price in the dataset
+  // This ensures proper display for low-value tokens (e.g., memecoins with 0.00001234 prices)
+  // Using the minimum low price ensures that even if price drops significantly from the first candle,
+  // the chart will still render precise values without quantization artifacts
+  const pricePrecision = useMemo(() => {
+    if (!data || data.length === 0) return 2;
+    // Use minimum low price across all candles for proper precision
+    const minPrice = Math.min(...data.map((d) => d.low));
+    return calculatePricePrecision(minPrice);
+  }, [data]);
+
   // Toggle SMA visibility
   const toggleSMA = useCallback((period: number) => {
     setVisibleSMA((prev) => {
@@ -235,13 +247,18 @@ export function CandlestickChartWithIndicators({
 
       chartRef.current = chart;
 
-      // Add candlestick series
+      // Add candlestick series with custom price format for low-value tokens
       const candlestickSeries = chart.addCandlestickSeries({
         upColor: '#22c55e',
         downColor: '#ef4444',
         borderVisible: false,
         wickUpColor: '#22c55e',
         wickDownColor: '#ef4444',
+        priceFormat: {
+          type: 'custom',
+          minMove: Math.pow(10, -pricePrecision),
+          formatter: (price: number) => formatPrice(price),
+        },
       });
 
       candlestickSeries.setData(chartData.candlesticks);
@@ -308,7 +325,7 @@ export function CandlestickChartWithIndicators({
     } catch (error) {
       console.error('Error creating main chart:', error);
     }
-  }, [chartData, height, availableSMA, availableEMA]);
+  }, [chartData, height, availableSMA, availableEMA, pricePrecision]);
 
   // Update SMA visibility when toggled
   useEffect(() => {

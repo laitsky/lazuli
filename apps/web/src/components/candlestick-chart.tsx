@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   createChart,
   ColorType,
@@ -8,6 +8,7 @@ import {
   PriceScaleMode,
 } from 'lightweight-charts';
 import { OHLCV, Timeframe } from '@lazuli/shared';
+import { calculatePricePrecision, formatPrice } from '@/lib/format';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChartControlsToolbar, useChartControls } from '@/components/chart-controls-toolbar';
 
@@ -68,6 +69,17 @@ export function CandlestickChart({
   // Chart controls state
   const { isLogScale, setIsLogScale, showVolume, setShowVolume, isCapturing, captureScreenshot } =
     useChartControls(initialLogScale, initialShowVolume);
+
+  // Calculate price precision based on the minimum price in the dataset
+  // This ensures proper display for low-value tokens (e.g., memecoins with 0.00001234 prices)
+  // Using the minimum low price ensures that even if price drops significantly from the first candle,
+  // the chart will still render precise values without quantization artifacts
+  const pricePrecision = useMemo(() => {
+    if (data.length === 0) return 2;
+    // Use minimum low price across all candles for proper precision
+    const minPrice = Math.min(...data.map((d) => d.low));
+    return calculatePricePrecision(minPrice);
+  }, [data]);
 
   /**
    * Resize the chart to fit its container
@@ -229,6 +241,7 @@ export function CandlestickChart({
       volumeSeriesRef.current = volumeSeries;
 
       // Add candlestick series with v4 API
+      // Use custom price format for proper precision on low-value tokens
       const candlestickSeries = chart.addCandlestickSeries({
         upColor: '#22c55e',
         downColor: '#ef4444',
@@ -236,6 +249,11 @@ export function CandlestickChart({
         wickUpColor: '#22c55e',
         wickDownColor: '#ef4444',
         priceScaleId: 'right',
+        priceFormat: {
+          type: 'custom',
+          minMove: Math.pow(10, -pricePrecision),
+          formatter: (price: number) => formatPrice(price),
+        },
       });
 
       // Configure price scale margins to make room for volume
@@ -284,7 +302,7 @@ export function CandlestickChart({
         volumeSeriesRef.current = null;
       }
     };
-  }, [data, height, fillContainer, resizeChart, isLogScale, showVolume]);
+  }, [data, height, fillContainer, resizeChart, isLogScale, showVolume, pricePrecision]);
 
   // Generate chart title
   const chartTitle = symbol ? `${symbol} - ${timeframe}` : timeframe;
