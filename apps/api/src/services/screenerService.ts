@@ -129,11 +129,9 @@ export class ScreenerService {
         return this.applySortAndFilter(cachedResult, sortBy, sortOrder, limit, filters);
       }
 
-      // Fetch all tickers and base currency prices in parallel for speed
-      const [allTickers, basePrices] = await Promise.all([
-        ccxtService.getAllTickers(exchangeId),
-        this.getAllBaseCurrencyPrices(exchangeId),
-      ]);
+      // Fetch all tickers once; derive base currency prices from that list
+      const allTickers = await ccxtService.getAllTickers(exchangeId);
+      const basePrices = await this.getAllBaseCurrencyPrices(exchangeId, allTickers);
 
       // Filter to get only USDT spot pairs (altcoins)
       const altcoinTickers = allTickers.filter((ticker) => {
@@ -198,25 +196,23 @@ export class ScreenerService {
    * @returns Object with all base currency prices in USD
    */
   private async getAllBaseCurrencyPrices(
-    exchangeId: SupportedExchange
+    exchangeId: SupportedExchange,
+    allTickers?: Ticker[]
   ): Promise<BaseCurrencyPrices> {
     // Check cache first
     const cacheKey = `basePrices:${exchangeId}`;
     const cached = cacheService.get<BaseCurrencyPrices>(cacheKey);
     if (cached) return cached;
 
-    // Fetch BTC, ETH, SOL prices in parallel
-    const [btcTicker, ethTicker, solTicker] = await Promise.all([
-      ccxtService.getTicker(exchangeId, 'BTC-USDT'),
-      ccxtService.getTicker(exchangeId, 'ETH-USDT'),
-      ccxtService.getTicker(exchangeId, 'SOL-USDT'),
-    ]);
+    // Use provided tickers (already fetched) or fetch once if needed
+    const tickers = allTickers ?? (await ccxtService.getAllTickers(exchangeId));
+    const getLast = (symbol: string) => tickers.find((t) => t.symbol === symbol)?.last ?? 0;
 
     const basePrices: BaseCurrencyPrices = {
       USD: 1 as const,
-      BTC: btcTicker?.last ?? 0,
-      ETH: ethTicker?.last ?? 0,
-      SOL: solTicker?.last ?? 0,
+      BTC: getLast('BTC-USDT'),
+      ETH: getLast('ETH-USDT'),
+      SOL: getLast('SOL-USDT'),
     };
 
     // Cache base prices for 30 seconds (prices update frequently)
@@ -485,13 +481,14 @@ export class ScreenerService {
       return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
     });
 
-    // Add rank to each altcoin
-    altcoins.forEach((altcoin, index) => {
-      altcoin.rank = index + 1;
-    });
+    // Add rank without mutating cached altcoin objects
+    const rankedAltcoins = altcoins.map((altcoin, index) => ({
+      ...altcoin,
+      rank: index + 1,
+    }));
 
     // Apply limit
-    altcoins = altcoins.slice(0, limit);
+    altcoins = rankedAltcoins.slice(0, limit);
 
     return {
       ...response,
@@ -568,11 +565,9 @@ export class ScreenerService {
         return this.applySortAndFilter(normalizedResult, sortBy, sortOrder, limit, filters);
       }
 
-      // Fetch all tickers and base currency prices in parallel for speed
-      const [allTickers, basePrices] = await Promise.all([
-        ccxtService.getAllTickers(exchangeId),
-        this.getAllBaseCurrencyPrices(exchangeId),
-      ]);
+      // Fetch all tickers once; derive base currency prices from that list
+      const allTickers = await ccxtService.getAllTickers(exchangeId);
+      const basePrices = await this.getAllBaseCurrencyPrices(exchangeId, allTickers);
 
       // Filter to get only USDT spot pairs (altcoins)
       const altcoinTickers = allTickers.filter((ticker) => {
@@ -668,11 +663,14 @@ export class ScreenerService {
     const candleLimit = PERIOD_CANDLE_LIMITS[period];
     const result: Record<string, OHLCV[]> = {};
 
+    // Deduplicate to avoid redundant fetches
+    const uniqueSymbols = Array.from(new Set(symbols));
+
     // Process in parallel with rate limit protection
     const { BATCH_SIZE, BATCH_DELAY_MS } = PERFORMANCE_CONFIG;
 
-    for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
-      const batch = symbols.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < uniqueSymbols.length; i += BATCH_SIZE) {
+      const batch = uniqueSymbols.slice(i, i + BATCH_SIZE);
 
       const batchResults = await Promise.all(
         batch.map(async (symbol) => {
@@ -706,7 +704,7 @@ export class ScreenerService {
       }
 
       // Delay between batches
-      if (i + BATCH_SIZE < symbols.length) {
+      if (i + BATCH_SIZE < uniqueSymbols.length) {
         await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
       }
     }

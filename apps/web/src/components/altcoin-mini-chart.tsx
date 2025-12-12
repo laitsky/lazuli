@@ -14,10 +14,11 @@
  * - Responsive sizing
  */
 
-import { useMemo, memo, useState, useEffect, useRef, useCallback } from 'react';
+import { useMemo, memo, useState, useEffect, useRef, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
-import { OHLCV, BaseCurrency } from '@lazuli/shared';
+import type { OHLCV, BaseCurrency, PerformancePeriod, SupportedExchange } from '@lazuli/shared';
 import { formatPriceWithCurrency } from '@/lib/format';
+import { getOhlcvForSymbol } from '@/lib/ohlcv-batcher';
 
 /**
  * Props for the AltcoinMiniChart component
@@ -39,6 +40,10 @@ interface AltcoinMiniChartProps {
   basePrice?: number;
   /** Symbol name for tooltip display */
   symbol?: string;
+  /** Exchange for lazy OHLCV loading */
+  exchange?: SupportedExchange;
+  /** Performance period for OHLCV granularity */
+  period?: PerformancePeriod;
   /** Enable interactive hover tracking (default: false for performance) */
   interactive?: boolean;
 }
@@ -153,7 +158,9 @@ function AltcoinMiniChartComponent({
   lazy = true,
   baseCurrency = 'USD',
   basePrice = 1,
-  symbol: _symbol,
+  symbol,
+  exchange,
+  period = '24h',
   interactive = false,
 }: AltcoinMiniChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -162,13 +169,62 @@ function AltcoinMiniChartComponent({
   const [hasBeenVisible, setHasBeenVisible] = useState(!lazy);
   const [hover, setHover] = useState<HoverState | null>(null);
   const [isHovering, setIsHovering] = useState(false);
+  const [fetchedOhlcv, setFetchedOhlcv] = useState<OHLCV[] | null>(null);
+  const [isFetchingOhlcv, setIsFetchingOhlcv] = useState(false);
+  const id = useId();
 
   // Determine chart colors based on performance
   const isPositive = change !== null && change >= 0;
   const lineColor = isPositive ? '#22c55e' : '#ef4444';
 
-  // Use a stable gradient ID based on a counter instead of random
-  const gradientId = useRef(`gradient-${Math.random().toString(36).substring(7)}`).current;
+  const gradientId = `gradient-${id}`;
+
+  const hasProvidedData = Array.isArray(data) && data.length > 0;
+  const canLazyFetch = Boolean(exchange && symbol);
+
+  const effectiveData = useMemo(
+    () => (hasProvidedData ? data : (fetchedOhlcv ?? [])),
+    [hasProvidedData, data, fetchedOhlcv]
+  );
+
+  // Reset fetched state when target changes
+  useEffect(() => {
+    setFetchedOhlcv(null);
+    setIsFetchingOhlcv(false);
+  }, [exchange, symbol, period]);
+
+  // Lazy fetch OHLCV when visible and missing
+  // Use a ref to track fetch-in-progress without triggering effect re-runs
+  const isFetchingRef = useRef(false);
+
+  useEffect(() => {
+    if (!isVisible || hasProvidedData || !canLazyFetch || !exchange || !symbol) return;
+    if (fetchedOhlcv !== null || isFetchingRef.current) return;
+
+    isFetchingRef.current = true;
+    setIsFetchingOhlcv(true);
+
+    let cancelled = false;
+
+    getOhlcvForSymbol(exchange, symbol, period)
+      .then((ohlcv) => {
+        if (cancelled) return;
+        setFetchedOhlcv(ohlcv);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFetchedOhlcv([]);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        isFetchingRef.current = false;
+        setIsFetchingOhlcv(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, hasProvidedData, canLazyFetch, exchange, symbol, period, fetchedOhlcv]);
 
   // Set up Intersection Observer for lazy loading
   useEffect(() => {
@@ -202,18 +258,18 @@ function AltcoinMiniChartComponent({
   // Process OHLCV data into chart points (only when visible)
   // Also keep the sorted OHLCV data for hover info
   const { chartData, sortedOhlcv } = useMemo(() => {
-    if (!isVisible || !data || data.length === 0) {
+    if (!isVisible || !effectiveData || effectiveData.length === 0) {
       return { chartData: [], sortedOhlcv: [] };
     }
 
     // Sort by timestamp and extract close prices
-    const sorted = [...data].sort((a, b) => a.timestamp - b.timestamp);
+    const sorted = [...effectiveData].sort((a, b) => a.timestamp - b.timestamp);
     const points = sorted.map((candle, index) => ({
       x: index,
       y: candle.close,
     }));
     return { chartData: points, sortedOhlcv: sorted };
-  }, [data, isVisible]);
+  }, [effectiveData, isVisible]);
 
   // Generate SVG paths (only when visible)
   const paths = useMemo(() => {
@@ -265,15 +321,6 @@ function AltcoinMiniChartComponent({
     setHover(null);
   }, []);
 
-  // Show placeholder if no data
-  if (!data || data.length === 0) {
-    return (
-      <div className="flex items-center justify-center bg-muted/30 rounded" style={{ height }}>
-        <span className="text-xs text-muted-foreground">No data</span>
-      </div>
-    );
-  }
-
   // Calculate viewBox based on width
   const viewBoxWidth = typeof width === 'number' ? width : 200;
   const padding = 2;
@@ -296,10 +343,25 @@ function AltcoinMiniChartComponent({
     return { x, y };
   }, [hover, chartData, viewBoxWidth, height]);
 
+  if (!hasProvidedData && !canLazyFetch) {
+    return (
+      <div className="flex items-center justify-center bg-muted/30 rounded" style={{ height }}>
+        <span className="text-xs text-muted-foreground">No data</span>
+      </div>
+    );
+  }
+
+  const showSkeleton = !isVisible || (effectiveData.length === 0 && isFetchingOhlcv);
+  const showNoData = isVisible && effectiveData.length === 0 && !isFetchingOhlcv;
+
   return (
     <div ref={containerRef} style={{ height }} className="w-full relative">
-      {!isVisible ? (
+      {showSkeleton ? (
         <ChartSkeleton height={height} isPositive={isPositive} />
+      ) : showNoData ? (
+        <div className="flex items-center justify-center bg-muted/30 rounded" style={{ height }}>
+          <span className="text-xs text-muted-foreground">No data</span>
+        </div>
       ) : (
         <>
           <svg

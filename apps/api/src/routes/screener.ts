@@ -89,10 +89,9 @@ export const screenerRoutes = new Elysia({ prefix: '/screener' })
       }
 
       // Get minimal data with small limit for quick stats
-      const screenerData = await screenerService.getAltcoins(
+      const screenerData = await screenerService.getAltcoinsLightweight(
         exchangeId,
         'USD',
-        '24h',
         'performance',
         'desc',
         10
@@ -128,7 +127,8 @@ export const screenerRoutes = new Elysia({ prefix: '/screener' })
       }
 
       // Limit batch size to prevent abuse
-      const limitedSymbols = symbols.slice(0, 50);
+      const uniqueSymbols = Array.from(new Set(symbols));
+      const limitedSymbols = uniqueSymbols.slice(0, 50);
       const period = validatePeriod(body.period);
 
       const ohlcvData = await screenerService.getOhlcvBatch(exchangeId, limitedSymbols, period);

@@ -23,7 +23,12 @@ import { Input } from '@/components/ui/input';
 import { AltcoinMiniChart } from './altcoin-mini-chart';
 import { formatCurrency, formatVolume, formatPercentage, getChangeColor } from '@/lib/api-client';
 import { formatPrice, formatPriceWithCurrency } from '@/lib/format';
-import { AltcoinPerformance, BaseCurrency, ScreenerSortBy } from '@lazuli/shared';
+import type {
+  AltcoinPerformance,
+  BaseCurrency,
+  ScreenerSortBy,
+  SupportedExchange,
+} from '@lazuli/shared';
 
 import {
   Search,
@@ -568,6 +573,8 @@ function AltcoinCard({ altcoin, baseCurrency, basePrice, rank }: AltcoinCardProp
             baseCurrency={baseCurrency}
             basePrice={basePrice}
             symbol={altcoin.symbol}
+            exchange={altcoin.exchange as SupportedExchange}
+            period="24h"
             interactive={true}
           />
         </div>
@@ -612,7 +619,9 @@ function AltcoinListItem({ altcoin, baseCurrency, basePrice, rank }: AltcoinCard
               baseCurrency={baseCurrency}
               basePrice={basePrice}
               symbol={altcoin.symbol}
-              interactive={true}
+              exchange={altcoin.exchange as SupportedExchange}
+              period="24h"
+              interactive={false}
             />
           </div>
 
