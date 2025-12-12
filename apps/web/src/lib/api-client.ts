@@ -236,11 +236,17 @@ async function fetchWithTimeout(
 
 /**
  * Base fetch wrapper with error handling and timeout support
+ *
+ * @param endpoint - API endpoint path
+ * @param queryParams - Optional query parameters
+ * @param timeout - Request timeout in ms
+ * @param requestInit - Optional custom RequestInit (for POST, etc.)
  */
 async function apiFetch<T>(
   endpoint: string,
   queryParams?: Record<string, any>,
-  timeout?: number
+  timeout?: number,
+  requestInit?: RequestInit
 ): Promise<ApiResponse<T>> {
   try {
     const queryString = buildQueryString(queryParams);
@@ -251,6 +257,7 @@ async function apiFetch<T>(
         headers: {
           'Content-Type': 'application/json',
         },
+        ...requestInit,
       },
       timeout
     );
@@ -480,17 +487,28 @@ export class LazuliAPI {
   /**
    * Get all altcoins with performance data for Alt Screener
    * Scans all altcoins (excluding BTC) and returns performance metrics
-   * Uses extended timeout (120s) due to fetching data for many symbols
+   *
+   * @param exchange - Exchange to fetch from
+   * @param queryParams - Query parameters including optional 'lightweight' flag
+   *
+   * When lightweight=true (default for initial load):
+   * - Returns data instantly (~1-2s) without OHLCV chart data
+   * - Client should then fetch OHLCV lazily for visible rows
+   *
+   * When lightweight=false:
+   * - Returns full data with OHLCV (~20-30s on cache miss)
+   * - Use for background refresh or when charts are needed immediately
    */
   static async getAltScreener(
     exchange: SupportedExchange,
-    queryParams?: AltScreenerQueryParams
+    queryParams?: AltScreenerQueryParams & { lightweight?: boolean }
   ): Promise<ApiResponse<AltScreenerResponse>> {
-    // Use 120s timeout for screener (fetches many symbols with OHLCV)
+    // Shorter timeout for lightweight (15s), longer for full (120s)
+    const timeout = queryParams?.lightweight ? 15000 : 120000;
     return apiFetch<AltScreenerResponse>(
       `${API_VERSION}/screener/${exchange}`,
       queryParams,
-      120000
+      timeout
     );
   }
 
@@ -506,6 +524,45 @@ export class LazuliAPI {
     return apiFetch<{ exchange: string; stats: AltScreenerResponse['stats']; timestamp: number }>(
       `${API_VERSION}/screener/${exchange}/stats`
     );
+  }
+
+  /**
+   * Batch fetch OHLCV data for specific symbols (for lazy loading)
+   * Used for progressive loading - fetch chart data only for visible rows
+   *
+   * @param exchange - Exchange to fetch from
+   * @param symbols - Array of symbols to fetch OHLCV for (max 50)
+   * @param period - Performance period for chart granularity (default: 24h)
+   * @returns Map of symbol -> OHLCV data
+   */
+  static async getOhlcvBatch(
+    exchange: SupportedExchange,
+    symbols: string[],
+    period: string = '24h'
+  ): Promise<
+    ApiResponse<{
+      exchange: string;
+      period: string;
+      ohlcv: Record<
+        string,
+        Array<{
+          timestamp: number;
+          open: number;
+          high: number;
+          low: number;
+          close: number;
+          volume: number;
+        }>
+      >;
+      count: number;
+      timestamp: number;
+    }>
+  > {
+    // POST request with JSON body
+    return apiFetch(`${API_VERSION}/screener/${exchange}/ohlcv`, undefined, 30000, {
+      method: 'POST',
+      body: JSON.stringify({ symbols, period }),
+    });
   }
 
   /**

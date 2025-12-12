@@ -84,6 +84,8 @@ const PERFORMANCE_CONFIG = {
   SCREENER_CACHE_TTL_MS: 60000, // 60 seconds
   // OHLCV data cache TTL in ms (increased from 60s - chart data doesn't change rapidly)
   OHLCV_CACHE_TTL_MS: 180000, // 3 minutes
+  // Lightweight (no OHLCV) response cache TTL - shorter since it's faster to regenerate
+  LIGHTWEIGHT_CACHE_TTL_MS: 30000, // 30 seconds
 };
 
 export class ScreenerService {
@@ -521,6 +523,195 @@ export class ScreenerService {
     const candleLimit = PERIOD_CANDLE_LIMITS[period];
 
     return ccxtService.fetchOHLCV(exchangeId, symbol, timeframe, 'spot', candleLimit);
+  }
+
+  /**
+   * Get lightweight altcoin data without OHLCV (for fast initial load)
+   *
+   * This is the FAST version that skips OHLCV fetching entirely.
+   * Returns all ticker data with 24h change from the ticker itself.
+   * Client can then fetch OHLCV data lazily for visible rows.
+   *
+   * Performance: ~1-2 seconds vs ~26 seconds for full data
+   *
+   * @param exchangeId - Exchange to fetch from (binance, bybit, okx)
+   * @param baseCurrency - Currency to compare against (USD, BTC, ETH, SOL)
+   * @param sortBy - Field to sort by
+   * @param sortOrder - Sort direction
+   * @param limit - Maximum number of results
+   * @param filters - Optional filters
+   * @returns AltScreenerResponse with ticker data but empty OHLCV arrays
+   */
+  async getAltcoinsLightweight(
+    exchangeId: SupportedExchange,
+    baseCurrency: BaseCurrency = 'USD',
+    sortBy: ScreenerSortBy = 'performance',
+    sortOrder: 'asc' | 'desc' = 'desc',
+    limit: number = 100,
+    filters?: ScreenerFilters
+  ): Promise<AltScreenerResponse> {
+    try {
+      // Cache key for lightweight response (no period since we skip OHLCV)
+      // Cache is base-currency agnostic - we normalize the response on cache hit
+      const cacheKey = `screener:${exchangeId}:lightweight`;
+      const cachedResult = cacheService.get<AltScreenerResponse>(cacheKey);
+
+      if (cachedResult) {
+        // Normalize response for requested base currency
+        // The cached response has basePrices for all currencies, so we just update metadata
+        const normalizedResult: AltScreenerResponse = {
+          ...cachedResult,
+          baseCurrency,
+          basePrice: cachedResult.basePrices?.[baseCurrency] ?? 1,
+        };
+        // Apply sorting and filtering to normalized cached results
+        return this.applySortAndFilter(normalizedResult, sortBy, sortOrder, limit, filters);
+      }
+
+      // Fetch all tickers and base currency prices in parallel for speed
+      const [allTickers, basePrices] = await Promise.all([
+        ccxtService.getAllTickers(exchangeId),
+        this.getAllBaseCurrencyPrices(exchangeId),
+      ]);
+
+      // Filter to get only USDT spot pairs (altcoins)
+      const altcoinTickers = allTickers.filter((ticker) => {
+        const { base, quote } = parseSymbol(ticker.symbol);
+        return (
+          ticker.type === 'spot' &&
+          quote === 'USDT' &&
+          !EXCLUDED_BASES.includes(base) &&
+          ticker.last !== null &&
+          ticker.last > 0
+        );
+      });
+
+      // Convert tickers to AltcoinPerformance WITHOUT fetching OHLCV
+      // This is the key optimization - we skip the slow part
+      const altcoins: AltcoinPerformance[] = altcoinTickers.map((ticker) => {
+        const { base, quote } = parseSymbol(ticker.symbol);
+        const priceInUSD = ticker.last!;
+
+        return {
+          symbol: ticker.symbol,
+          base,
+          quote,
+          exchange: exchangeId,
+          type: ticker.type,
+          price: priceInUSD,
+          priceInBase: priceInUSD,
+          // Use ticker's 24h change - no OHLCV needed for this
+          change1h: null,
+          change4h: null,
+          change24h: ticker.percentage24h,
+          change7d: null,
+          volume24h: ticker.quoteVolume24h,
+          high24h: ticker.high24h,
+          low24h: ticker.low24h,
+          // Empty OHLCV - client will fetch lazily if needed
+          ohlcv: [],
+          timestamp: ticker.timestamp,
+        } as AltcoinPerformance;
+      });
+
+      // Calculate aggregate statistics
+      const stats = this.calculateStats(altcoins);
+
+      // Get the requested base price for backwards compatibility
+      const basePrice = basePrices[baseCurrency];
+
+      // Build response with all base currency prices for client-side switching
+      const response: AltScreenerResponse = {
+        exchange: exchangeId,
+        baseCurrency,
+        basePrice,
+        basePrices,
+        period: '24h', // Default period for lightweight
+        altcoins,
+        count: altcoins.length,
+        timestamp: Date.now(),
+        stats,
+      };
+
+      // Cache the lightweight response (30 seconds - shorter since it's fast to regenerate)
+      cacheService.set(cacheKey, response, PERFORMANCE_CONFIG.LIGHTWEIGHT_CACHE_TTL_MS);
+
+      // Apply sorting and filtering
+      return this.applySortAndFilter(response, sortBy, sortOrder, limit, filters);
+    } catch (error) {
+      console.error(`Error in getAltcoinsLightweight for ${exchangeId}:`, error);
+      if (isApiError(error)) {
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Get OHLCV data for specific symbols (for lazy loading)
+   *
+   * Client calls this endpoint to fetch OHLCV data for visible rows only.
+   * This enables progressive loading where the table appears instantly
+   * and charts load in as the user scrolls.
+   *
+   * @param exchangeId - Exchange to fetch from
+   * @param symbols - Array of symbols to fetch OHLCV for
+   * @param period - Performance period for chart granularity
+   * @returns Map of symbol -> OHLCV data
+   */
+  async getOhlcvBatch(
+    exchangeId: SupportedExchange,
+    symbols: string[],
+    period: PerformancePeriod = '24h'
+  ): Promise<Record<string, OHLCV[]>> {
+    const timeframe = PERIOD_TIMEFRAMES[period] as any;
+    const candleLimit = PERIOD_CANDLE_LIMITS[period];
+    const result: Record<string, OHLCV[]> = {};
+
+    // Process in parallel with rate limit protection
+    const { BATCH_SIZE, BATCH_DELAY_MS } = PERFORMANCE_CONFIG;
+
+    for (let i = 0; i < symbols.length; i += BATCH_SIZE) {
+      const batch = symbols.slice(i, i + BATCH_SIZE);
+
+      const batchResults = await Promise.all(
+        batch.map(async (symbol) => {
+          // Check cache first
+          const ohlcvCacheKey = `ohlcv:${exchangeId}:${symbol}:${timeframe}:${candleLimit}`;
+          let ohlcv = cacheService.get<OHLCV[]>(ohlcvCacheKey);
+
+          if (!ohlcv) {
+            try {
+              ohlcv = await ccxtService.fetchOHLCV(
+                exchangeId,
+                symbol,
+                timeframe,
+                'spot',
+                candleLimit
+              );
+              // Cache OHLCV data
+              cacheService.set(ohlcvCacheKey, ohlcv, PERFORMANCE_CONFIG.OHLCV_CACHE_TTL_MS);
+            } catch (_error) {
+              ohlcv = [];
+            }
+          }
+
+          return { symbol, ohlcv: ohlcv || [] };
+        })
+      );
+
+      // Add batch results to output
+      for (const { symbol, ohlcv } of batchResults) {
+        result[symbol] = ohlcv;
+      }
+
+      // Delay between batches
+      if (i + BATCH_SIZE < symbols.length) {
+        await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
+      }
+    }
+
+    return result;
   }
 }
 

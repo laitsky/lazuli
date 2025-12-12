@@ -110,7 +110,49 @@ export const screenerRoutes = new Elysia({ prefix: '/screener' })
       }),
     }
   )
+  // POST /api/v1/screener/:exchange/ohlcv - Batch fetch OHLCV for specific symbols
+  // This enables lazy loading: client fetches OHLCV only for visible rows
+  .post(
+    '/:exchange/ohlcv',
+    async ({ params, body }) => {
+      const exchangeId = validateExchange(params.exchange);
+
+      if (!exchangeId) {
+        throw invalidExchange(params.exchange);
+      }
+
+      // Validate symbols array
+      const symbols = body.symbols;
+      if (!Array.isArray(symbols) || symbols.length === 0) {
+        throw invalidParameter('symbols', 'Must provide an array of symbols');
+      }
+
+      // Limit batch size to prevent abuse
+      const limitedSymbols = symbols.slice(0, 50);
+      const period = validatePeriod(body.period);
+
+      const ohlcvData = await screenerService.getOhlcvBatch(exchangeId, limitedSymbols, period);
+
+      return successResponse({
+        exchange: exchangeId,
+        period,
+        ohlcv: ohlcvData,
+        count: Object.keys(ohlcvData).length,
+        timestamp: Date.now(),
+      });
+    },
+    {
+      params: t.Object({
+        exchange: t.String(),
+      }),
+      body: t.Object({
+        symbols: t.Array(t.String()),
+        period: t.Optional(t.String()),
+      }),
+    }
+  )
   // GET /api/v1/screener/:exchange - Get all altcoins with performance data
+  // Supports ?lightweight=true for fast initial load without OHLCV
   .get(
     '/:exchange',
     async ({ params, query }) => {
@@ -135,6 +177,9 @@ export const screenerRoutes = new Elysia({ prefix: '/screener' })
       const sortOrder = validateSortOrder(query.sortOrder);
       const limit = validateInteger(query.limit, 100, 1, 500);
 
+      // Check if lightweight mode is requested (fast initial load)
+      const lightweight = query.lightweight === 'true' || query.lightweight === '1';
+
       // Build filters object
       const filters: ScreenerFilters = {};
       const minVolume = validateNumber(query.minVolume);
@@ -151,7 +196,20 @@ export const screenerRoutes = new Elysia({ prefix: '/screener' })
       if (typeFilter) filters.type = typeFilter;
       if (searchQuery) filters.search = searchQuery;
 
-      // Get altcoin data from screener service
+      // Use lightweight endpoint for fast initial load
+      if (lightweight) {
+        const screenerData = await screenerService.getAltcoinsLightweight(
+          exchangeId,
+          baseCurrency,
+          sortBy,
+          sortOrder,
+          limit,
+          Object.keys(filters).length > 0 ? filters : undefined
+        );
+        return successResponse(screenerData);
+      }
+
+      // Full endpoint with OHLCV data
       const screenerData = await screenerService.getAltcoins(
         exchangeId,
         baseCurrency,
@@ -180,6 +238,7 @@ export const screenerRoutes = new Elysia({ prefix: '/screener' })
         maxChange: t.Optional(t.String()),
         type: t.Optional(t.String()),
         search: t.Optional(t.String()),
+        lightweight: t.Optional(t.String()),
       }),
     }
   );

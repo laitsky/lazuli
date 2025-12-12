@@ -62,6 +62,7 @@ export function AltScreenerClient({ initialData, exchange, initialBase }: AltScr
 
   /**
    * Fetch function for alt screener data
+   * Uses lightweight mode for fast auto-refresh (skips OHLCV)
    */
   const fetchAltScreenerData = useCallback(async () => {
     return LazuliAPI.getAltScreener(exchange, {
@@ -69,6 +70,7 @@ export function AltScreenerClient({ initialData, exchange, initialBase }: AltScr
       limit: 200,
       sortBy: 'performance',
       sortOrder: 'desc',
+      lightweight: true, // Fast refresh without OHLCV
     });
   }, [exchange]);
 

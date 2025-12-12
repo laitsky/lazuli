@@ -45,11 +45,15 @@ export default function AltScreenerPage() {
   useEffect(() => {
     async function fetchScreenerData() {
       setLoading(true);
+      // Use lightweight mode for fast initial load (skips OHLCV fetching)
+      // This reduces load time from ~26s to ~1-2s
+      // OHLCV data for charts is fetched lazily by AltcoinGrid component
       const response = await LazuliAPI.getAltScreener(exchange, {
         base,
         limit: 200,
         sortBy: 'performance',
         sortOrder: 'desc',
+        lightweight: true,
       });
 
       if (response.success && response.data) {
