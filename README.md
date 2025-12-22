@@ -6,7 +6,7 @@ A modern full-stack monorepo application that provides **real-time** cryptocurre
 
 ## Features
 
-- 📊 **Beautiful Web Interface** - Modern Next.js frontend with real-time data
+- 📊 **Beautiful Web Interface** - Modern React + Vite frontend with real-time data
 - 🔌 **REST API** - Bun-native TypeScript backend with Elysia
 - 💱 **Multi-Exchange Support** - Binance, Bybit, and OKX
 - 🎯 **Live Trading Data** - Real-time prices, volumes, and market statistics
@@ -25,8 +25,8 @@ lazuli/
 │   │   ├── src/          # Source code
 │   │   ├── .env.example  # Environment template
 │   │   └── package.json  # API dependencies
-│   └── web/              # Frontend (Next.js 16 + Shadcn UI)
-│       ├── app/          # Next.js pages & routes
+│   └── web/              # Frontend (React + Vite + Shadcn UI)
+│       ├── src/          # Source code & components
 │       ├── components/   # React components
 │       ├── lib/          # Utilities & API client
 │       └── package.json  # Web dependencies
@@ -92,7 +92,7 @@ cp .env.example .env
 ```bash
 cd apps/web
 cp .env.example .env.local
-# Edit .env.local - set NEXT_PUBLIC_API_URL if needed
+# Edit .env.local - set VITE_API_URL if needed
 ```
 
 ## Available Scripts
@@ -182,7 +182,7 @@ Lazuli uses **Turborepo** with **Bun workspaces** for monorepo management:
 
 ### Frontend (apps/web)
 
-- **Framework**: Next.js 16 (App Router)
+- **Framework**: React 18 + Vite 6
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS v4
 - **UI Components**: Shadcn UI

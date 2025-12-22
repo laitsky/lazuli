@@ -89,7 +89,7 @@
 ### User Interface Options
 
 - [ ] **CLI Enhancement**: Interactive terminal UI
-- [ ] **Web Dashboard**: React/Next.js frontend
+- [ ] **Web Dashboard**: React + Vite frontend
 - [ ] **Telegram Bot**: Trading alerts and commands
 - [ ] **Mobile App**: React Native implementation
 
@@ -143,7 +143,7 @@
 
 ### Phase 4: User Interface (Month 3)
 
-16. **Web Dashboard** - React/Next.js frontend
+16. **Web Dashboard** - React + Vite frontend
 17. **Authentication** - User accounts and API keys
 18. **Portfolio Tracking** - Multi-exchange portfolio view
 19. **Advanced Charts** - Trading view integration

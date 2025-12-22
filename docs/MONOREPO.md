@@ -96,10 +96,8 @@ lazuli/
 │   │   │   └── index.ts
 │   │   ├── package.json
 │   │   └── tsconfig.json
-│   └── web/              # Next.js frontend
-│       ├── app/
-│       ├── components/
-│       ├── lib/
+│   └── web/              # React + Vite frontend
+│       ├── src/
 │       ├── package.json
 │       └── tsconfig.json
 ├── packages/             # Shared packages
@@ -115,7 +113,6 @@ lazuli/
 │       └── typescript/   # TypeScript configs
 │           ├── base.json
 │           ├── node.json
-│           ├── nextjs.json
 │           └── package.json
 ├── .commitlintrc.json    # Commit message rules
 ├── .prettierrc.json      # Code formatting rules
@@ -129,7 +126,7 @@ lazuli/
 All internal packages use the `@lazuli/` namespace:
 
 - `@lazuli/api` - REST API application
-- `@lazuli/web` - Next.js web application
+- `@lazuli/web` - React + Vite web application
 - `@lazuli/shared` - Shared TypeScript types
 - `@lazuli/eslint-config` - ESLint configuration
 - `@lazuli/typescript-config` - TypeScript configuration
@@ -183,7 +180,7 @@ Defined in `turbo.json`:
   "pipeline": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**"]
+      "outputs": ["dist/**"]
     },
     "lint": {},
     "type-check": {},
@@ -216,7 +213,7 @@ The `^` symbol means "dependencies first":
 Turborepo caches task outputs:
 
 - **Inputs**: Source files, dependencies, config files
-- **Outputs**: `dist/`, `.next/`, etc.
+- **Outputs**: `dist/`, etc.
 - **Cache hit**: Instant "build" from cache
 - **Cache miss**: Runs build, saves to cache
 
@@ -347,7 +344,7 @@ Use shared configs instead of duplicating:
 
 // apps/web/tsconfig.json
 {
-  "extends": "@lazuli/typescript-config/nextjs.json"
+  "compilerOptions": { /* Vite-specific options */ }
 }
 ```
 
