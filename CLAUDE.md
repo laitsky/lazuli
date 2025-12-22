@@ -12,7 +12,7 @@ Lazuli is a cryptocurrency trading tool that provides **real-time** data from mu
 - **Monorepo**: Turborepo for efficient multi-package builds
 - **Language**: TypeScript with strict type checking
 - **API Framework**: Elysia (Bun-native REST API)
-- **Web Framework**: Next.js with React
+- **Web Framework**: React with Vite
 - **Primary Data**: Live exchange APIs (CCXT)
 - **Database**: Supabase (PostgreSQL) - **OPTIONAL** for advanced features
 - **Exchanges**: CCXT (Binance, Bybit, OKX)
