@@ -11,7 +11,6 @@ module.exports = tsEslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
-      '**/.next/**',
       '**/build/**',
       '**/.turbo/**',
       '**/out/**',

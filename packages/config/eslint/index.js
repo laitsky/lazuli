@@ -7,7 +7,7 @@ const tsEslint = require('typescript-eslint');
 
 module.exports = tsEslint.config(
   {
-    ignores: ['**/node_modules/**', '**/dist/**', '**/.next/**', '**/build/**'],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/build/**'],
   },
   ...tsEslint.configs.recommended,
   {
