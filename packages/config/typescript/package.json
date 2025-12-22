@@ -5,7 +5,6 @@
   "description": "Shared TypeScript configuration for Lazuli monorepo",
   "files": [
     "base.json",
-    "nextjs.json",
     "node.json"
   ]
 }

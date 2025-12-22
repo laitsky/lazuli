@@ -62,9 +62,9 @@ lazuli/                      # Monorepo root
 │   │   │   ├── services/   # Business logic & exchange integrations
 │   │   │   └── types/      # TypeScript type definitions
 │   │   └── package.json
-│   └── web/                # Next.js web frontend
+│   └── web/                # React + Vite web frontend
 │       ├── src/
-│       │   ├── app/        # Next.js app router
+│       │   ├── pages/      # Page components
 │       │   └── components/ # React components
 │       └── package.json
 ├── packages/
