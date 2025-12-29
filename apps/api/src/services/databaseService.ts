@@ -334,7 +334,7 @@ export class DatabaseService {
 
       const { error, count } = await supabase!
         .from('tickers')
-        .delete()
+        .delete({ count: 'exact' })
         .lt('created_at', cutoffDate.toISOString());
 
       if (error) {
