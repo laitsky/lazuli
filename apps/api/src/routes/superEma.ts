@@ -77,7 +77,7 @@ export const superEmaRoutes = new Elysia({ prefix: '/superema' })
 
       // Create cache key
       const cacheKey = `superema:${exchangeId}:${params.symbol}:${timeframe}:${marketType}:${limit}:${maxPeriod}`;
-      const cachedResult = cacheService.get<SuperEMAResponse>(cacheKey);
+      const cachedResult = await cacheService.getAsync<SuperEMAResponse>(cacheKey);
 
       if (cachedResult) {
         log.debug('Cache hit', { cacheKey });

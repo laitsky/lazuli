@@ -37,7 +37,7 @@ const TICKER_CACHE_TTL = 10000;
  */
 async function getTickersWithCacheFallback(exchangeId: string): Promise<Ticker[]> {
   const cacheKey = `tickers:${exchangeId}:raw`;
-  let tickers = cacheService.get<Ticker[]>(cacheKey);
+  let tickers = await cacheService.getAsync<Ticker[]>(cacheKey);
 
   // Cache is populated by MarketDataWorker every 5 seconds
   // Fallback to direct fetch only on cold start (cache miss)
@@ -246,7 +246,7 @@ export const tickerRoutes = new Elysia()
 
       // Cache key is exchange-specific only
       const cacheKey = `markets:${exchangeId}:raw`;
-      let allMarkets = cacheService.get<any[]>(cacheKey);
+      let allMarkets = await cacheService.getAsync<any[]>(cacheKey);
 
       // If not cached, fetch from exchange
       if (!allMarkets) {

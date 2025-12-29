@@ -52,7 +52,7 @@ export const orderBookRoutes = new Elysia({ prefix: '/orderbook' })
 
       // Create cache key
       const cacheKey = `orderbook:${exchangeId}:${params.symbol}:${marketType}:${limit}`;
-      let orderBook = cacheService.get<any>(cacheKey);
+      let orderBook = await cacheService.getAsync<any>(cacheKey);
 
       if (!orderBook) {
         log.debug('Cache miss, fetching from exchange', { cacheKey });

@@ -133,7 +133,7 @@ export const ohlcvRoutes = new Elysia({ prefix: '/ohlcv' })
       const promises = timeframes.map(async (timeframe) => {
         try {
           const cacheKey = `ohlcv:${exchangeId}:${params.symbol}:${timeframe}:${marketType}:${limit}`;
-          let candles = cacheService.get<any[]>(cacheKey);
+          let candles = await cacheService.getAsync<any[]>(cacheKey);
 
           if (!candles) {
             log.debug('Cache miss, fetching from exchange', { cacheKey });
@@ -263,7 +263,7 @@ export const ohlcvRoutes = new Elysia({ prefix: '/ohlcv' })
 
       // Create cache key
       const cacheKey = `ohlcv:${exchangeId}:${params.symbol}:${timeframe}:${marketType}:${limit}`;
-      let candles = cacheService.get<any[]>(cacheKey);
+      let candles = await cacheService.getAsync<any[]>(cacheKey);
 
       if (!candles) {
         log.debug('Cache miss, fetching from exchange', { cacheKey });

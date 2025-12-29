@@ -169,7 +169,7 @@ export class FundingRateService {
   ): Promise<FundingRateResponse> {
     // Check cache first
     const cacheKey = `funding:${exchangeId}:raw`;
-    let cachedData = cacheService.get<FundingRateData[]>(cacheKey);
+    let cachedData = await cacheService.getAsync<FundingRateData[]>(cacheKey);
 
     if (!cachedData) {
       console.log(`Cache miss for ${cacheKey}, fetching from exchange...`);

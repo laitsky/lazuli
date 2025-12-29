@@ -44,7 +44,7 @@ async function fetchOHLCVForSymbol(
   limit: number
 ): Promise<OHLCV[]> {
   const cacheKey = `ohlcv:${exchangeId}:${symbol}:${timeframe}:${marketType}:${limit}`;
-  let candles = cacheService.get<OHLCV[]>(cacheKey);
+  let candles = await cacheService.getAsync<OHLCV[]>(cacheKey);
 
   if (!candles) {
     candles = await ccxtService.fetchOHLCV(exchangeId, symbol, timeframe, marketType, limit);
@@ -151,7 +151,7 @@ export const customPairRoutes = new Elysia({ prefix: '/custom-pair' })
 
       // Create cache key
       const cacheKey = `custom-pair:${exchangeId}:${symbol1}:${symbol2}:${timeframe}:${marketType}:${limit}`;
-      let customPairCandles = cacheService.get<OHLCV[]>(cacheKey);
+      let customPairCandles = await cacheService.getAsync<OHLCV[]>(cacheKey);
 
       if (!customPairCandles) {
         log.debug('Cache miss, fetching from exchange', { cacheKey });

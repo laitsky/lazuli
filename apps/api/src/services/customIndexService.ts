@@ -57,7 +57,7 @@ export class CustomIndexService {
       .join(',')}`;
 
     // Check cache first
-    const cached = cacheService.get<CustomIndexResponse>(cacheKey);
+    const cached = await cacheService.getAsync<CustomIndexResponse>(cacheKey);
     if (cached) {
       return cached;
     }

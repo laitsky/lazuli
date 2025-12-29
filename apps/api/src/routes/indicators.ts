@@ -86,7 +86,7 @@ export const indicatorRoutes = new Elysia({ prefix: '/indicators' })
       const cacheKey = `indicators:${exchangeId}:${params.symbol}:${timeframe}:${marketType}:${limit}:sma${smaPeriods.join('-')}:ema${emaPeriods.join('-')}:rsi${rsiPeriods.join('-')}`;
 
       // Check cache first
-      const cachedResult = cacheService.get<TechnicalIndicatorResponse>(cacheKey);
+      const cachedResult = await cacheService.getAsync<TechnicalIndicatorResponse>(cacheKey);
 
       if (cachedResult) {
         log.debug('Cache hit', { cacheKey });
