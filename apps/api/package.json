@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir=./dist --target=bun --sourcemap",
+    "build": "bun build src/index.ts --outdir=./dist --target=bun --sourcemap && cp src/api-spec.yaml dist/api-spec.yaml",
     "start": "bun run dist/index.js",
     "lint": "eslint src --max-warnings 0",
     "type-check": "tsc --noEmit",

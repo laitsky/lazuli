@@ -13,6 +13,48 @@ import path from 'path';
 // Create logger for docs routes
 const log = createServiceLogger('docs');
 
+interface ApiSpecCache {
+  content: string | null;
+  path?: string;
+  error?: string;
+}
+
+/**
+ * Load API specification once at startup to avoid sync I/O per request
+ */
+function loadApiSpec(): ApiSpecCache {
+  const candidates = [
+    path.join(__dirname, 'api-spec.yaml'),
+    path.join(__dirname, '../api-spec.yaml'),
+    path.resolve(process.cwd(), 'apps/api/src/api-spec.yaml'),
+    path.resolve(process.cwd(), 'src/api-spec.yaml'),
+    path.resolve(process.cwd(), 'api-spec.yaml'),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        const content = fs.readFileSync(candidate, 'utf8');
+        return { content, path: candidate };
+      }
+    } catch (error) {
+      return {
+        content: null,
+        error: error instanceof Error ? error.message : 'Unknown error loading API spec',
+      };
+    }
+  }
+
+  return { content: null, error: 'API specification file not found' };
+}
+
+const apiSpecCache = loadApiSpec();
+if (apiSpecCache.content) {
+  log.info('API spec loaded', { path: apiSpecCache.path });
+} else {
+  log.warn('API spec not loaded', { error: apiSpecCache.error });
+}
+
 /**
  * Documentation routes plugin
  */
@@ -59,15 +101,10 @@ export const docsRoutes = new Elysia({ prefix: '/docs' })
   // GET /api/v1/docs/spec - Serve OpenAPI specification
   .get('/spec', ({ set }) => {
     try {
-      // Read the OpenAPI spec file
-      const specPath = path.join(__dirname, '../api-spec.yaml');
-
-      if (!fs.existsSync(specPath)) {
+      if (!apiSpecCache.content) {
         set.status = 404;
         return errorResponse('API specification file not found', ErrorCode.NOT_FOUND_DATA);
       }
-
-      const specContent = fs.readFileSync(specPath, 'utf8');
 
       // Set appropriate headers for YAML content
       set.headers['Content-Type'] = 'application/yaml';
@@ -75,7 +112,7 @@ export const docsRoutes = new Elysia({ prefix: '/docs' })
       set.headers['Access-Control-Allow-Headers'] =
         'Origin, X-Requested-With, Content-Type, Accept';
 
-      return specContent;
+      return apiSpecCache.content;
     } catch (error) {
       log.error('Error serving API specification', error);
       set.status = 500;
