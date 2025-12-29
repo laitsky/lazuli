@@ -31,6 +31,9 @@ export enum ErrorCode {
   EXCHANGE_INVALID_ORDER = 'EXCHANGE_INVALID_ORDER',
   EXCHANGE_NETWORK_ERROR = 'EXCHANGE_NETWORK_ERROR',
 
+  // Authentication/authorization errors
+  AUTH_UNAUTHORIZED = 'AUTH_UNAUTHORIZED',
+
   // Validation errors (400)
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   VALIDATION_INVALID_EXCHANGE = 'VALIDATION_INVALID_EXCHANGE',
@@ -80,6 +83,9 @@ export const ErrorCodeToHttpStatus: Record<ErrorCode, number> = {
   [ErrorCode.EXCHANGE_INSUFFICIENT_FUNDS]: 400,
   [ErrorCode.EXCHANGE_INVALID_ORDER]: 400,
   [ErrorCode.EXCHANGE_NETWORK_ERROR]: 503,
+
+  // Auth errors
+  [ErrorCode.AUTH_UNAUTHORIZED]: 401,
 
   // Validation errors
   [ErrorCode.VALIDATION_FAILED]: 400,
@@ -461,6 +467,13 @@ export function databaseNotConfigured(): DatabaseError {
  */
 export function internalError(message: string, details?: Record<string, unknown>): ApiError {
   return new ApiError(ErrorCode.INTERNAL_ERROR, message, 500, details);
+}
+
+/**
+ * Creates an unauthorized error
+ */
+export function unauthorized(message: string = 'Unauthorized'): ApiError {
+  return new ApiError(ErrorCode.AUTH_UNAUTHORIZED, message, 401);
 }
 
 // ============================================

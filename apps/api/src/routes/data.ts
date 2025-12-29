@@ -14,8 +14,53 @@ import { Elysia, t } from 'elysia';
 import { databaseService } from '../services/databaseService';
 import { ccxtService } from '../services/ccxtService';
 import { successResponse } from '../utils/response';
-import { invalidExchange, invalidParameter, dataNotFound } from '../errors';
+import {
+  invalidExchange,
+  invalidParameter,
+  dataNotFound,
+  internalError,
+  unauthorized,
+} from '../errors';
 import { validateExchange } from '../utils/validation';
+import { timingSafeEqual } from 'crypto';
+
+/**
+ * Ensure mutation endpoints are protected with an admin API key.
+ * In production, ADMIN_API_KEY must be set or requests will be rejected.
+ */
+function requireAdminKey(request: { headers: { get(name: string): string | null } }): void {
+  const expected = process.env.ADMIN_API_KEY?.trim();
+
+  if (!expected) {
+    if (process.env.NODE_ENV === 'production') {
+      throw internalError('Admin API key is not configured', { envVar: 'ADMIN_API_KEY' });
+    }
+    return;
+  }
+
+  const headerKey =
+    request.headers.get('x-admin-api-key') || request.headers.get('x-api-key') || '';
+  const authHeader = request.headers.get('authorization') || '';
+  const bearerKey = authHeader.toLowerCase().startsWith('bearer ')
+    ? authHeader.slice(7).trim()
+    : '';
+
+  const provided = (bearerKey || headerKey).trim();
+
+  if (!provided) {
+    throw unauthorized('Missing admin API key');
+  }
+
+  const expectedBuffer = Buffer.from(expected);
+  const providedBuffer = Buffer.from(provided);
+  const matches =
+    expectedBuffer.length === providedBuffer.length &&
+    timingSafeEqual(expectedBuffer, providedBuffer);
+
+  if (!matches) {
+    throw unauthorized('Invalid admin API key');
+  }
+}
 
 /**
  * Data routes plugin
@@ -24,7 +69,8 @@ export const dataRoutes = new Elysia({ prefix: '/data' })
   // POST /api/v1/data/store/:exchange - Store live ticker data
   .post(
     '/store/:exchange',
-    async ({ params }) => {
+    async ({ params, request }) => {
+      requireAdminKey(request);
       const exchangeId = validateExchange(params.exchange);
       if (!exchangeId) {
         throw invalidExchange(params.exchange);
@@ -111,7 +157,8 @@ export const dataRoutes = new Elysia({ prefix: '/data' })
   // POST /api/v1/data/markets/:exchange - Store market data
   .post(
     '/markets/:exchange',
-    async ({ params }) => {
+    async ({ params, request }) => {
+      requireAdminKey(request);
       const exchangeId = validateExchange(params.exchange);
       if (!exchangeId) {
         throw invalidExchange(params.exchange);
@@ -139,7 +186,8 @@ export const dataRoutes = new Elysia({ prefix: '/data' })
   // DELETE /api/v1/data/cleanup - Clean up old ticker data
   .delete(
     '/cleanup',
-    async ({ query }) => {
+    async ({ query, request }) => {
+      requireAdminKey(request);
       const { days } = query;
 
       // Parse days parameter
