@@ -27,6 +27,7 @@ import {
   PerformancePeriod,
   ScreenerSortBy,
   ScreenerFilters,
+  Timeframe,
 } from '@lazuli/shared';
 import { parseSymbol } from '../utils/validation';
 import { isApiError } from '../errors';
@@ -52,7 +53,7 @@ const EXCLUDED_BASES = ['BTC', 'USDT', 'USDC', 'BUSD', 'DAI', 'TUSD', 'FDUSD'];
  * Timeframe mapping for performance periods
  * Maps performance period to OHLCV timeframe for chart data
  */
-const PERIOD_TIMEFRAMES: Record<PerformancePeriod, string> = {
+const PERIOD_TIMEFRAMES: Record<PerformancePeriod, Timeframe> = {
   '1h': '5m', // 12 candles for 1h
   '4h': '15m', // 16 candles for 4h
   '24h': '1h', // 24 candles for 24h
@@ -72,6 +73,21 @@ const PERIOD_CANDLE_LIMITS: Record<PerformancePeriod, number> = {
 };
 
 /**
+ * Minutes per candle for each timeframe
+ * Used to compute period changes from OHLCV arrays
+ */
+const TIMEFRAME_MINUTES: Record<Timeframe, number> = {
+  '1m': 1,
+  '5m': 5,
+  '15m': 15,
+  '1h': 60,
+  '4h': 240,
+  '1d': 1440,
+  '3d': 4320,
+  '1w': 10080,
+};
+
+/**
  * Performance optimization constants
  * Tuned for balance between speed and rate limit compliance
  */
@@ -80,15 +96,34 @@ const PERFORMANCE_CONFIG = {
   BATCH_SIZE: 25,
   // Delay between batches in ms (reduced from 100ms)
   BATCH_DELAY_MS: 50,
-  // Screener response cache TTL in ms (increased from 30s for better cache hits)
-  SCREENER_CACHE_TTL_MS: 60000, // 60 seconds
+  // Screener response cache TTL in ms
+  // Set to 3 minutes to outlast the 2-minute worker warming interval
+  // This ensures cache is always warm when worker pre-computes responses
+  SCREENER_CACHE_TTL_MS: 180000, // 3 minutes (was 60s)
   // OHLCV data cache TTL in ms (increased from 60s - chart data doesn't change rapidly)
   OHLCV_CACHE_TTL_MS: 180000, // 3 minutes
   // Lightweight (no OHLCV) response cache TTL - shorter since it's faster to regenerate
   LIGHTWEIGHT_CACHE_TTL_MS: 30000, // 30 seconds
+  // Ticker cache TTL in ms (align with MarketDataWorker)
+  TICKER_CACHE_TTL_MS: 10000,
 };
 
 export class ScreenerService {
+  /**
+   * Get tickers from cache if available, otherwise fetch and populate cache
+   */
+  private async getTickersWithCache(exchangeId: SupportedExchange): Promise<Ticker[]> {
+    const cacheKey = `tickers:${exchangeId}:raw`;
+    const cached = await cacheService.getAsync<Ticker[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const tickers = await ccxtService.getAllTickers(exchangeId);
+    cacheService.set(cacheKey, tickers, PERFORMANCE_CONFIG.TICKER_CACHE_TTL_MS);
+    return tickers;
+  }
+
   /**
    * Get all altcoins with performance data and mini charts
    *
@@ -122,15 +157,20 @@ export class ScreenerService {
       // Cache key no longer includes baseCurrency - we always return USD prices
       // and include all base currency prices for client-side switching
       const cacheKey = `screener:${exchangeId}:${period}`;
-      const cachedResult = cacheService.get<AltScreenerResponse>(cacheKey);
+      const cachedResult = await cacheService.getAsync<AltScreenerResponse>(cacheKey);
 
       if (cachedResult) {
         // Apply sorting and filtering to cached results
-        return this.applySortAndFilter(cachedResult, sortBy, sortOrder, limit, filters);
+        const normalizedResult: AltScreenerResponse = {
+          ...cachedResult,
+          baseCurrency,
+          basePrice: cachedResult.basePrices?.[baseCurrency] ?? cachedResult.basePrice,
+        };
+        return this.applySortAndFilter(normalizedResult, sortBy, sortOrder, limit, filters);
       }
 
       // Fetch all tickers once; derive base currency prices from that list
-      const allTickers = await ccxtService.getAllTickers(exchangeId);
+      const allTickers = await this.getTickersWithCache(exchangeId);
       const basePrices = await this.getAllBaseCurrencyPrices(exchangeId, allTickers);
 
       // Filter to get only USDT spot pairs (altcoins)
@@ -201,11 +241,11 @@ export class ScreenerService {
   ): Promise<BaseCurrencyPrices> {
     // Check cache first
     const cacheKey = `basePrices:${exchangeId}`;
-    const cached = cacheService.get<BaseCurrencyPrices>(cacheKey);
+    const cached = await cacheService.getAsync<BaseCurrencyPrices>(cacheKey);
     if (cached) return cached;
 
     // Use provided tickers (already fetched) or fetch once if needed
-    const tickers = allTickers ?? (await ccxtService.getAllTickers(exchangeId));
+    const tickers = allTickers ?? (await this.getTickersWithCache(exchangeId));
     const getLast = (symbol: string) => tickers.find((t) => t.symbol === symbol)?.last ?? 0;
 
     const basePrices: BaseCurrencyPrices = {
@@ -236,8 +276,9 @@ export class ScreenerService {
     tickers: Ticker[],
     period: PerformancePeriod
   ): Promise<AltcoinPerformance[]> {
-    const timeframe = PERIOD_TIMEFRAMES[period] as any;
+    const timeframe = PERIOD_TIMEFRAMES[period];
     const candleLimit = PERIOD_CANDLE_LIMITS[period];
+    const marketType = 'spot' as const;
 
     // Process in batches to avoid rate limiting
     // Using larger batch size (25) for faster loading while staying within rate limits
@@ -251,8 +292,8 @@ export class ScreenerService {
         batch.map(async (ticker) => {
           try {
             // Check cache for OHLCV data
-            const ohlcvCacheKey = `ohlcv:${exchangeId}:${ticker.symbol}:${timeframe}:${candleLimit}`;
-            let ohlcv = cacheService.get<OHLCV[]>(ohlcvCacheKey);
+            const ohlcvCacheKey = `ohlcv:${exchangeId}:${ticker.symbol}:${timeframe}:${marketType}:${candleLimit}`;
+            let ohlcv = await cacheService.getAsync<OHLCV[]>(ohlcvCacheKey);
 
             if (!ohlcv) {
               // Fetch OHLCV data
@@ -260,7 +301,7 @@ export class ScreenerService {
                 exchangeId,
                 ticker.symbol,
                 timeframe,
-                'spot',
+                marketType,
                 candleLimit
               );
               // Cache OHLCV data for 3 minutes (chart data doesn't change rapidly)
@@ -274,7 +315,7 @@ export class ScreenerService {
             const priceInUSD = ticker.last!;
 
             // Calculate performance changes based on USD price
-            const changes = this.calculatePerformanceChanges(ohlcv, priceInUSD);
+            const changes = this.calculatePerformanceChanges(ohlcv, priceInUSD, timeframe);
 
             return {
               symbol: ticker.symbol,
@@ -341,28 +382,42 @@ export class ScreenerService {
    */
   private calculatePerformanceChanges(
     ohlcv: OHLCV[],
-    currentPrice: number
+    currentPrice: number,
+    timeframe: Timeframe
   ): { change1h: number | null; change4h: number | null; change7d: number | null } {
-    if (!ohlcv || ohlcv.length === 0) {
+    if (!ohlcv || ohlcv.length === 0 || !Number.isFinite(currentPrice) || currentPrice <= 0) {
       return { change1h: null, change4h: null, change7d: null };
     }
 
     // Sort by timestamp ascending
     const sortedOhlcv = [...ohlcv].sort((a, b) => a.timestamp - b.timestamp);
 
-    // Get first candle for period change
-    const firstCandle = sortedOhlcv[0];
+    const minutesPerCandle = TIMEFRAME_MINUTES[timeframe];
+    if (!minutesPerCandle) {
+      return { change1h: null, change4h: null, change7d: null };
+    }
 
-    // Calculate changes based on first candle
-    const periodChange = firstCandle
-      ? ((currentPrice - firstCandle.open) / firstCandle.open) * 100
-      : null;
+    const changeForMinutes = (minutes: number): number | null => {
+      if (minutes % minutesPerCandle !== 0) {
+        return null;
+      }
+      const candlesBack = minutes / minutesPerCandle;
+      if (candlesBack <= 0 || sortedOhlcv.length < candlesBack) {
+        return null;
+      }
+      const candleIndex = sortedOhlcv.length - candlesBack;
+      const candle = sortedOhlcv[candleIndex];
+      if (!candle || !Number.isFinite(candle.open) || candle.open <= 0) {
+        return null;
+      }
+      return ((currentPrice - candle.open) / candle.open) * 100;
+    };
 
-    // For different periods, we estimate based on available data
+    // Compute period changes based on the selected timeframe
     return {
-      change1h: ohlcv.length >= 12 ? periodChange : null,
-      change4h: ohlcv.length >= 16 ? periodChange : null,
-      change7d: ohlcv.length >= 42 ? periodChange : null,
+      change1h: changeForMinutes(60),
+      change4h: changeForMinutes(240),
+      change7d: changeForMinutes(10080),
     };
   }
 
@@ -516,7 +571,7 @@ export class ScreenerService {
     }
 
     const symbol = BASE_CURRENCY_SYMBOLS[baseCurrency];
-    const timeframe = PERIOD_TIMEFRAMES[period] as any;
+    const timeframe = PERIOD_TIMEFRAMES[period];
     const candleLimit = PERIOD_CANDLE_LIMITS[period];
 
     return ccxtService.fetchOHLCV(exchangeId, symbol, timeframe, 'spot', candleLimit);
@@ -551,7 +606,7 @@ export class ScreenerService {
       // Cache key for lightweight response (no period since we skip OHLCV)
       // Cache is base-currency agnostic - we normalize the response on cache hit
       const cacheKey = `screener:${exchangeId}:lightweight`;
-      const cachedResult = cacheService.get<AltScreenerResponse>(cacheKey);
+      const cachedResult = await cacheService.getAsync<AltScreenerResponse>(cacheKey);
 
       if (cachedResult) {
         // Normalize response for requested base currency
@@ -566,7 +621,7 @@ export class ScreenerService {
       }
 
       // Fetch all tickers once; derive base currency prices from that list
-      const allTickers = await ccxtService.getAllTickers(exchangeId);
+      const allTickers = await this.getTickersWithCache(exchangeId);
       const basePrices = await this.getAllBaseCurrencyPrices(exchangeId, allTickers);
 
       // Filter to get only USDT spot pairs (altcoins)
@@ -659,8 +714,9 @@ export class ScreenerService {
     symbols: string[],
     period: PerformancePeriod = '24h'
   ): Promise<Record<string, OHLCV[]>> {
-    const timeframe = PERIOD_TIMEFRAMES[period] as any;
+    const timeframe = PERIOD_TIMEFRAMES[period];
     const candleLimit = PERIOD_CANDLE_LIMITS[period];
+    const marketType = 'spot' as const;
     const result: Record<string, OHLCV[]> = {};
 
     // Deduplicate to avoid redundant fetches
@@ -675,8 +731,8 @@ export class ScreenerService {
       const batchResults = await Promise.all(
         batch.map(async (symbol) => {
           // Check cache first
-          const ohlcvCacheKey = `ohlcv:${exchangeId}:${symbol}:${timeframe}:${candleLimit}`;
-          let ohlcv = cacheService.get<OHLCV[]>(ohlcvCacheKey);
+          const ohlcvCacheKey = `ohlcv:${exchangeId}:${symbol}:${timeframe}:${marketType}:${candleLimit}`;
+          let ohlcv = await cacheService.getAsync<OHLCV[]>(ohlcvCacheKey);
 
           if (!ohlcv) {
             try {
@@ -684,7 +740,7 @@ export class ScreenerService {
                 exchangeId,
                 symbol,
                 timeframe,
-                'spot',
+                marketType,
                 candleLimit
               );
               // Cache OHLCV data

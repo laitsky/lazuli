@@ -19,8 +19,9 @@
 
 import { ccxtService } from './ccxtService';
 import { cacheService } from './cacheService';
+import { screenerService } from './screenerService';
 import { createServiceLogger } from '../utils/logger';
-import { Ticker, PerformancePeriod, Timeframe } from '@lazuli/shared';
+import { Ticker, PerformancePeriod, Timeframe, SupportedExchange } from '@lazuli/shared';
 import { parseSymbol } from '../utils/validation';
 
 const log = createServiceLogger('market-data-worker');
@@ -265,12 +266,16 @@ export class MarketDataWorker {
   /**
    * Run OHLCV warming cycle and schedule the next one
    * Pre-warms OHLCV cache for top altcoins to speed up screener loading
+   * Also pre-computes full screener responses after OHLCV warming
    */
   private async warmOhlcvAndScheduleNext(): Promise<void> {
     try {
       await this.warmOhlcvCache();
+      // Pre-compute screener responses after OHLCV is warmed
+      // This ensures screener cache is always warm for fast API responses
+      await this.warmScreenerResponses();
     } catch (error) {
-      log.error('OHLCV warming cycle failed', error as Error);
+      log.error('OHLCV/Screener warming cycle failed', error as Error);
     }
 
     if (!this.isRunning) {
@@ -389,7 +394,7 @@ export class MarketDataWorker {
 
         await Promise.all(
           batch.map(async (ticker) => {
-            const ohlcvCacheKey = `ohlcv:${exchangeId}:${ticker.symbol}:${timeframe}:${candleLimit}`;
+            const ohlcvCacheKey = `ohlcv:${exchangeId}:${ticker.symbol}:${timeframe}:spot:${candleLimit}`;
 
             // Skip if already cached
             if (cacheService.get(ohlcvCacheKey)) {
@@ -434,6 +439,65 @@ export class MarketDataWorker {
       });
       throw error;
     }
+  }
+
+  /**
+   * Exchanges that only support perpetual markets (no spot)
+   * These are excluded from screener warming since screener is spot-only
+   */
+  private readonly PERP_ONLY_EXCHANGES = ['hyperliquid'];
+
+  /**
+   * Pre-compute and cache full screener responses
+   *
+   * Builds the complete screener response (with OHLCV data) for each exchange
+   * and caches it. This ensures the first user request is fast instead of
+   * waiting 17+ seconds for OHLCV data to be fetched on-demand.
+   *
+   * Called after OHLCV warming completes since screener depends on OHLCV cache.
+   */
+  private async warmScreenerResponses(): Promise<void> {
+    // Get all supported exchanges and filter out perp-only exchanges
+    // Screener only works with spot markets
+    const allExchanges = ccxtService.getSupportedExchanges();
+    const exchanges = allExchanges.filter(
+      (ex) => !this.PERP_ONLY_EXCHANGES.includes(ex)
+    ) as SupportedExchange[];
+
+    const period: PerformancePeriod = '24h'; // Most commonly used period
+    const startTime = Date.now();
+
+    log.info('Starting screener response warming', {
+      exchanges: exchanges.length,
+      period,
+    });
+
+    let succeeded = 0;
+    let failed = 0;
+
+    for (const exchange of exchanges) {
+      try {
+        // Call getAltcoins which computes and caches the full response
+        // Using high limit (500) to pre-compute data for all altcoins
+        await screenerService.getAltcoins(exchange, 'USD', period, 'performance', 'desc', 500);
+        succeeded++;
+        log.debug('Screener response warmed', { exchange, period });
+      } catch (error) {
+        failed++;
+        log.warn('Failed to warm screener response', {
+          exchange,
+          period,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    log.info('Screener response warming completed', {
+      succeeded,
+      failed,
+      duration: `${duration}ms`,
+    });
   }
 }
 
