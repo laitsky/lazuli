@@ -1,3 +1,15 @@
+/**
+ * CCXT Service (Cloudflare Workers-compatible)
+ *
+ * CRITICAL: Every exchange constructor MUST receive `fetchImplementation: fetch`.
+ * Under `nodejs_compat`, CCXT detects `isNode === true` and uses its bundled
+ * node-fetch, which does NOT auto-decompress gzip responses (Binance serves
+ * gzip). Injecting the Workers native `fetch` makes decompression work.
+ *
+ * `protobufjs` is installed as a sibling dependency because CCXT's bundle
+ * references it without declaring it as a dependency.
+ */
+
 import ccxt from 'ccxt';
 import { Ticker, Market, OHLCV, Timeframe } from '../types';
 import { OrderBook, OrderBookEntry } from '@lazuli/shared';
@@ -14,7 +26,20 @@ import { createServiceLogger } from '../utils/logger';
 // Create logger for CCXT service
 const log = createServiceLogger('ccxt');
 
+// CCXT's TypeScript typings don't expose every subclass (e.g. binanceusdm) on
+// the default export, so we cast to a record for dynamic access.
 const dynamicCcxt = ccxt as typeof ccxt & Record<string, any>;
+
+/**
+ * Shared options applied to every exchange constructor.
+ * `fetchImplementation` is the Workers workaround described above.
+ */
+function baseOptions(): Record<string, unknown> {
+  return {
+    enableRateLimit: true,
+    fetchImplementation: fetch,
+  };
+}
 
 export class CCXTService {
   private spotExchanges: Map<string, any>;
@@ -27,91 +52,75 @@ export class CCXTService {
   }
 
   private initializeExchanges(): void {
-    // Initialize spot exchanges
+    // --- Spot exchanges ---
     this.spotExchanges.set(
       'binance',
       new ccxt.binance({
-        enableRateLimit: true,
-        options: {
-          defaultType: 'spot',
-        },
+        ...baseOptions(),
+        options: { defaultType: 'spot' },
       })
     );
 
     this.spotExchanges.set(
       'bybit',
       new ccxt.bybit({
-        enableRateLimit: true,
-        options: {
-          defaultType: 'spot',
-        },
+        ...baseOptions(),
+        options: { defaultType: 'spot' },
       })
     );
 
     this.spotExchanges.set(
       'okx',
       new ccxt.okx({
-        enableRateLimit: true,
-        options: {
-          defaultType: 'spot',
-        },
+        ...baseOptions(),
+        options: { defaultType: 'spot' },
       })
     );
 
-    // Initialize perpetual/swap exchanges
+    // --- Perpetual / swap exchanges ---
+    // Binance USDT-M futures (binanceusdm is the dedicated class)
+    const BinanceUsdm = dynamicCcxt.binanceusdm || ccxt.binance;
     this.perpExchanges.set(
       'binance',
-      new ccxt.binance({
-        enableRateLimit: true,
-        options: {
-          defaultType: 'future',
-        },
+      new BinanceUsdm({
+        ...baseOptions(),
+        options: { defaultType: 'future' },
       })
     );
 
     this.perpExchanges.set(
       'bybit',
       new ccxt.bybit({
-        enableRateLimit: true,
-        options: {
-          defaultType: 'swap',
-        },
+        ...baseOptions(),
+        options: { defaultType: 'swap' },
       })
     );
 
     this.perpExchanges.set(
       'okx',
       new ccxt.okx({
-        enableRateLimit: true,
-        options: {
-          defaultType: 'swap',
-        },
+        ...baseOptions(),
+        options: { defaultType: 'swap' },
       })
     );
 
-    // Initialize Hyperliquid (perpetual only - no spot markets)
-    // Hyperliquid is a DEX that specializes in perpetual futures trading
+    // Hyperliquid (perpetual only - no spot markets)
     this.perpExchanges.set(
       'hyperliquid',
       new ccxt.hyperliquid({
-        enableRateLimit: true,
-        options: {
-          defaultType: 'swap',
-        },
+        ...baseOptions(),
+        options: { defaultType: 'swap' },
       })
     );
 
-    // Initialize Upbit (spot only - no perpetual markets)
-    // Upbit is a major Korean exchange, primarily using KRW pairs but also supports USDT/BTC pairs
+    // Upbit (spot only - no perpetual markets)
     const UpbitExchange = dynamicCcxt.upbit;
     if (UpbitExchange) {
       this.spotExchanges.set(
         'upbit',
         new UpbitExchange({
-          enableRateLimit: true,
-          options: {
-            defaultType: 'spot',
-          },
+          ...baseOptions(),
+          options: { defaultType: 'spot' },
         })
       );
     } else {
@@ -132,8 +141,6 @@ export class CCXTService {
 
   /**
    * Check if an exchange has spot markets
-   * @param exchangeId - Exchange identifier
-   * @returns true if exchange has spot markets
    */
   hasSpotMarkets(exchangeId: string): boolean {
     return this.spotExchanges.has(exchangeId);
@@ -141,8 +148,6 @@ export class CCXTService {
 
   /**
    * Check if an exchange has perpetual markets
-   * @param exchangeId - Exchange identifier
-   * @returns true if exchange has perpetual markets
    */
   hasPerpMarkets(exchangeId: string): boolean {
     return this.perpExchanges.has(exchangeId);
@@ -150,26 +155,21 @@ export class CCXTService {
 
   /**
    * Get list of all supported exchange IDs
-   * @returns Array of exchange identifiers
    */
   getSupportedExchanges(): string[] {
-    // Get unique exchange IDs from both spot and perp maps
     const exchanges = new Set([...this.spotExchanges.keys(), ...this.perpExchanges.keys()]);
     return Array.from(exchanges);
   }
 
   /**
-   * Pre-warm exchange markets on startup
-   * Loads markets for all supported exchanges in parallel to avoid
-   * slow first requests. Call this during server initialization.
-   * @returns Promise<void>
+   * Pre-warm exchange markets on startup.
+   * Loads markets for all supported exchanges in parallel.
    */
   async warmup(): Promise<void> {
     log.info('Warming up exchange markets...');
     const startTime = Date.now();
     const exchanges = this.getSupportedExchanges();
 
-    // Load all exchange markets in parallel
     const results = await Promise.allSettled(
       exchanges.map(async (exchangeId) => {
         try {
@@ -196,13 +196,11 @@ export class CCXTService {
   async loadMarkets(exchangeId: string): Promise<void> {
     const loadPromises: Promise<any>[] = [];
 
-    // Only load spot markets if the exchange supports them
     if (this.hasSpotMarkets(exchangeId)) {
       const spotExchange = this.getExchange(exchangeId, 'spot');
       loadPromises.push(spotExchange.loadMarkets());
     }
 
-    // Only load perp markets if the exchange supports them
     if (this.hasPerpMarkets(exchangeId)) {
       const perpExchange = this.getExchange(exchangeId, 'perp');
       loadPromises.push(perpExchange.loadMarkets());
@@ -217,12 +215,10 @@ export class CCXTService {
 
       const tickerPromises: Promise<Ticker[]>[] = [];
 
-      // Only fetch spot tickers if the exchange supports spot markets
       if (this.hasSpotMarkets(exchangeId)) {
         tickerPromises.push(this.getTickersByType(exchangeId, 'spot'));
       }
 
-      // Only fetch perp tickers if the exchange supports perp markets
       if (this.hasPerpMarkets(exchangeId)) {
         tickerPromises.push(this.getTickersByType(exchangeId, 'perp'));
       }
@@ -230,11 +226,9 @@ export class CCXTService {
       const tickerArrays = await Promise.all(tickerPromises);
       return tickerArrays.flat();
     } catch (error) {
-      // If it's already an ExchangeError, rethrow it
       if (error instanceof ExchangeError) {
         throw error;
       }
-      // Classify CCXT errors into our standardized error types
       throw classifyCcxtError(error, exchangeId);
     }
   }
@@ -244,11 +238,7 @@ export class CCXTService {
       const exchange = this.getExchange(exchangeId, type);
       const tickers = await exchange.fetchTickers();
 
-      // Transform exchange-specific ticker format to our standardized format
       return Object.entries(tickers).map(([ccxtSymbol, ticker]: [string, any]) => {
-        // Convert CCXT symbol notation to our standardized notation
-        // Spot: BTC/USDT -> BTC-USDT
-        // Perp: BTC/USDT:USDT -> BTCUSDT.P
         const standardSymbol = convertFromCCXTNotation(ccxtSymbol, type);
 
         return {
@@ -265,15 +255,12 @@ export class CCXTService {
           change24h: ticker.change || null,
           percentage24h: ticker.percentage || null,
           timestamp: ticker.timestamp || Date.now(),
-          // Include perpetual-specific data like funding rate and open interest
           fundingRate: type === 'perp' ? ticker.info?.fundingRate || null : undefined,
           openInterest: type === 'perp' ? ticker.info?.openInterest || null : undefined,
         };
       });
     } catch (error) {
-      // Log the error but classify and rethrow it for proper handling upstream
       log.error(`Error fetching ${type} tickers`, error, { exchange: exchangeId, type });
-      // If it's already an ExchangeError, rethrow it
       if (error instanceof ExchangeError) {
         throw error;
       }
@@ -287,12 +274,10 @@ export class CCXTService {
 
       const marketPromises: Promise<Market[]>[] = [];
 
-      // Only fetch spot markets if the exchange supports them
       if (this.hasSpotMarkets(exchangeId)) {
         marketPromises.push(this.getMarketsByType(exchangeId, 'spot'));
       }
 
-      // Only fetch perp markets if the exchange supports them
       if (this.hasPerpMarkets(exchangeId)) {
         marketPromises.push(this.getMarketsByType(exchangeId, 'perp'));
       }
@@ -300,11 +285,9 @@ export class CCXTService {
       const marketArrays = await Promise.all(marketPromises);
       return marketArrays.flat();
     } catch (error) {
-      // If it's already an ExchangeError, rethrow it
       if (error instanceof ExchangeError) {
         throw error;
       }
-      // Classify CCXT errors into our standardized error types
       throw classifyCcxtError(error, exchangeId);
     }
   }
@@ -314,9 +297,7 @@ export class CCXTService {
       const exchange = this.getExchange(exchangeId, type);
       const markets = exchange.markets;
 
-      // Transform exchange market data to our standardized format
       return Object.entries(markets).map(([id, market]: [string, any]) => {
-        // Convert CCXT symbol notation to our standardized notation
         const standardSymbol = convertFromCCXTNotation(market.symbol, type);
 
         return {
@@ -330,9 +311,7 @@ export class CCXTService {
         };
       });
     } catch (error) {
-      // Log the error but classify and rethrow it for proper handling upstream
       log.error(`Error fetching ${type} markets`, error, { exchange: exchangeId, type });
-      // If it's already an ExchangeError, rethrow it
       if (error instanceof ExchangeError) {
         throw error;
       }
@@ -345,27 +324,19 @@ export class CCXTService {
       const allTickers = await this.getAllTickers(exchangeId);
       const ticker = allTickers.find((t) => t.symbol === symbol);
       if (!ticker) {
-        // Return null instead of throwing to allow controller to handle 404
         return null;
       }
       return ticker;
     } catch (error) {
-      // If it's already an ExchangeError, rethrow it
       if (error instanceof ExchangeError) {
         throw error;
       }
-      // Classify CCXT errors into our standardized error types
       throw classifyCcxtError(error, exchangeId);
     }
   }
 
   /**
    * Check if a timeframe is supported by a specific exchange
-   * Different exchanges support different timeframes
-   * @param exchangeId - Exchange identifier
-   * @param timeframe - Timeframe to check
-   * @param marketType - Market type (spot or perp)
-   * @returns true if supported, false otherwise
    */
   isTimeframeSupported(
     exchangeId: string,
@@ -374,14 +345,9 @@ export class CCXTService {
   ): boolean {
     try {
       const exchange = this.getExchange(exchangeId, marketType);
-
-      // CCXT exchanges have a timeframes property that lists supported timeframes
       if (!exchange.timeframes) {
-        // If timeframes not available, assume all are supported
         return true;
       }
-
-      // Check if the timeframe exists in the exchange's supported timeframes
       return timeframe in exchange.timeframes;
     } catch (error) {
       log.error('Error checking timeframe support', error, { exchange: exchangeId, timeframe });
@@ -391,19 +357,13 @@ export class CCXTService {
 
   /**
    * Get list of supported timeframes for an exchange
-   * @param exchangeId - Exchange identifier
-   * @param marketType - Market type (spot or perp)
-   * @returns Array of supported timeframes
    */
   getSupportedTimeframes(exchangeId: string, marketType: 'spot' | 'perp' = 'spot'): string[] {
     try {
       const exchange = this.getExchange(exchangeId, marketType);
-
       if (!exchange.timeframes) {
-        // Return default set if not available
         return ['1m', '5m', '15m', '1h', '4h', '1d', '1w'];
       }
-
       return Object.keys(exchange.timeframes);
     } catch (error) {
       log.error('Error getting supported timeframes', error, { exchange: exchangeId });
@@ -413,12 +373,6 @@ export class CCXTService {
 
   /**
    * Fetch OHLCV (candlestick) data for a specific symbol and timeframe
-   * @param exchangeId - Exchange identifier (binance, bybit, okx)
-   * @param symbol - Trading pair symbol in standardized notation (e.g., 'BTC-USDT' or 'BTCUSDT.P')
-   * @param timeframe - Timeframe for candles (1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w)
-   * @param marketType - Market type (spot or perp)
-   * @param limit - Number of candles to fetch (default: 100)
-   * @returns Array of OHLCV candles
    */
   async fetchOHLCV(
     exchangeId: string,
@@ -428,58 +382,39 @@ export class CCXTService {
     limit: number = 100
   ): Promise<OHLCV[]> {
     try {
-      // Convert our standardized symbol notation to CCXT format
-      // BTC-USDT -> BTC/USDT (spot)
-      // BTCUSDT.P -> BTC/USDT:USDT (perp)
       const ccxtSymbol = convertToCCXTNotation(symbol, marketType);
-
-      // Get the appropriate exchange instance
       const exchange = this.getExchange(exchangeId, marketType);
 
-      // Load markets if not already loaded
       if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
         await exchange.loadMarkets();
       }
 
-      // Check if timeframe is supported by this exchange
       if (!this.isTimeframeSupported(exchangeId, timeframe, marketType)) {
         const supported = this.getSupportedTimeframes(exchangeId, marketType);
         throw invalidTimeframe(timeframe, supported);
       }
 
-      // Fetch OHLCV data from the exchange using CCXT symbol format
-      // CCXT returns array of [timestamp, open, high, low, close, volume]
       const ohlcvData = await exchange.fetchOHLCV(ccxtSymbol, timeframe, undefined, limit);
 
-      // Transform CCXT format to our standardized OHLCV format
       return ohlcvData.map((candle: number[]) => ({
-        timestamp: candle[0], // Timestamp in milliseconds
-        open: candle[1], // Opening price
-        high: candle[2], // Highest price
-        low: candle[3], // Lowest price
-        close: candle[4], // Closing price
-        volume: candle[5], // Volume in base currency
+        timestamp: candle[0],
+        open: candle[1],
+        high: candle[2],
+        low: candle[3],
+        close: candle[4],
+        volume: candle[5],
       }));
     } catch (error) {
       log.error('Error fetching OHLCV', error, { exchange: exchangeId, symbol, timeframe });
-      // If it's already an ExchangeError or ValidationError, rethrow it
       if (error instanceof ExchangeError || error instanceof ValidationError) {
         throw error;
       }
-      // Classify CCXT errors into our standardized error types
       throw classifyCcxtError(error, exchangeId);
     }
   }
 
   /**
    * Fetch order book (depth) data for a specific symbol
-   * Returns bids and asks sorted by price with cumulative totals
-   *
-   * @param exchangeId - Exchange identifier (binance, bybit, okx, etc.)
-   * @param symbol - Trading pair symbol in standardized notation (e.g., 'BTC-USDT' or 'BTCUSDT.P')
-   * @param marketType - Market type (spot or perp)
-   * @param limit - Number of price levels to fetch per side (default: 50, max varies by exchange)
-   * @returns OrderBook with bids and asks
    */
   async fetchOrderBook(
     exchangeId: string,
@@ -488,25 +423,15 @@ export class CCXTService {
     limit: number = 50
   ): Promise<OrderBook> {
     try {
-      // Convert our standardized symbol notation to CCXT format
-      // BTC-USDT -> BTC/USDT (spot)
-      // BTCUSDT.P -> BTC/USDT:USDT (perp)
       const ccxtSymbol = convertToCCXTNotation(symbol, marketType);
-
-      // Get the appropriate exchange instance
       const exchange = this.getExchange(exchangeId, marketType);
 
-      // Load markets if not already loaded
       if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
         await exchange.loadMarkets();
       }
 
-      // Fetch order book from the exchange
-      // CCXT returns { bids: [[price, amount], ...], asks: [[price, amount], ...], timestamp, nonce }
       const orderBookData = await exchange.fetchOrderBook(ccxtSymbol, limit);
 
-      // Transform bids with cumulative totals
-      // Bids are sorted from highest to lowest price (best bid first)
       let bidCumulative = 0;
       const bids: OrderBookEntry[] = orderBookData.bids.map((entry: [number, number]) => {
         bidCumulative += entry[1];
@@ -517,8 +442,6 @@ export class CCXTService {
         };
       });
 
-      // Transform asks with cumulative totals
-      // Asks are sorted from lowest to highest price (best ask first)
       let askCumulative = 0;
       const asks: OrderBookEntry[] = orderBookData.asks.map((entry: [number, number]) => {
         askCumulative += entry[1];
@@ -540,11 +463,9 @@ export class CCXTService {
       };
     } catch (error) {
       log.error('Error fetching order book', error, { exchange: exchangeId, symbol, marketType });
-      // If it's already an ExchangeError or ValidationError, rethrow it
       if (error instanceof ExchangeError || error instanceof ValidationError) {
         throw error;
       }
-      // Classify CCXT errors into our standardized error types
       throw classifyCcxtError(error, exchangeId);
     }
   }

@@ -1,5 +1,5 @@
 /**
- * Standardized Error Handling System for Lazuli API
+ * Standardized Error Handling System for Lazuli API (Workers-compatible)
  *
  * This module provides a comprehensive error handling framework with:
  * - Specific error codes for different failure scenarios
@@ -145,7 +145,15 @@ export class ApiError extends Error {
     this.timestamp = Date.now();
 
     // Maintains proper stack trace for where error was thrown
-    Error.captureStackTrace(this, this.constructor);
+    // Error.captureStackTrace may not be available in all Workers runtimes;
+    // guard the call so we degrade gracefully.
+    type ErrorWithStackTrace = Error & {
+      captureStackTrace?: (target: object, ctor: unknown) => void;
+    };
+    const ErrorCtor = Error as unknown as ErrorWithStackTrace;
+    if (typeof ErrorCtor.captureStackTrace === 'function') {
+      ErrorCtor.captureStackTrace(this, this.constructor);
+    }
   }
 
   /**
@@ -458,7 +466,7 @@ export function databaseWriteError(operation: string, details?: string): Databas
 export function databaseNotConfigured(): DatabaseError {
   return new DatabaseError(
     ErrorCode.DATABASE_NOT_CONFIGURED,
-    'Database is not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY environment variables.'
+    'Database is not configured. Ensure the D1 binding is present in wrangler.jsonc.'
   );
 }
 

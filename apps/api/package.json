@@ -2,14 +2,15 @@
   "name": "@lazuli/api",
   "version": "0.1.0-alpha",
   "description": "Lazuli REST API - Cryptocurrency trading data service",
-  "main": "dist/index.js",
+  "main": "src/index.ts",
   "scripts": {
-    "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir=./dist --target=bun --sourcemap && cp src/api-spec.yaml dist/api-spec.yaml",
-    "start": "bun run dist/index.js",
+    "dev": "wrangler dev --port 8787",
+    "deploy": "wrangler deploy",
+    "build": "wrangler deploy --dry-run",
+    "type-check": "wrangler types && tsc --noEmit",
+    "db:migrate": "wrangler d1 migrations apply lazuli-db --local",
     "lint": "eslint src --max-warnings 0",
-    "type-check": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo .wrangler"
   },
   "keywords": [
     "cryptocurrency",
@@ -17,30 +18,24 @@
     "api",
     "binance",
     "bybit",
-    "okx"
+    "okx",
+    "cloudflare-workers"
   ],
   "author": "",
   "license": "ISC",
   "devDependencies": {
     "@lazuli/eslint-config": "*",
     "@lazuli/typescript-config": "*",
-    "@types/node": "^24.0.4",
     "eslint": "^9.0.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "wrangler": "^4.101.0"
   },
   "dependencies": {
-    "@elysiajs/cors": "^1.4.0",
-    "@elysiajs/static": "^1.4.7",
+    "@hono/zod-validator": "^0.8.0",
     "@lazuli/shared": "*",
-    "@stoplight/elements": "^9.0.13",
-    "@supabase/supabase-js": "^2.50.2",
-    "axios": "^1.12.0",
     "ccxt": "^4.4.91",
-    "dotenv": "^16.5.0",
-    "elysia": "^1.4.18",
-    "ioredis": "^5.8.2",
-    "pino": "^10.1.0",
-    "pino-pretty": "^13.1.3",
-    "pino-roll": "^4.0.0"
+    "hono": "^4.12.26",
+    "protobufjs": "^8.6.4",
+    "zod": "^4.4.3"
   }
 }

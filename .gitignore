@@ -47,6 +47,10 @@ coverage/
 # TypeScript
 *.tsbuildinfo
 
+# Cloudflare Wrangler (local state, generated types)
+.wrangler/
+worker-configuration.d.ts
+
 # Old structure (to be removed after migration)
 /src
 /web

@@ -141,3 +141,15 @@ export interface CustomIndexResponse {
   endTime: number; // End timestamp
   totalReturn: number; // Total percentage return
 }
+
+/**
+ * Cloudflare Workers environment bindings for the Lazuli API Worker.
+ * These are declared in wrangler.jsonc and generated into worker-configuration.d.ts
+ * by `wrangler types`. The interface here is kept in sync manually as a fallback.
+ */
+export interface Env {
+  DB: D1Database;
+  MARKET_DATA_CACHE: DurableObjectNamespace;
+  ADMIN_API_KEY?: string;
+  CORS_ORIGIN?: string;
+}
