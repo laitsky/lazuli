@@ -1,0 +1,17 @@
+{
+  "name": "spike-ccxt-worker",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "wrangler": "^4.101.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "ccxt": "^4.5.59",
+    "protobufjs": "^8.6.4"
+  }
+}

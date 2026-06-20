@@ -6,7 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "bunx --bun vite",
+    "dev:worker": "wrangler dev --port 8788",
     "build": "bunx --bun vite build",
+    "build:worker": "bun run build && wrangler deploy --dry-run",
+    "deploy": "bun run build && wrangler deploy",
     "preview": "bunx --bun vite preview",
     "lint": "eslint .",
     "type-check": "tsc --noEmit",
@@ -44,6 +47,7 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "typescript-eslint": "^8.18.1",
-    "vite": "^6.0.5"
+    "vite": "^6.0.5",
+    "wrangler": "^4.101.0"
   }
 }

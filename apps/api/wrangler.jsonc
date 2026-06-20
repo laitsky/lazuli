@@ -4,9 +4,17 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
+  "limits": {
+    "cpu_ms": 300000,
+  },
 
   "observability": {
-    "enabled": true
+    "enabled": true,
+  },
+
+  "vars": {
+    "ENVIRONMENT": "local",
+    "PUBLIC_API_BASE_URL": "http://localhost:8787",
   },
 
   "d1_databases": [
@@ -14,23 +22,209 @@
       "binding": "DB",
       "database_name": "lazuli-db",
       "database_id": "local",
-      "migrations_dir": "migrations"
-    }
+      "migrations_dir": "migrations",
+    },
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "OHLCV_ARCHIVE",
+      "bucket_name": "lazuli-ohlcv-local",
+    },
+  ],
+
+  "queues": {
+    "producers": [
+      {
+        "binding": "BACKFILL_QUEUE",
+        "queue": "lazuli-backfill-local",
+      },
+    ],
+    "consumers": [
+      {
+        "queue": "lazuli-backfill-local",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 10,
+        "dead_letter_queue": "lazuli-backfill-dlq-local",
+      },
+    ],
+  },
+
+  "workflows": [
+    {
+      "name": "lazuli-backfill-local",
+      "binding": "BACKFILL_WORKFLOW",
+      "class_name": "BackfillWorkflow",
+      "limits": {
+        "steps": 25000,
+      },
+    },
+  ],
+
+  "analytics_engine_datasets": [
+    {
+      "binding": "API_ANALYTICS",
+      "dataset": "lazuli_api_local",
+    },
   ],
 
   "durable_objects": {
     "bindings": [
       {
         "name": "MARKET_DATA_CACHE",
-        "class_name": "MarketDataCacheDO"
-      }
-    ]
+        "class_name": "MarketDataCacheDO",
+      },
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiterDO",
+      },
+    ],
   },
 
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["MarketDataCacheDO"]
-    }
-  ]
+      "new_classes": ["MarketDataCacheDO"],
+    },
+    {
+      "tag": "v2",
+      "new_classes": ["RateLimiterDO"],
+    },
+  ],
+
+  "env": {
+    "staging": {
+      "name": "lazuli-api-staging",
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "PUBLIC_API_BASE_URL": "https://api-staging.lazuli.app",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "lazuli-db-staging",
+          "database_id": "09fb35f7-b0af-40b1-93e0-de1691bcdbf9",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "OHLCV_ARCHIVE",
+          "bucket_name": "lazuli-ohlcv-staging",
+        },
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "BACKFILL_QUEUE",
+            "queue": "lazuli-backfill-staging",
+          },
+        ],
+        "consumers": [
+          {
+            "queue": "lazuli-backfill-staging",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 10,
+            "dead_letter_queue": "lazuli-backfill-dlq-staging",
+          },
+        ],
+      },
+      "workflows": [
+        {
+          "name": "lazuli-backfill-staging",
+          "binding": "BACKFILL_WORKFLOW",
+          "class_name": "BackfillWorkflow",
+          "limits": {
+            "steps": 25000,
+          },
+        },
+      ],
+      "analytics_engine_datasets": [
+        {
+          "binding": "API_ANALYTICS",
+          "dataset": "lazuli_api_staging",
+        },
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "MARKET_DATA_CACHE",
+            "class_name": "MarketDataCacheDO",
+          },
+          {
+            "name": "RATE_LIMITER",
+            "class_name": "RateLimiterDO",
+          },
+        ],
+      },
+    },
+    "production": {
+      "name": "lazuli-api",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "PUBLIC_API_BASE_URL": "https://api.lazuli.app",
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "lazuli-db-prod",
+          "database_id": "66e3ce0d-5467-4b0c-aee8-78bd52846e0f",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "r2_buckets": [
+        {
+          "binding": "OHLCV_ARCHIVE",
+          "bucket_name": "lazuli-ohlcv-prod",
+        },
+      ],
+      "queues": {
+        "producers": [
+          {
+            "binding": "BACKFILL_QUEUE",
+            "queue": "lazuli-backfill-prod",
+          },
+        ],
+        "consumers": [
+          {
+            "queue": "lazuli-backfill-prod",
+            "max_batch_size": 10,
+            "max_batch_timeout": 5,
+            "max_retries": 10,
+            "dead_letter_queue": "lazuli-backfill-dlq-prod",
+          },
+        ],
+      },
+      "workflows": [
+        {
+          "name": "lazuli-backfill-prod",
+          "binding": "BACKFILL_WORKFLOW",
+          "class_name": "BackfillWorkflow",
+          "limits": {
+            "steps": 25000,
+          },
+        },
+      ],
+      "analytics_engine_datasets": [
+        {
+          "binding": "API_ANALYTICS",
+          "dataset": "lazuli_api_prod",
+        },
+      ],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "MARKET_DATA_CACHE",
+            "class_name": "MarketDataCacheDO",
+          },
+          {
+            "name": "RATE_LIMITER",
+            "class_name": "RateLimiterDO",
+          },
+        ],
+      },
+    },
+  },
 }

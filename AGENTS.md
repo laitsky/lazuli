@@ -8,16 +8,14 @@ Lazuli is a cryptocurrency trading tool that provides **real-time** data from mu
 
 ## Architecture
 
-- **Runtime**: Cloudflare Workers in production; Bun for local tooling and workspace scripts
+- **Runtime**: Bun - Fast JavaScript runtime with built-in TypeScript support
 - **Monorepo**: Turborepo for efficient multi-package builds
 - **Language**: TypeScript with strict type checking
-- **API Framework**: Hono on Cloudflare Workers
-- **Web Framework**: React with Vite served by Workers Static Assets
+- **API Framework**: Elysia (Bun-native REST API)
+- **Web Framework**: React with Vite
 - **Primary Data**: Live exchange APIs (CCXT)
-- **Database**: Cloudflare D1 for metadata/control-plane state
-- **Archive Storage**: Cloudflare R2 for historical OHLCV archives
-- **Coordination**: Durable Objects, Queues, and Workflows
-- **Exchanges**: CCXT (Binance, Bybit, OKX, Hyperliquid, Upbit)
+- **Database**: Supabase (PostgreSQL) - **OPTIONAL** for advanced features
+- **Exchanges**: CCXT (Binance, Bybit, OKX)
 
 ## Development Workflow
 
@@ -106,16 +104,18 @@ Create `.env` file (use `.env.example` as template):
 ```
 PORT=3000
 NODE_ENV=development
+SUPABASE_URL=REDACTED_SUPABASE_URL
+SUPABASE_ANON_KEY=your_supabase_anon_key_here
 ```
 
-### Cloudflare Data Integration
+### Database Integration (Optional)
 
-- **Purpose**: Historical data, backfill metadata, market catalogs, admin state, and observability
-- **Primary Use**: Live exchange data is cached through Durable Objects
-- **D1**: Metadata, app state, manifests, and job/task records
-- **R2**: Canonical historical OHLCV archives
-- **Queues/Workflows**: Reliable backfill orchestration
-- **Health Check**: `/health` reports D1, R2, Queue, Workflow, Analytics, and Durable Object status
+- **Purpose**: Only for advanced features (historical data, alerts, analytics)
+- **Primary Use**: Live exchange data via APIs (no database needed)
+- **Supabase**: PostgreSQL database with REST API (when needed)
+- **Client**: `@supabase/supabase-js` for database operations
+- **Health Check**: `/health` endpoint includes optional database status
+- **Setup**: Only required if using `/data/*` endpoints
 
 ### Bun Runtime Features
 

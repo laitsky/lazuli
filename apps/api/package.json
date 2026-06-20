@@ -6,9 +6,16 @@
   "scripts": {
     "dev": "wrangler dev --port 8787",
     "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production",
     "build": "wrangler deploy --dry-run",
     "type-check": "wrangler types && tsc --noEmit",
     "db:migrate": "wrangler d1 migrations apply lazuli-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply lazuli-db --remote",
+    "db:migrate:staging": "wrangler d1 migrations apply lazuli-db-staging --env staging --remote",
+    "db:migrate:production": "wrangler d1 migrations apply lazuli-db-prod --env production --remote",
+    "test": "bun test src/**/*.test.ts",
+    "test:routes": "node scripts/smoke-routes.mjs",
     "lint": "eslint src --max-warnings 0",
     "clean": "rm -rf dist .turbo .wrangler"
   },

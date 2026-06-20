@@ -9,8 +9,8 @@ import type { Ticker } from '@lazuli/shared';
  * Displays key market prices in a clean horizontal strip
  */
 export function MarketTicker() {
-  const exchange = 'binance';
-  const desiredSymbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'];
+  const exchange = 'bybit';
+  const desiredSymbols = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'BNB-USDT', 'XRP-USDT'];
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [loading, setLoading] = useState(true);
 

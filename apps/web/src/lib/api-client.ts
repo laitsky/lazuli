@@ -26,10 +26,10 @@ import {
   OrderBookResponse,
 } from '@lazuli/shared';
 
-// API base URL - defaults to localhost in development
+// API base URL - defaults to same-origin for Cloudflare Workers Static Assets.
 // Vite exposes environment variables via import.meta.env with VITE_ prefix
-// Falls back to http://localhost:3000 if not configured
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+// Local Vite development proxies /api to the API Worker in vite.config.ts.
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const API_VERSION = '/api/v1';
 
 // Default timeout for API requests (30 seconds)

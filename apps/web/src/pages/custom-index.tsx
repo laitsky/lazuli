@@ -49,7 +49,7 @@ import {
 export default function CustomIndexPage() {
   // State management
   const [exchanges, setExchanges] = useState<{ id: SupportedExchange; name: string }[]>([]);
-  const [selectedExchange, setSelectedExchange] = useState<SupportedExchange>('binance');
+  const [selectedExchange, setSelectedExchange] = useState<SupportedExchange>('bybit');
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1h');

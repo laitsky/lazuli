@@ -149,7 +149,39 @@ export interface CustomIndexResponse {
  */
 export interface Env {
   DB: D1Database;
+  OHLCV_ARCHIVE: R2Bucket;
+  BACKFILL_QUEUE: Queue<BackfillQueueMessage>;
+  BACKFILL_WORKFLOW?: Workflow<BackfillWorkflowParams>;
+  API_ANALYTICS?: AnalyticsEngineDataset;
   MARKET_DATA_CACHE: DurableObjectNamespace;
+  RATE_LIMITER: DurableObjectNamespace;
   ADMIN_API_KEY?: string;
   CORS_ORIGIN?: string;
+  ENVIRONMENT?: 'local' | 'staging' | 'production';
+  PUBLIC_API_BASE_URL?: string;
+}
+
+/**
+ * Queue payload for one idempotent OHLCV archive chunk. Chunks are intentionally
+ * small enough to retry safely and to fit Worker memory when transformed to
+ * NDJSON before writing to R2.
+ */
+export interface BackfillQueueMessage {
+  jobId: string;
+  taskId: string;
+  exchange: SupportedExchange;
+  symbol: string;
+  type: 'spot' | 'perp';
+  timeframe: Timeframe;
+  startTime: number;
+  endTime: number;
+  attempt?: number;
+}
+
+/**
+ * Parameters passed to the durable Cloudflare Workflow that fans a backfill job
+ * into queue messages. The job rows in D1 remain the source of truth.
+ */
+export interface BackfillWorkflowParams {
+  jobId: string;
 }

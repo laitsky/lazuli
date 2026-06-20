@@ -2,89 +2,47 @@
 
 ## Core Design Philosophy
 
-**Real-time First**: Lazuli is designed to provide live cryptocurrency data directly from exchanges without requiring database storage.
+Lazuli is Cloudflare-native in production. Live market data is fetched from exchanges through CCXT, served through Durable Object caches, and backed by Cloudflare storage and coordination primitives.
 
 ## Data Flow
 
-### Primary Path (Real-time)
+### Live Market Path
 
 ```
-User Request → API Endpoint → Exchange Service (CCXT) → Live Data Response
+User Request -> Web Worker -> API Worker -> MarketDataCacheDO -> CCXT Exchange APIs
 ```
 
-### Optional Path (Database Features)
+Tickers and funding rates use a five-second cache target. Market catalogs refresh hourly.
+
+### Historical OHLCV Path
 
 ```
-User Request → Database Controller → Supabase → Stored Data Response
+User Request -> API Worker -> D1 Manifest Lookup -> R2 Monthly NDJSON Archive
 ```
 
-## Endpoints Classification
+Historical archive objects are stored in R2 as gzipped monthly NDJSON files. D1 stores metadata, manifests, and job state only.
 
-### 🔥 Core Endpoints (No Database Required)
+### Backfill Path
 
-- **Purpose**: Live trading data for immediate use
-- **Data Source**: Direct exchange APIs
-- **Latency**: Real-time (2-5 seconds)
-- **Use Cases**: Trading bots, price monitoring, market analysis
+```
+Admin Request -> API Worker -> Workflow -> Queue -> RateLimiterDO -> CCXT -> R2 + D1
+```
 
-**Endpoints:**
+Backfills are idempotent, task-based, and retry-aware. Queue retries stay pending until the terminal retry limit, then become failed tasks with enough context to resume.
 
-- `GET /exchanges` - Supported exchanges
-- `GET /tickers/:exchange` - Live price data
-- `GET /tickers/:exchange/:symbol` - Specific ticker
-- `GET /markets/:exchange` - Available trading pairs
+## Cloudflare Components
 
-### 💾 Optional Endpoints (Database Required)
+- **Workers**: `lazuli-api` and `lazuli-web`
+- **Workers Static Assets**: Vite SPA served by `lazuli-web`
+- **Durable Objects**: Live market cache and exchange rate limiter
+- **D1**: Metadata, catalogs, manifests, backfill jobs/tasks, admin state
+- **R2**: Canonical OHLCV archives
+- **Queues + Workflows**: Reliable historical backfill orchestration
+- **Analytics Engine**: API latency and operational metrics
 
-- **Purpose**: Historical analysis, alerts, custom features
-- **Data Source**: Stored data in Supabase
-- **Setup**: Requires running `database-setup.sql` once
-- **Use Cases**: Backtesting, price alerts, trend analysis
+## Production URLs
 
-**Endpoints:**
+- API: `https://lazuli-api.vincent-diamond15.workers.dev`
+- Web: `https://lazuli-web.vincent-diamond15.workers.dev`
 
-- `POST /data/store/:exchange` - Store live data
-- `GET /data/history/:symbol` - Historical prices
-- `GET /data/latest/:exchange/:symbol` - Latest stored
-- `DELETE /data/cleanup` - Data maintenance
-
-## When to Use Database Features
-
-✅ **Use database features for:**
-
-- Historical price analysis
-- Setting up price alerts
-- Arbitrage opportunity tracking
-- Custom analytics and backtesting
-- Building dashboards with historical charts
-
-❌ **Don't use database for:**
-
-- Live trading decisions
-- Real-time price monitoring
-- Simple market data queries
-- High-frequency trading
-
-## Performance Characteristics
-
-### Live Data Endpoints
-
-- **Latency**: 2-5 seconds (exchange API dependent)
-- **Rate Limits**: Managed by CCXT and exchange policies
-- **Caching**: Minimal (exchange-level only)
-- **Reliability**: Direct exchange connection
-
-### Database Endpoints
-
-- **Latency**: 100-500ms (database query time)
-- **Storage**: Unlimited historical data
-- **Features**: Complex queries, aggregations, joins
-- **Maintenance**: Periodic cleanup recommended
-
-## Development Guidelines
-
-1. **Always start with live endpoints** for new features
-2. **Only add database storage** when historical data is truly needed
-3. **Document clearly** whether features require database setup
-4. **Keep live and stored data paths separate** for maintainability
-5. **Prefer exchange APIs** over stored data for current market conditions
+Custom domain routes can be added when the `lazuli.app` zone is available in the Cloudflare account.

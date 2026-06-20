@@ -1,5 +1,5 @@
 -- Migration 0001: Initial SQLite schema for D1
--- Converted from database-setup.sql (PostgreSQL/Supabase)
+-- Converted from the legacy PostgreSQL setup script.
 --
 -- D1 (SQLite) differences from PostgreSQL:
 --   BIGSERIAL        -> INTEGER PRIMARY KEY AUTOINCREMENT

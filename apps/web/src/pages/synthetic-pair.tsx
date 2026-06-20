@@ -19,7 +19,7 @@ import { Search, TrendingUp, Divide, ArrowRight, AlertCircle, GitMerge } from 'l
 export default function SyntheticPairPage() {
   // State management
   const [exchanges, setExchanges] = useState<{ id: SupportedExchange; name: string }[]>([]);
-  const [selectedExchange, setSelectedExchange] = useState<SupportedExchange>('binance');
+  const [selectedExchange, setSelectedExchange] = useState<SupportedExchange>('bybit');
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [symbol1, setSymbol1] = useState<string>(''); // Numerator
   const [symbol2, setSymbol2] = useState<string>(''); // Denominator

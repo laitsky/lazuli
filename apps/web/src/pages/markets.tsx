@@ -22,12 +22,12 @@ import { PageHeader } from '@/components/page-header';
 
 export default function MarketsPage() {
   const [searchParams] = useSearchParams();
-  const selectedExchange = searchParams.get('exchange') || 'binance';
+  const selectedExchange = searchParams.get('exchange') || 'bybit';
 
   const validExchanges = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'];
   const exchange = validExchanges.includes(selectedExchange)
     ? (selectedExchange as SupportedExchange)
-    : 'binance';
+    : 'bybit';
 
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
   const [tickers, setTickers] = useState<Ticker[]>([]);

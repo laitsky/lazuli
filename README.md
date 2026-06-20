@@ -1,31 +1,32 @@
 # Lazuli - Cryptocurrency Trading Tool
 
-A modern full-stack monorepo application that provides **real-time** cryptocurrency data from multiple exchanges including Binance, Bybit, and OKX.
+A modern full-stack Cloudflare application that provides **real-time** cryptocurrency data from Binance, Bybit, OKX, Hyperliquid, and Upbit.
 
-**🚀 Ready to use immediately** - no database setup required for live trading data!
+**Production is Cloudflare-native**: Workers serve the API and web app, Durable Objects cache live market data, D1 stores metadata/control-plane state, R2 stores historical OHLCV archives, and Queues/Workflows coordinate backfills.
 
 ## Features
 
 - 📊 **Beautiful Web Interface** - Modern React + Vite frontend with real-time data
-- 🔌 **REST API** - Bun-native TypeScript backend with Elysia
-- 💱 **Multi-Exchange Support** - Binance, Bybit, and OKX
+- 🔌 **REST API** - Hono API running on Cloudflare Workers
+- 💱 **Multi-Exchange Support** - Binance, Bybit, OKX, Hyperliquid, and Upbit
 - 🎯 **Live Trading Data** - Real-time prices, volumes, and market statistics
 - 📈 **Spot & Perpetual Markets** - Support for both market types
 - 🎨 **Modern UI** - Built with Shadcn UI and Tailwind CSS
-- 💾 **Optional Database** - PostgreSQL for historical data (optional)
+- 💾 **Cloudflare Storage** - D1 metadata plus R2 historical OHLCV archives
 - 🏗️ **Monorepo Structure** - Industry-standard Turborepo with Bun
-- ⚡ **Fast Runtime** - Built with Bun for maximum performance
+- ⚡ **Edge Runtime** - Deployed on Cloudflare Workers with Bun for local tooling
 
 ## Project Structure
 
 ```
 lazuli/
 ├── apps/
-│   ├── api/              # Backend REST API (Elysia + TypeScript)
+│   ├── api/              # Cloudflare Worker REST API (Hono + TypeScript)
 │   │   ├── src/          # Source code
-│   │   ├── .env.example  # Environment template
+│   │   ├── migrations/   # D1 schema migrations
+│   │   ├── wrangler.jsonc
 │   │   └── package.json  # API dependencies
-│   └── web/              # Frontend (React + Vite + Shadcn UI)
+│   └── web/              # Frontend Worker + Static Assets (React + Vite)
 │       ├── src/          # Source code & components
 │       ├── components/   # React components
 │       ├── lib/          # Utilities & API client
@@ -65,13 +66,13 @@ bun run dev
 
 **Option 2: Run individually**
 
-API only (port 3000):
+API only (Worker dev, port 8787):
 
 ```bash
 bun run dev:api
 ```
 
-Web only (port 3001):
+Web only:
 
 ```bash
 bun run dev:web
@@ -83,38 +84,43 @@ bun run dev:web
 
 ```bash
 cd apps/api
-cp .env.example .env
-# Edit .env with your configuration
+bunx wrangler secret put ADMIN_API_KEY --env staging
+bunx wrangler secret put ADMIN_API_KEY --env production
 ```
 
 **Frontend Web:**
 
 ```bash
 cd apps/web
-cp .env.example .env.local
-# Edit .env.local - set VITE_API_URL if needed
+bun run build
 ```
 
 ## Available Scripts
 
 From the root directory:
 
-| Command              | Description                              |
-| -------------------- | ---------------------------------------- |
-| `bun run dev`        | Run both API and Web in development mode |
-| `bun run dev:api`    | Run API only                             |
-| `bun run dev:web`    | Run Web only                             |
-| `bun run build`      | Build all workspaces                     |
-| `bun run build:api`  | Build API only                           |
-| `bun run build:web`  | Build Web only                           |
-| `bun run lint`       | Lint all workspaces                      |
-| `bun run type-check` | Type check all workspaces                |
-| `bun run format`     | Format all code                          |
-| `bun run clean`      | Clean all build artifacts                |
+| Command                     | Description                                 |
+| --------------------------- | ------------------------------------------- |
+| `bun run dev`               | Run both API and Web in development mode    |
+| `bun run dev:api`           | Run API only                                |
+| `bun run dev:web`           | Run Web only                                |
+| `bun run build`             | Build all workspaces                        |
+| `bun run build:api`         | Build API only                              |
+| `bun run build:web`         | Build Web only                              |
+| `bun run deploy:staging`    | Deploy all Workers to Cloudflare staging    |
+| `bun run deploy:production` | Deploy all Workers to Cloudflare production |
+| `bun run lint`              | Lint all workspaces                         |
+| `bun run type-check`        | Type check all workspaces                   |
+| `bun run format`            | Format all code                             |
+| `bun run clean`             | Clean all build artifacts                   |
 
 ## API Endpoints
 
-Base URL: `http://localhost:3000/api/v1`
+Local base URL: `http://localhost:8787/api/v1`
+
+Production Worker URL: `https://lazuli-api.vincent-diamond15.workers.dev/api/v1`
+
+Production Web URL: `https://lazuli-web.vincent-diamond15.workers.dev`
 
 ### Core Endpoints (Live Data - No DB Required)
 
@@ -123,16 +129,16 @@ Base URL: `http://localhost:3000/api/v1`
 - `GET /tickers/:exchange/:symbol` - Get specific ticker data
 - `GET /markets/:exchange` - Get all available markets
 
-### Optional Database Endpoints
+### Historical / Advanced Endpoints
 
-- `POST /data/store/:exchange` - Store live ticker data
-- `GET /data/history/:symbol` - Get historical data
-- `GET /data/latest/:exchange/:symbol` - Get latest stored ticker
-- `DELETE /data/cleanup` - Clean up old data
+- `GET /ohlcv/:exchange/:symbol` - Query live, cached, and archived OHLCV
+- `POST /admin/backfills` - Create an admin-only OHLCV archive backfill
+- `GET /admin/backfills/:id` - Check backfill progress and coverage
+- `POST /admin/backfills/:id/retry` - Retry failed or incomplete chunks
 
 ## Web Interface
 
-Access the web interface at `http://localhost:3001`
+Access the production web interface at `https://lazuli-web.vincent-diamond15.workers.dev`.
 
 **Pages:**
 
@@ -173,10 +179,12 @@ Lazuli uses **Turborepo** with **Bun workspaces** for monorepo management:
 
 ### Backend (apps/api)
 
-- **Runtime**: Bun with native TypeScript support
-- **Framework**: Elysia (Bun-native HTTP framework)
-- **Exchange APIs**: CCXT (Binance, Bybit, OKX)
-- **Database**: Supabase (PostgreSQL) - Optional
+- **Runtime**: Cloudflare Workers with Bun for local tooling
+- **Framework**: Hono
+- **Exchange APIs**: CCXT (Binance, Bybit, OKX, Hyperliquid, Upbit)
+- **Database**: Cloudflare D1 for metadata/control-plane state
+- **Archive Storage**: Cloudflare R2 for historical OHLCV NDJSON archives
+- **Coordination**: Durable Objects, Queues, and Workflows
 - **Documentation**: OpenAPI 3.0 with Stoplight Elements
 - **Dev Mode**: Built-in watch mode with `bun --watch`
 
@@ -201,14 +209,22 @@ Lazuli uses **Turborepo** with **Bun workspaces** for monorepo management:
 - See [apps/web/README.md](apps/web/README.md) for frontend-specific documentation
 - See [apps/api/TODO.md](apps/api/TODO.md) for feature roadmap
 
-## Database Setup (Optional)
+## Cloudflare Setup
 
-**Only needed for advanced features:**
+Production uses Cloudflare resources only. Apply D1 migrations before deploy:
 
-1. Copy `apps/api/database-setup.sql` content
-2. Run in your Supabase SQL Editor (one-time setup)
-3. Configure `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `apps/api/.env`
-4. Use `/data/*` endpoints for historical analysis
+```bash
+cd apps/api
+bunx wrangler d1 migrations apply lazuli-db-staging --env staging --remote
+bunx wrangler d1 migrations apply lazuli-db-prod --env production --remote
+```
+
+Deploy:
+
+```bash
+bun run deploy:staging
+bun run deploy:production
+```
 
 ## Why Bun?
 

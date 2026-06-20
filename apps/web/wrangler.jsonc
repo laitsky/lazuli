@@ -1,0 +1,44 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lazuli-web",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-06-19",
+
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+  },
+
+  "services": [
+    {
+      "binding": "API_SERVICE",
+      "service": "lazuli-api",
+    },
+  ],
+
+  "observability": {
+    "enabled": true,
+  },
+
+  "env": {
+    "staging": {
+      "name": "lazuli-web-staging",
+      "services": [
+        {
+          "binding": "API_SERVICE",
+          "service": "lazuli-api-staging",
+        },
+      ],
+    },
+    "production": {
+      "name": "lazuli-web",
+      "services": [
+        {
+          "binding": "API_SERVICE",
+          "service": "lazuli-api",
+        },
+      ],
+    },
+  },
+}

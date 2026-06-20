@@ -1,0 +1,142 @@
+{
+  "success": true,
+  "generatedAt": "2026-06-17T16:32:14.492Z",
+  "durationMs": 19865,
+  "runtime": {
+    "worker": true
+  },
+  "summary": {
+    "ok": 14,
+    "failed": 0,
+    "total": 14
+  },
+  "results": [
+    {
+      "name": "construct.binance.spot",
+      "ok": true,
+      "ms": 9
+    },
+    {
+      "name": "construct.bybit.spot",
+      "ok": true,
+      "ms": 4
+    },
+    {
+      "name": "construct.okx.spot",
+      "ok": true,
+      "ms": 4
+    },
+    {
+      "name": "construct.binance.future",
+      "ok": true,
+      "ms": 4
+    },
+    {
+      "name": "construct.hyperliquid.swap",
+      "ok": true,
+      "ms": 2
+    },
+    {
+      "name": "binance.spot.loadMarkets",
+      "ok": true,
+      "ms": 3254,
+      "sample": {
+        "numMarkets": 4427
+      }
+    },
+    {
+      "name": "binance.spot.fetchTickers",
+      "ok": true,
+      "ms": 667,
+      "sample": {
+        "numTickers": 3600,
+        "example": ["ETH/BTC", "LTC/BTC", "BNB/BTC"]
+      }
+    },
+    {
+      "name": "binance.spot.fetchOHLCV(BTC/USDT,1h,24)",
+      "ok": true,
+      "ms": 913,
+      "sample": {
+        "numCandles": 24,
+        "last": [1781712000000, 65751.99, 66445.93, 65722, 66080, 1001.17857]
+      }
+    },
+    {
+      "name": "binance.spot.fetchOrderBook(BTC/USDT)",
+      "ok": true,
+      "ms": 132,
+      "sample": {
+        "bidsDepth": 100,
+        "asksDepth": 100,
+        "topBid": [66080, 0.02082]
+      }
+    },
+    {
+      "name": "bybit.spot.fetchTicker(BTC/USDT)",
+      "ok": true,
+      "ms": 1218,
+      "sample": {
+        "symbol": "BTC/USDT",
+        "last": 66075,
+        "bid": 66074.9,
+        "ask": 66075
+      }
+    },
+    {
+      "name": "okx.spot.fetchTickers",
+      "ok": true,
+      "ms": 1204,
+      "sample": {
+        "numTickers": 1260,
+        "example": ["PEOPLE/EUR", "BOME/USDC", "CHZ/USD"]
+      }
+    },
+    {
+      "name": "binance.future.loadMarkets",
+      "ok": true,
+      "ms": 417,
+      "sample": {
+        "numMarkets": 792
+      }
+    },
+    {
+      "name": "binance.future.fetchFundingRates",
+      "ok": true,
+      "ms": 239,
+      "sample": {
+        "numRates": 798,
+        "sample": {
+          "info": {
+            "symbol": "AGLDUSDT",
+            "markPrice": "0.17454713",
+            "indexPrice": "0.17453084",
+            "estimatedSettlePrice": "0.17384609",
+            "lastFundingRate": "0.00010000",
+            "interestRate": "0.00010000",
+            "nextFundingTime": "1781740800000",
+            "time": "1781713921000"
+          },
+          "symbol": "AGLD/USDT:USDT",
+          "markPrice": 0.17454713,
+          "indexPrice": 0.17453084,
+          "interestRate": 0.0001,
+          "estimatedSettlePrice": 0.17384609,
+          "timestamp": 1781713921000,
+          "datetime": "2026-06-17T16:32:01.000Z",
+          "fundingRate": 0.0001,
+          "fundingTimestamp": 1781740800000,
+          "fundingDatetime": "2026-06-18T00:00:00.000Z"
+        }
+      }
+    },
+    {
+      "name": "hyperliquid.swap.loadMarkets",
+      "ok": true,
+      "ms": 11778,
+      "sample": {
+        "numMarkets": 722
+      }
+    }
+  ]
+}

@@ -26,7 +26,7 @@ import {
 export default function OrderBookPage() {
   // State management
   const [exchanges, setExchanges] = useState<{ id: SupportedExchange; name: string }[]>([]);
-  const [selectedExchange, setSelectedExchange] = useState<SupportedExchange>('binance');
+  const [selectedExchange, setSelectedExchange] = useState<SupportedExchange>('bybit');
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const [marketType, setMarketType] = useState<'spot' | 'perp'>('spot');

@@ -27,10 +27,10 @@ export default function FundingRatesPage() {
 
   // Validate exchange (perp-enabled exchanges only)
   const validExchanges = ['binance', 'bybit', 'okx', 'hyperliquid'];
-  const selectedExchange = searchParams.get('exchange') || 'binance';
+  const selectedExchange = searchParams.get('exchange') || 'bybit';
   const exchange = validExchanges.includes(selectedExchange)
     ? (selectedExchange as SupportedExchange)
-    : 'binance';
+    : 'bybit';
 
   // Separate loading states for independent sections
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);

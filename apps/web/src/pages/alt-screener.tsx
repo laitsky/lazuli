@@ -18,10 +18,10 @@ export default function AltScreenerPage() {
 
   // Validate exchange (excluding hyperliquid which is perp-only)
   const validExchanges = ['binance', 'bybit', 'okx', 'upbit'];
-  const selectedExchange = searchParams.get('exchange') || 'binance';
+  const selectedExchange = searchParams.get('exchange') || 'bybit';
   const exchange = validExchanges.includes(selectedExchange)
     ? (selectedExchange as SupportedExchange)
-    : 'binance';
+    : 'bybit';
 
   // Validate base currency
   const validBases = ['USD', 'BTC', 'ETH', 'SOL'];

@@ -180,13 +180,11 @@
 ### Production Readiness Checklist
 
 - [ ] **Environment Configuration** - Production vs development settings
-- [ ] **Docker Containerization** - Container for consistent deployments
-- [ ] **Health Checks** - Enhanced monitoring endpoints
-- [ ] **Graceful Shutdown** - Handle SIGTERM for zero-downtime deploys
-- [ ] **Process Management** - PM2 or similar for production
-- [ ] **Reverse Proxy** - Nginx configuration for load balancing
-- [ ] **SSL/TLS** - HTTPS configuration and certificate management
-- [ ] **Database Migration** - When Supabase integration is added
+- [x] **Cloudflare Workers Deployment** - API and web Workers deployed
+- [x] **Health Checks** - Cloudflare service health exposed via `/health`
+- [x] **Managed HTTPS** - Cloudflare Workers provide TLS at the edge
+- [x] **D1/R2 Migration** - Legacy database path retired in favor of Cloudflare storage
+- [ ] **Custom Domain Routes** - Attach `lazuli.app` DNS routes when the zone is available
 
 ### Monitoring & Observability
 

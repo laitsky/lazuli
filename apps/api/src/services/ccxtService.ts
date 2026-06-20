@@ -12,8 +12,8 @@
 
 import ccxt from 'ccxt';
 import { Ticker, Market, OHLCV, Timeframe } from '../types';
-import { OrderBook, OrderBookEntry } from '@lazuli/shared';
-import { convertFromCCXTNotation, convertToCCXTNotation } from '../utils/validation';
+import { FundingRateData, OrderBook, OrderBookEntry } from '@lazuli/shared';
+import { convertFromCCXTNotation, convertToCCXTNotation, parseSymbol } from '../utils/validation';
 import {
   ExchangeError,
   ValidationError,
@@ -379,7 +379,8 @@ export class CCXTService {
     symbol: string,
     timeframe: Timeframe,
     marketType: 'spot' | 'perp' = 'spot',
-    limit: number = 100
+    limit: number = 100,
+    since?: number
   ): Promise<OHLCV[]> {
     try {
       const ccxtSymbol = convertToCCXTNotation(symbol, marketType);
@@ -394,7 +395,7 @@ export class CCXTService {
         throw invalidTimeframe(timeframe, supported);
       }
 
-      const ohlcvData = await exchange.fetchOHLCV(ccxtSymbol, timeframe, undefined, limit);
+      const ohlcvData = await exchange.fetchOHLCV(ccxtSymbol, timeframe, since, limit);
 
       return ohlcvData.map((candle: number[]) => ({
         timestamp: candle[0],
@@ -463,6 +464,65 @@ export class CCXTService {
       };
     } catch (error) {
       log.error('Error fetching order book', error, { exchange: exchangeId, symbol, marketType });
+      if (error instanceof ExchangeError || error instanceof ValidationError) {
+        throw error;
+      }
+      throw classifyCcxtError(error, exchangeId);
+    }
+  }
+
+  /**
+   * Fetch funding rates for all perpetual markets supported by an exchange.
+   * CCXT returns either an array or an object keyed by symbol depending on the
+   * exchange, so this method normalizes both shapes into Lazuli's public type.
+   */
+  async getFundingRates(exchangeId: string): Promise<FundingRateData[]> {
+    try {
+      const exchange = this.getExchange(exchangeId, 'perp');
+
+      if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
+        await exchange.loadMarkets();
+      }
+
+      const rawRates =
+        typeof exchange.fetchFundingRates === 'function'
+          ? await exchange.fetchFundingRates()
+          : await Promise.all(
+              Object.keys(exchange.markets)
+                .slice(0, 200)
+                .map((symbol) => exchange.fetchFundingRate(symbol))
+            );
+
+      const rates = Array.isArray(rawRates) ? rawRates : Object.values(rawRates);
+
+      return rates.map((rate: any) => {
+        const symbol = convertFromCCXTNotation(rate.symbol, 'perp');
+        const { base } = parseSymbol(symbol);
+        const fundingRate = Number(rate.fundingRate ?? rate.rate ?? 0);
+        const fundingRatePercent = fundingRate * 100;
+
+        return {
+          symbol,
+          baseAsset: base,
+          exchange: exchangeId,
+          fundingRate,
+          fundingRatePercent,
+          annualizedRate: fundingRatePercent * 3 * 365,
+          nextFundingTime:
+            typeof rate.nextFundingTimestamp === 'number'
+              ? rate.nextFundingTimestamp
+              : typeof rate.fundingTimestamp === 'number'
+                ? rate.fundingTimestamp
+                : null,
+          markPrice: rate.markPrice ?? null,
+          indexPrice: rate.indexPrice ?? null,
+          openInterest: rate.openInterest ?? null,
+          volume24h: rate.info?.volume24h ? Number(rate.info.volume24h) : null,
+          timestamp: rate.timestamp ?? Date.now(),
+        };
+      });
+    } catch (error) {
+      log.error('Error fetching funding rates', error, { exchange: exchangeId });
       if (error instanceof ExchangeError || error instanceof ValidationError) {
         throw error;
       }

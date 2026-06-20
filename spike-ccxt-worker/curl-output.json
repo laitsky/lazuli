@@ -1,0 +1,117 @@
+{
+  "success": true,
+  "generatedAt": "2026-06-17T16:28:24.693Z",
+  "durationMs": 15603,
+  "runtime": {
+    "worker": true,
+    "navigator": "present"
+  },
+  "summary": {
+    "ok": 11,
+    "failed": 3,
+    "total": 14
+  },
+  "results": [
+    {
+      "name": "construct.binance.spot",
+      "ok": true,
+      "ms": 9
+    },
+    {
+      "name": "construct.bybit.spot",
+      "ok": true,
+      "ms": 5
+    },
+    {
+      "name": "construct.okx.spot",
+      "ok": true,
+      "ms": 4
+    },
+    {
+      "name": "construct.binance.future",
+      "ok": true,
+      "ms": 4
+    },
+    {
+      "name": "construct.hyperliquid.swap",
+      "ok": true,
+      "ms": 3
+    },
+    {
+      "name": "binance.spot.loadMarkets",
+      "ok": true,
+      "ms": 876,
+      "sample": {
+        "numMarkets": 0
+      }
+    },
+    {
+      "name": "binance.spot.fetchTickers",
+      "ok": false,
+      "ms": 194,
+      "error": "Cannot use 'in' operator to search for 'time' in \u001f",
+      "stack": "TypeError: Cannot use 'in' operator to search for 'time' in \u001f\n    at binance.parseTicker (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:67665:16)\n    at binance.parseTickers (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:41132:29)\n    at binance.fetchTickers (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:67903:17)\n    at async probe (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335001:19)\n    at async Object.fetch (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335075:7)\n    at async jsonError (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335213:12)\n    at async drainBody (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335182:12)"
+    },
+    {
+      "name": "binance.spot.fetchOHLCV(BTC/USDT,1h,24)",
+      "ok": false,
+      "ms": 0,
+      "error": "binance does not have market symbol BTC/USDT",
+      "stack": "BadSymbol: binance does not have market symbol BTC/USDT\n    at binance.market (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:66961:11)\n    at binance.fetchOHLCV (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:68022:25)\n    at async probe (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335001:19)\n    at async Object.fetch (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335085:7)\n    at async jsonError (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335213:12)\n    at async drainBody (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335182:12)"
+    },
+    {
+      "name": "binance.spot.fetchOrderBook(BTC/USDT)",
+      "ok": false,
+      "ms": 1,
+      "error": "binance does not have market symbol BTC/USDT",
+      "stack": "BadSymbol: binance does not have market symbol BTC/USDT\n    at binance.market (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:66961:11)\n    at binance.fetchOrderBook (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:67633:25)\n    at async probe (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335001:19)\n    at async Object.fetch (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335092:7)\n    at async jsonError (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335213:12)\n    at async drainBody (file:///Users/laitsky/Developments/lazuli/spike-ccxt-worker/.wrangler/tmp/dev-pETfXm/index.js:335182:12)"
+    },
+    {
+      "name": "bybit.spot.fetchTicker(BTC/USDT)",
+      "ok": true,
+      "ms": 1223,
+      "sample": {
+        "symbol": "BTC/USDT",
+        "last": 66425.1,
+        "bid": 66430.9,
+        "ask": 66431
+      }
+    },
+    {
+      "name": "okx.spot.fetchTickers",
+      "ok": true,
+      "ms": 747,
+      "sample": {
+        "numTickers": 0,
+        "example": []
+      }
+    },
+    {
+      "name": "binance.future.loadMarkets",
+      "ok": true,
+      "ms": 394,
+      "sample": {
+        "numMarkets": 0
+      }
+    },
+    {
+      "name": "binance.future.fetchFundingRates",
+      "ok": true,
+      "ms": 183,
+      "sample": {
+        "numRates": 1,
+        "sample": {
+          "info": "\u0000"
+        }
+      }
+    },
+    {
+      "name": "hyperliquid.swap.loadMarkets",
+      "ok": true,
+      "ms": 11943,
+      "sample": {
+        "numMarkets": 722
+      }
+    }
+  ]
+}

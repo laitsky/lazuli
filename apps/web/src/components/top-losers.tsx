@@ -14,7 +14,7 @@ export function TopLosers() {
 
   useEffect(() => {
     async function fetchLosers() {
-      const response = await LazuliAPI.getTickers('binance', {
+      const response = await LazuliAPI.getTickers('bybit', {
         limit: 5,
         sortBy: 'change',
         sortOrder: 'asc',
@@ -68,7 +68,7 @@ export function TopLosers() {
           <span className="text-sm font-semibold text-foreground">Losers</span>
         </div>
         <Link
-          to="/markets?sortBy=change&sortOrder=asc"
+          to="/markets?exchange=bybit&sortBy=change&sortOrder=asc"
           className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors"
         >
           View All
@@ -80,7 +80,7 @@ export function TopLosers() {
         {losers.map((ticker, index) => (
           <Link
             key={ticker.symbol}
-            to={`/markets?exchange=binance&symbol=${ticker.symbol}`}
+            to={`/markets?exchange=bybit&symbol=${ticker.symbol}`}
             className="flex items-center justify-between p-2 rounded-lg hover:bg-accent transition-colors group"
           >
             <div className="flex items-center gap-2.5">
