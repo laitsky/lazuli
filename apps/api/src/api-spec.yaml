@@ -52,6 +52,8 @@ tags:
     description: Optional database operations for historical data
   - name: Documentation
     description: Interactive API documentation
+  - name: Admin
+    description: Signed operator-only endpoints for health and backfill operations
 
 paths:
   /health:
@@ -90,7 +92,7 @@ paths:
                             description: API service status
                           database:
                             type: string
-                            enum: [connected, disconnected, not_required, error]
+                            enum: [connected, disconnected, not_required, hidden, error]
                             description: Database connection status
                           exchanges:
                             type: array
@@ -898,7 +900,51 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /admin/health:
+    get:
+      summary: Deep admin health check
+      description: Requires signed admin request headers. Returns Cloudflare binding status and operational health details.
+      operationId: adminHealthCheck
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      parameters:
+        - $ref: '#/components/parameters/AdminKeyIdHeader'
+        - $ref: '#/components/parameters/AdminTimestampHeader'
+        - $ref: '#/components/parameters/AdminNonceHeader'
+        - $ref: '#/components/parameters/AdminSignatureHeader'
+      responses:
+        '200':
+          description: Deep health status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+        '401':
+          description: Missing or invalid signed admin request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
 components:
+  securitySchemes:
+    AdminSignedRequest:
+      type: apiKey
+      in: header
+      name: X-Admin-Signature
+      description: HMAC-SHA256 signature over method, normalized path+query, timestamp, nonce, and body hash.
+
   parameters:
     ExchangeParam:
       name: exchange
@@ -909,6 +955,34 @@ components:
         type: string
         enum: [binance, bybit, okx, hyperliquid, upbit]
       example: binance
+    AdminKeyIdHeader:
+      name: X-Admin-Key-Id
+      in: header
+      required: true
+      description: Configured admin key identifier for staging/production.
+      schema:
+        type: string
+    AdminTimestampHeader:
+      name: X-Admin-Timestamp
+      in: header
+      required: true
+      description: Millisecond Unix timestamp within a five-minute window.
+      schema:
+        type: string
+    AdminNonceHeader:
+      name: X-Admin-Nonce
+      in: header
+      required: true
+      description: One-time nonce, 16-128 URL-safe characters, rejected on replay.
+      schema:
+        type: string
+    AdminSignatureHeader:
+      name: X-Admin-Signature
+      in: header
+      required: true
+      description: HMAC-SHA256 hex signature using ADMIN_SIGNING_SECRET.
+      schema:
+        type: string
 
   responses:
     BadRequest:
@@ -947,6 +1021,30 @@ components:
             error: "Failed to fetch tickers: Network error"
             timestamp: 1704067200000
 
+    RateLimited:
+      description: Too many requests or limiter unavailable for a fail-closed route
+      headers:
+        Retry-After:
+          schema:
+            type: string
+        X-RateLimit-Remaining:
+          schema:
+            type: string
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiErrorResponse'
+          example:
+            success: false
+            data: null
+            error: "Too many requests"
+            code: "EXCHANGE_RATE_LIMIT"
+            timestamp: 1704067200000
+            meta:
+              requestId: "018f8b78-3f5b-7b7c-a077-9d1cdd80c235"
+              rateLimit:
+                retryAfterMs: 1000
+
   schemas:
     # Base response schemas
     ApiSuccessResponse:
@@ -970,6 +1068,8 @@ components:
           type: integer
           format: int64
           description: Unix timestamp in milliseconds
+        meta:
+          $ref: '#/components/schemas/ApiResponseMeta'
 
     ApiErrorResponse:
       type: object
@@ -993,6 +1093,41 @@ components:
           type: integer
           format: int64
           description: Unix timestamp in milliseconds
+        code:
+          type: string
+          description: Stable machine-readable error code
+        meta:
+          $ref: '#/components/schemas/ApiResponseMeta'
+
+    ApiResponseMeta:
+      type: object
+      description: Optional tracing, cache, and rate-limit metadata.
+      additionalProperties: true
+      properties:
+        requestId:
+          type: string
+        cache:
+          type: object
+          additionalProperties: true
+          properties:
+            source:
+              type: string
+            ageMs:
+              type: integer
+            stale:
+              type: boolean
+            refreshError:
+              type: string
+        rateLimit:
+          type: object
+          additionalProperties: true
+          properties:
+            remaining:
+              type: integer
+            retryAfterMs:
+              type: integer
+            unavailable:
+              type: boolean
 
     # Exchange schemas
     ExchangeInfo:

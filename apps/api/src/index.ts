@@ -16,7 +16,6 @@ import type {
   BaseCurrencyPrices,
   CrossExchangeFunding,
   CrossExchangeFundingResponse,
-  CustomIndexRequest,
   CustomIndexResponse,
   CustomPairResponse,
   FundingMarketStats,
@@ -27,7 +26,9 @@ import type {
   Market,
   MarketsResponse,
   OHLCVResponse,
+  OrderBook,
   OrderBookResponse,
+  PriceArbitrageResponse,
   SupportedExchange,
   Ticker,
   TickersResponse,
@@ -36,13 +37,12 @@ import type {
 import { DEFAULT_INDICATOR_PERIODS } from '@lazuli/shared';
 import type { BackfillQueueMessage, BackfillWorkflowParams, Env, OHLCV } from './types';
 import {
+  ErrorCode,
   ExchangeError,
   invalidExchange,
   invalidMarketType,
   invalidParameter,
-  invalidTimeframe,
   tickerNotFound,
-  unauthorized,
 } from './errors';
 import { handleError, successResponse } from './utils/response';
 import {
@@ -56,8 +56,24 @@ import {
   validateSortOrder,
   validateTickerSortBy,
 } from './utils/validation';
+import {
+  customIndexSchema,
+  multiTimeframeQuerySchema,
+  ohlcvBatchSchema,
+  ohlcvQuerySchema,
+  parseOrThrow,
+  symbolSchema,
+} from './utils/requestValidation';
+import {
+  applySecurityHeaders,
+  enforcePublicRateLimit,
+  requireAdminRequest,
+  requireProductionCors,
+  resolveCorsOrigin,
+} from './utils/security';
 import { ccxtService } from './services/ccxtService';
 import { calculateSelectedEMAs, calculateSuperEMA } from './services/emaService';
+import { buildPriceArbitrageResponse } from './services/priceArbitrageService';
 import { calculateIndicators } from './services/technicalIndicatorService';
 import {
   createBackfillJob,
@@ -79,34 +95,16 @@ const exchanges = [
   { name: 'Binance', id: 'binance', supported: false, hasSpot: true, hasPerp: true },
 ] as const;
 
-const supportedTimeframes: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
 const publicFundingExchanges: SupportedExchange[] = ['binance', 'bybit', 'okx', 'hyperliquid'];
 
 const app = new Hono<{ Bindings: Env }>();
-
-app.use(
-  '*',
-  cors({
-    origin: (origin, c) => {
-      const allowed = c.env.CORS_ORIGIN?.split(',')
-        .map((item: string) => item.trim())
-        .filter(Boolean);
-      if (!allowed || allowed.length === 0) {
-        return origin;
-      }
-      return origin && allowed.includes(origin) ? origin : allowed[0]!;
-    },
-    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Admin-API-Key'],
-    credentials: true,
-    maxAge: 86400,
-  })
-);
 
 app.use('*', async (c, next) => {
   const startedAt = Date.now();
   const requestId = crypto.randomUUID();
   c.header('X-Request-ID', requestId);
+  requireProductionCors(c.env);
+  applySecurityHeaders(c);
 
   await next();
 
@@ -130,9 +128,31 @@ app.use('*', async (c, next) => {
   );
 });
 
+app.use(
+  '*',
+  cors({
+    origin: (origin, c) => resolveCorsOrigin(origin, c.env),
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'X-Admin-API-Key',
+      'X-Admin-Key-Id',
+      'X-Admin-Timestamp',
+      'X-Admin-Nonce',
+      'X-Admin-Signature',
+    ],
+    credentials: true,
+    maxAge: 86400,
+  })
+);
+
+app.use('/api/v1/*', enforcePublicRateLimit);
+
 app.get('/', (c) => c.redirect('/api/v1/docs'));
 
-app.get('/health', async (c) => c.json(successResponse(await buildHealth(c.env))));
+app.get('/health', async (c) => ok(c, buildPublicHealth()));
 
 const api = new Hono<{ Bindings: Env }>();
 
@@ -151,7 +171,7 @@ api.get('/docs', (c) =>
 </html>`)
 );
 
-api.get('/health', async (c) => c.json(successResponse(await buildHealth(c.env))));
+api.get('/health', async (c) => ok(c, buildPublicHealth()));
 
 api.get('/exchanges', (c) => c.json(successResponse(exchanges)));
 
@@ -236,7 +256,7 @@ api.get('/markets/:exchange', async (c) => {
 
 api.get('/ohlcv/:exchange/:symbol', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
-  const symbol = decodeURIComponent(c.req.param('symbol'));
+  const symbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
   const options = parseOhlcvQuery(c.req.query(), symbol);
   const candles = await loadOhlcv(c.env, exchange, symbol, options);
 
@@ -251,34 +271,46 @@ api.get('/ohlcv/:exchange/:symbol', async (c) => {
     source: candles.meta.source,
     archiveObjects: candles.meta.archiveObjects,
     missingArchive: candles.meta.missingArchive,
+    cache: candles.meta.cache,
     coverage: { since: options.since, until: options.until, requestedLimit: options.limit },
   });
 });
 
 api.get('/ohlcv/multi/:exchange/:symbol', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
-  const symbol = decodeURIComponent(c.req.param('symbol'));
-  const query = c.req.query();
-  const timeframes = String(query.timeframes ?? '1h')
-    .split(',')
-    .map((item) => parseTimeframe(item.trim()));
+  const symbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
+  const query = parseOrThrow(multiTimeframeQuerySchema, c.req.query(), 'query');
   const type = parseMarketType(query.type, symbol);
-  const limit = validateInteger(query.limit, 100, 1, 1000);
+  const limit = query.limit;
 
   const result: Record<string, OHLCV[]> = {};
-  for (const timeframe of timeframes) {
-    result[timeframe] = (
-      await loadOhlcv(c.env, exchange, symbol, { timeframe, type, limit })
-    ).candles;
+  const entries = await mapWithConcurrency(
+    query.timeframes,
+    3,
+    async (timeframe) =>
+      [
+        timeframe,
+        (await loadOhlcv(c.env, exchange, symbol, { timeframe, type, limit })).candles,
+      ] as const
+  );
+  for (const [timeframe, candles] of entries) {
+    result[timeframe] = candles;
   }
 
-  return ok(c, { exchange, symbol, type, timeframes, candles: result, timestamp: Date.now() });
+  return ok(c, {
+    exchange,
+    symbol,
+    type,
+    timeframes: query.timeframes,
+    candles: result,
+    timestamp: Date.now(),
+  });
 });
 
 api.get('/custom-pair/:exchange/:symbol1/:symbol2', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
-  const symbol1 = decodeURIComponent(c.req.param('symbol1'));
-  const symbol2 = decodeURIComponent(c.req.param('symbol2'));
+  const symbol1 = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol1')), 'symbol1');
+  const symbol2 = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol2')), 'symbol2');
   const options = parseOhlcvQuery(c.req.query(), symbol1);
   const [candles1, candles2] = await Promise.all([
     loadOhlcv(c.env, exchange, symbol1, options),
@@ -315,28 +347,30 @@ api.get('/custom-pair/:exchange/:symbol1/:symbol2', async (c) => {
 });
 
 api.post('/custom-index', async (c) => {
-  const request = (await c.req.json()) as CustomIndexRequest & { limit?: number };
+  const request = parseOrThrow(
+    customIndexSchema,
+    await c.req.json().catch(() => ({})),
+    'custom-index'
+  );
   const exchange = requireExchange(request.exchange);
-  const timeframe = parseTimeframe(request.timeframe);
-  const limit = validateInteger(request.limit, 100, 1, 1000);
+  const timeframe = request.timeframe;
+  const limit = request.limit;
   const weightTotal = request.assets.reduce((sum, asset) => sum + asset.weight, 0);
 
   if (request.assets.length === 0 || weightTotal <= 0) {
     throw invalidParameter('assets', 'Custom index requires at least one weighted asset');
   }
 
-  const series = await Promise.all(
-    request.assets.map(async (asset) => ({
-      asset,
-      candles: (
-        await loadOhlcv(c.env, exchange, asset.symbol, {
-          timeframe,
-          type: asset.symbol.endsWith('.P') ? 'perp' : 'spot',
-          limit,
-        })
-      ).candles,
-    }))
-  );
+  const series = await mapWithConcurrency(request.assets, 4, async (asset) => ({
+    asset,
+    candles: (
+      await loadOhlcv(c.env, exchange, asset.symbol, {
+        timeframe,
+        type: asset.symbol.endsWith('.P') ? 'perp' : 'spot',
+        limit,
+      })
+    ).candles,
+  }));
   const performance = buildIndexPerformance(series, weightTotal);
   const benchmarks = await buildBenchmarks(c.env, exchange, timeframe, limit);
   const totalReturn =
@@ -357,7 +391,7 @@ api.post('/custom-index', async (c) => {
 
 api.get('/superema/:exchange/:symbol', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
-  const symbol = decodeURIComponent(c.req.param('symbol'));
+  const symbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
   const options = parseOhlcvQuery(c.req.query(), symbol, 500);
   const maxPeriod = validateInteger(c.req.query('maxPeriod'), 400, 1, 400);
   const candles = (await loadOhlcv(c.env, exchange, symbol, options)).candles;
@@ -381,7 +415,7 @@ api.get('/superema/:exchange/:symbol', async (c) => {
 
 api.get('/indicators/:exchange/:symbol', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
-  const symbol = decodeURIComponent(c.req.param('symbol'));
+  const symbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
   const options = parseOhlcvQuery(c.req.query(), symbol, 300);
   const candles = (await loadOhlcv(c.env, exchange, symbol, options)).candles;
   const config = {
@@ -440,19 +474,28 @@ api.get('/screener/:exchange', async (c) => {
 
 api.post('/screener/:exchange/ohlcv', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
-  const body = (await c.req.json()) as { symbols?: string[]; period?: string };
-  const symbols = (body.symbols ?? []).slice(0, 50);
+  const body = parseOrThrow(ohlcvBatchSchema, await c.req.json().catch(() => ({})), 'body');
+  const symbols = body.symbols;
   const timeframe = periodToTimeframe(body.period);
   const ohlcv: Record<string, OHLCV[]> = {};
 
-  for (const symbol of symbols) {
-    ohlcv[symbol] = (
-      await loadOhlcv(c.env, exchange, symbol, {
-        timeframe,
-        type: symbol.endsWith('.P') ? 'perp' : 'spot',
-        limit: 60,
-      })
-    ).candles;
+  const entries = await mapWithConcurrency(
+    symbols,
+    4,
+    async (symbol) =>
+      [
+        symbol,
+        (
+          await loadOhlcv(c.env, exchange, symbol, {
+            timeframe,
+            type: symbol.endsWith('.P') ? 'perp' : 'spot',
+            limit: 60,
+          })
+        ).candles,
+      ] as const
+  );
+  for (const [symbol, candles] of entries) {
+    ohlcv[symbol] = candles;
   }
 
   return ok(c, {
@@ -462,6 +505,33 @@ api.post('/screener/:exchange/ohlcv', async (c) => {
     count: symbols.length,
     timestamp: Date.now(),
   });
+});
+
+api.get('/arbitrage/prices', async (c) => {
+  const type = validateMarketType(c.req.query('type')) ?? 'spot';
+  const quote = validateQuoteCurrency(c.req.query('quote')) ?? 'USDT';
+  const minSpreadBps = validateInteger(c.req.query('minSpreadBps'), 10, 0, 10_000);
+  const limit = validateInteger(c.req.query('limit'), 50, 1, 200);
+  const eligibleExchanges = exchanges
+    .filter((exchange) => exchange.supported)
+    .filter((exchange) => (type === 'spot' ? exchange.hasSpot : exchange.hasPerp))
+    .map((exchange) => exchange.id as SupportedExchange);
+
+  const tickerSets = await Promise.all(
+    eligibleExchanges.map(async (exchange) => ({
+      exchange,
+      tickers: (await cachedMarketData<Ticker[]>(c.env, 'tickers', exchange, type)).data,
+    }))
+  );
+
+  const response: PriceArbitrageResponse = buildPriceArbitrageResponse(tickerSets, {
+    type,
+    quote,
+    minSpreadBps,
+    limit,
+  });
+
+  return ok(c, response, { source: 'live-cache', eligibleExchanges });
 });
 
 api.get('/funding/compare', async (c) => {
@@ -499,24 +569,10 @@ api.get('/funding/:exchange', async (c) => {
 
 api.get('/orderbook/:exchange/:symbol', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
-  const symbol = decodeURIComponent(c.req.param('symbol'));
+  const symbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
   const type = parseMarketType(c.req.query('type'), symbol);
   const limit = validateInteger(c.req.query('limit'), 50, 1, 500);
-  const orderbook = await ccxtService
-    .fetchOrderBook(exchange, symbol, type, limit)
-    .catch((error) => {
-      if (!isExchangeConnectivityError(error)) {
-        throw error;
-      }
-      return {
-        symbol,
-        exchange,
-        type,
-        bids: [],
-        asks: [],
-        timestamp: Date.now(),
-      };
-    });
+  const { orderbook, meta } = await loadOrderBook(c.env, exchange, symbol, type, limit);
   const bestBid = orderbook.bids[0]?.price ?? null;
   const bestAsk = orderbook.asks[0]?.price ?? null;
   const spread = bestBid !== null && bestAsk !== null ? bestAsk - bestBid : null;
@@ -532,23 +588,28 @@ api.get('/orderbook/:exchange/:symbol', async (c) => {
     midPrice,
     timestamp: orderbook.timestamp,
   };
-  return ok(c, response);
+  return ok(c, response, meta);
 });
 
 api.post('/admin/backfills', async (c) => {
-  requireAdmin(c.env, c.req.header('X-Admin-API-Key'));
+  await requireAdminRequest(c);
   const body = await c.req.json().catch(() => ({}));
   const result = await createBackfillJob(c.env, body);
   return ok(c, result);
 });
 
+api.get('/admin/health', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await buildDeepHealth(c.env));
+});
+
 api.get('/admin/backfills/:id', async (c) => {
-  requireAdmin(c.env, c.req.header('X-Admin-API-Key'));
+  await requireAdminRequest(c);
   return ok(c, await getBackfillJob(c.env, c.req.param('id')));
 });
 
 api.post('/admin/backfills/:id/retry', async (c) => {
-  requireAdmin(c.env, c.req.header('X-Admin-API-Key'));
+  await requireAdminRequest(c);
   const enqueued = await enqueuePendingTasks(c.env, c.req.param('id'));
   return ok(c, { jobId: c.req.param('id'), enqueued });
 });
@@ -629,7 +690,17 @@ export default {
   },
 } satisfies ExportedHandler<Env, BackfillQueueMessage>;
 
-async function buildHealth(env: Env): Promise<HealthResponse & Record<string, unknown>> {
+function buildPublicHealth(): HealthResponse {
+  return {
+    status: 'ok',
+    api: 'ready',
+    database: 'hidden',
+    exchanges: exchanges.map((exchange) => exchange.id),
+    timestamp: Date.now(),
+  };
+}
+
+async function buildDeepHealth(env: Env): Promise<HealthResponse & Record<string, unknown>> {
   let cacheReachable = false;
   try {
     if (env.MARKET_DATA_CACHE) {
@@ -750,11 +821,38 @@ async function loadOhlcv(
 ): Promise<{
   candles: OHLCV[];
   meta: {
-    source: 'exchange' | 'r2' | 'r2+exchange';
+    source: 'exchange' | 'r2' | 'r2+exchange' | 'live-cache';
     archiveObjects: string[];
     missingArchive: boolean;
+    cache?: Record<string, unknown>;
   };
 }> {
+  if (env.MARKET_DATA_CACHE && options.since === undefined && options.until === undefined) {
+    const id = env.MARKET_DATA_CACHE.idFromName(`ohlcv:${exchange}:${symbol}`);
+    const url = new URL('https://cache/ohlcv');
+    url.searchParams.set('exchange', exchange);
+    url.searchParams.set('symbol', symbol);
+    url.searchParams.set('type', options.type);
+    url.searchParams.set('timeframe', options.timeframe);
+    url.searchParams.set('limit', String(options.limit));
+    const response = await env.MARKET_DATA_CACHE.get(id).fetch(url.toString());
+    if (response.ok) {
+      const payload = (await response.json()) as {
+        data: OHLCV[];
+        meta?: Record<string, unknown>;
+      };
+      return {
+        candles: payload.data,
+        meta: {
+          source: 'live-cache',
+          archiveObjects: [],
+          missingArchive: false,
+          cache: payload.meta,
+        },
+      };
+    }
+  }
+
   const archived = options.since
     ? await readArchivedOhlcv(
         env,
@@ -807,18 +905,78 @@ async function loadOhlcv(
   };
 }
 
+async function loadOrderBook(
+  env: Env,
+  exchange: SupportedExchange,
+  symbol: string,
+  type: 'spot' | 'perp',
+  limit: number
+): Promise<{ orderbook: OrderBook; meta: Record<string, unknown> }> {
+  try {
+    if (env.MARKET_DATA_CACHE) {
+      const id = env.MARKET_DATA_CACHE.idFromName(`orderbook:${exchange}:${symbol}`);
+      const url = new URL('https://cache/orderbook');
+      url.searchParams.set('exchange', exchange);
+      url.searchParams.set('symbol', symbol);
+      url.searchParams.set('type', type);
+      url.searchParams.set('limit', String(limit));
+      const response = await env.MARKET_DATA_CACHE.get(id).fetch(url.toString());
+      if (response.ok) {
+        const payload = (await response.json()) as {
+          data: OrderBook;
+          meta?: Record<string, unknown>;
+        };
+        return { orderbook: payload.data, meta: { source: 'live-cache', cache: payload.meta } };
+      }
+    }
+
+    return {
+      orderbook: await ccxtService.fetchOrderBook(exchange, symbol, type, limit),
+      meta: { source: 'exchange' },
+    };
+  } catch (error) {
+    if (!isExchangeConnectivityError(error)) {
+      throw error;
+    }
+    return {
+      orderbook: {
+        symbol,
+        exchange,
+        type,
+        bids: [],
+        asks: [],
+        timestamp: Date.now(),
+      },
+      meta: {
+        source: 'exchange-unavailable',
+        stale: true,
+        refreshError: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
 function isExchangeConnectivityError(error: unknown): boolean {
   if (error instanceof ExchangeError) {
-    return true;
+    return (
+      error.code === ErrorCode.EXCHANGE_TIMEOUT ||
+      error.code === ErrorCode.EXCHANGE_RATE_LIMIT ||
+      error.code === ErrorCode.EXCHANGE_UNAVAILABLE ||
+      error.code === ErrorCode.EXCHANGE_NETWORK_ERROR
+    );
   }
 
-  const message = error instanceof Error ? error.message : String(error);
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
   return (
-    message.includes('Network error connecting to exchange') ||
-    message.includes('ExchangeError: Network error connecting to exchange') ||
+    message.includes('network error connecting to exchange') ||
     message.includes('fetch failed') ||
-    message.includes('Request timeout') ||
-    message.includes('Values cannot be larger than 131072 bytes')
+    message.includes('request timeout') ||
+    message.includes('rate limit') ||
+    message.includes('too many requests') ||
+    message.includes('429') ||
+    message.includes('502') ||
+    message.includes('503') ||
+    message.includes('504')
   );
 }
 
@@ -888,20 +1046,14 @@ function parseOhlcvQuery(
   since?: number;
   until?: number;
 } {
+  const parsed = parseOrThrow(ohlcvQuerySchema, { limit: defaultLimit, ...query }, 'query');
   return {
-    timeframe: parseTimeframe(query.timeframe ?? '1h'),
-    type: parseMarketType(query.type, symbol),
-    limit: validateInteger(query.limit, defaultLimit, 1, 1000),
-    since: query.since ? Number(query.since) : undefined,
-    until: query.until ? Number(query.until) : undefined,
+    timeframe: parsed.timeframe,
+    type: parseMarketType(parsed.type, symbol),
+    limit: parsed.limit,
+    since: parsed.since,
+    until: parsed.until,
   };
-}
-
-function parseTimeframe(value: string): Timeframe {
-  if (supportedTimeframes.includes(value as Timeframe)) {
-    return value as Timeframe;
-  }
-  throw invalidTimeframe(value, supportedTimeframes);
 }
 
 function parseMarketType(value: string | undefined, symbol: string): 'spot' | 'perp' {
@@ -1208,24 +1360,43 @@ function requireExchange(value: string): SupportedExchange {
   return exchange;
 }
 
-function requireAdmin(env: Env, apiKey: string | undefined): void {
-  if (env.ADMIN_API_KEY) {
-    if (apiKey !== env.ADMIN_API_KEY) {
-      throw unauthorized('Admin API key is required');
-    }
-    return;
-  }
-
-  if (env.ENVIRONMENT && env.ENVIRONMENT !== 'local') {
-    throw unauthorized('ADMIN_API_KEY must be configured outside local development');
-  }
-}
-
 function safeDivide(a: number, b: number): number {
   return b === 0 ? 0 : a / b;
 }
 
-function ok<T>(c: { json: (value: unknown) => Response }, data: T, meta?: Record<string, unknown>) {
-  const body = meta ? { ...successResponse(data), meta } : successResponse(data);
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      const item = items[index];
+      if (item !== undefined) {
+        results[index] = await mapper(item, index);
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => worker())
+  );
+  return results;
+}
+
+function ok<T>(
+  c: { json: (value: unknown) => Response; res: { headers: Headers } },
+  data: T,
+  meta?: Record<string, unknown>
+) {
+  const requestId = c.res.headers.get('X-Request-ID') ?? undefined;
+  const body = meta
+    ? { ...successResponse(data), meta: { requestId, ...meta } }
+    : { ...successResponse(data), meta: { requestId } };
   return c.json(body);
 }

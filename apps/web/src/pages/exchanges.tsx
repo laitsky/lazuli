@@ -10,6 +10,7 @@ import { ExchangeLogo } from '@/components/exchange-logo';
 import { PageHeader } from '@/components/page-header';
 import type { ExchangeInfo } from '@lazuli/shared';
 import { ArrowRight, Check, X, Activity, Globe } from 'lucide-react';
+import { appRoutes } from '@/lib/navigation';
 
 export default function ExchangesPage() {
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
@@ -63,7 +64,7 @@ export default function ExchangesPage() {
             {exchanges.map((exchange, index) => (
               <Link
                 key={exchange.id}
-                to={`/markets?exchange=${exchange.id}`}
+                to={`${appRoutes.markets.href}?exchange=${exchange.id}`}
                 className="group block"
                 style={{ animationDelay: `${index * 50}ms` }}
               >
@@ -220,7 +221,7 @@ export default function ExchangesPage() {
                       </td>
                       <td className="p-4 text-right">
                         <Link
-                          to={`/markets?exchange=${exchange.id}`}
+                          to={`${appRoutes.markets.href}?exchange=${exchange.id}`}
                           className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
                         >
                           Explore

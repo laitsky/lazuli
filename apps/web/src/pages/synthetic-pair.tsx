@@ -249,7 +249,7 @@ export default function SyntheticPairPage() {
             `Reached maximum page limit (${MAX_PAGES}). Some tickers may not be loaded.`
           );
         }
-      } catch (err) {
+      } catch {
         setError('Failed to load tickers');
       } finally {
         setLoading(false);

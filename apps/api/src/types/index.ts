@@ -7,6 +7,26 @@ export interface ApiResponse<T = any> {
   data: T;
   error: string | null;
   timestamp: number;
+  meta?: ApiResponseMeta;
+}
+
+/**
+ * Optional response metadata used for tracing, cache status, and throttling.
+ */
+export interface ApiResponseMeta {
+  requestId?: string;
+  cache?: {
+    source?: string;
+    ageMs?: number;
+    stale?: boolean;
+    refreshError?: string;
+  };
+  rateLimit?: {
+    remaining?: number;
+    retryAfterMs?: number;
+    unavailable?: boolean;
+  };
+  [key: string]: unknown;
 }
 
 /**
@@ -156,6 +176,8 @@ export interface Env {
   MARKET_DATA_CACHE: DurableObjectNamespace;
   RATE_LIMITER: DurableObjectNamespace;
   ADMIN_API_KEY?: string;
+  ADMIN_API_KEY_ID?: string;
+  ADMIN_SIGNING_SECRET?: string;
   CORS_ORIGIN?: string;
   ENVIRONMENT?: 'local' | 'staging' | 'production';
   PUBLIC_API_BASE_URL?: string;

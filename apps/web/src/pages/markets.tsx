@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { ExchangeLogo } from '@/components/exchange-logo';
 import { PageHeader } from '@/components/page-header';
+import { appRoutes } from '@/lib/navigation';
 
 export default function MarketsPage() {
   const [searchParams] = useSearchParams();
@@ -115,7 +116,7 @@ export default function MarketsPage() {
       {/* Exchange Selector */}
       <div className="flex flex-wrap gap-2">
         {exchanges.map((ex) => (
-          <Link key={ex.id} to={`/markets?exchange=${ex.id}`}>
+          <Link key={ex.id} to={`${appRoutes.markets.href}?exchange=${ex.id}`}>
             <button
               className={`group inline-flex items-center gap-2.5 px-4 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
                 exchange === ex.id

@@ -24,6 +24,7 @@ import {
   CrossExchangeFundingResponse,
   TechnicalIndicatorResponse,
   OrderBookResponse,
+  PriceArbitrageResponse,
 } from '@lazuli/shared';
 
 // API base URL - defaults to same-origin for Cloudflare Workers Static Assets.
@@ -34,6 +35,14 @@ const API_VERSION = '/api/v1';
 
 // Default timeout for API requests (30 seconds)
 const DEFAULT_TIMEOUT = 30000;
+type QueryParams = object;
+
+export interface MultiTimeframeOHLCVResponse {
+  exchange: string;
+  symbol: string;
+  timeframes: Record<string, OHLCVResponse>;
+  timestamp: number;
+}
 
 /**
  * Query parameters for tickers endpoint
@@ -161,6 +170,16 @@ export interface OrderBookQueryParams {
 }
 
 /**
+ * Query parameters for price arbitrage endpoint
+ */
+export interface PriceArbitrageQueryParams {
+  type?: 'spot' | 'perp';
+  quote?: string;
+  minSpreadBps?: number;
+  limit?: number;
+}
+
+/**
  * EMA data point with OHLCV and all period values
  */
 export interface EMADataPoint {
@@ -189,7 +208,7 @@ export interface SuperEMAResponse {
 /**
  * Build query string from parameters
  */
-function buildQueryString(params?: Record<string, any>): string {
+function buildQueryString(params?: QueryParams): string {
   if (!params) return '';
 
   const queryParams = new URLSearchParams();
@@ -244,7 +263,7 @@ async function fetchWithTimeout(
  */
 async function apiFetch<T>(
   endpoint: string,
-  queryParams?: Record<string, any>,
+  queryParams?: QueryParams,
   timeout?: number,
   requestInit?: RequestInit
 ): Promise<ApiResponse<T>> {
@@ -284,7 +303,7 @@ async function apiFetch<T>(
  */
 async function apiPost<T>(
   endpoint: string,
-  body: Record<string, any>,
+  body: unknown,
   timeout?: number
 ): Promise<ApiResponse<T>> {
   try {
@@ -388,14 +407,17 @@ export class LazuliAPI {
     exchange: SupportedExchange,
     symbol: string,
     queryParams: MultiTimeframeOHLCVQueryParams
-  ): Promise<ApiResponse<any>> {
+  ): Promise<ApiResponse<MultiTimeframeOHLCVResponse>> {
     const encodedSymbol = encodeURIComponent(symbol);
     // Convert timeframes array to comma-separated string
     const params = {
       ...queryParams,
       timeframes: queryParams.timeframes.join(','),
     };
-    return apiFetch<any>(`${API_VERSION}/ohlcv/multi/${exchange}/${encodedSymbol}`, params);
+    return apiFetch<MultiTimeframeOHLCVResponse>(
+      `${API_VERSION}/ohlcv/multi/${exchange}/${encodedSymbol}`,
+      params
+    );
   }
 
   /**
@@ -618,6 +640,17 @@ export class LazuliAPI {
       `${API_VERSION}/orderbook/${exchange}/${encodedSymbol}`,
       queryParams
     );
+  }
+
+  /**
+   * Get cross-exchange price arbitrage opportunities
+   * Compares normalized assets across supported exchanges and returns the
+   * widest current price discrepancies for discovery and analysis.
+   */
+  static async getPriceArbitrage(
+    queryParams?: PriceArbitrageQueryParams
+  ): Promise<ApiResponse<PriceArbitrageResponse>> {
+    return apiFetch<PriceArbitrageResponse>(`${API_VERSION}/arbitrage/prices`, queryParams, 60000);
   }
 }
 

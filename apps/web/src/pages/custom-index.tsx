@@ -381,7 +381,7 @@ export default function CustomIndexPage() {
       link.download = `${indexResult?.name || 'custom-index'}-chart.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
-    } catch (err) {
+    } catch {
       setError('Failed to export PNG. Please try again.');
     }
   };
@@ -804,7 +804,7 @@ export default function CustomIndexPage() {
                         ))}
                       </Pie>
                       <Tooltip
-                        formatter={(value: number) => [`${value.toFixed(1)}%`, 'Weight']}
+                        formatter={(value) => [`${Number(value ?? 0).toFixed(1)}%`, 'Weight']}
                         contentStyle={{
                           backgroundColor: '#1a1a1a',
                           border: '1px solid #333',
@@ -896,7 +896,7 @@ export default function CustomIndexPage() {
                       borderRadius: '6px',
                       fontSize: '12px',
                     }}
-                    formatter={(value: number) => [`${value.toFixed(2)}%`, '']}
+                    formatter={(value) => [`${Number(value ?? 0).toFixed(2)}%`, '']}
                   />
                   <Legend
                     onMouseEnter={(e) => setHoveredLine(e.dataKey as string)}

@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AltScreenerClient } from './alt-screener-client';
 import { PageHeader } from '@/components/page-header';
 import { LazuliAPI } from '@/lib/api-client';
+import { appRoutes } from '@/lib/navigation';
 import { SupportedExchange, BaseCurrency, ExchangeInfo, AltScreenerResponse } from '@lazuli/shared';
 import { Globe, TrendingUp, TrendingDown, BarChart3, Zap, Target } from 'lucide-react';
 
@@ -76,7 +77,7 @@ export default function AltScreenerPage() {
       {/* Exchange Selector */}
       <div className="flex flex-wrap gap-2 p-1 bg-muted/30 rounded-xl border border-border w-fit backdrop-blur-sm">
         {exchanges.map((ex) => (
-          <Link key={ex.id} to={`/alt-screener?exchange=${ex.id}&base=${base}`}>
+          <Link key={ex.id} to={`${appRoutes.screener.href}?exchange=${ex.id}&base=${base}`}>
             <Button
               variant={exchange === ex.id ? 'default' : 'ghost'}
               size="lg"

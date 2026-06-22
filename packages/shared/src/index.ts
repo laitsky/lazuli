@@ -11,6 +11,26 @@ export interface ApiResponse<T = any> {
   data: T;
   error: string | null;
   timestamp: number;
+  meta?: ApiResponseMeta;
+}
+
+/**
+ * Optional response metadata used for tracing, cache status, and throttling.
+ */
+export interface ApiResponseMeta {
+  requestId?: string;
+  cache?: {
+    source?: string;
+    ageMs?: number;
+    stale?: boolean;
+    refreshError?: string;
+  };
+  rateLimit?: {
+    remaining?: number;
+    retryAfterMs?: number;
+    unavailable?: boolean;
+  };
+  [key: string]: unknown;
 }
 
 /**
@@ -75,6 +95,61 @@ export interface ExchangeInfo {
  * - upbit: Upbit Korea (spot only)
  */
 export type SupportedExchange = 'binance' | 'bybit' | 'okx' | 'hyperliquid' | 'upbit';
+
+/**
+ * URL-addressable market workspace state.
+ * These values are intentionally simple so the web app can share and restore
+ * a complete analysis workspace from query parameters.
+ */
+export interface MarketWorkspaceState {
+  exchange: SupportedExchange;
+  symbol: string;
+  type: 'spot' | 'perp';
+  timeframe: Timeframe;
+}
+
+/**
+ * Per-exchange quote used for cross-exchange price arbitrage discovery.
+ */
+export interface PriceArbitrageQuote {
+  exchange: SupportedExchange;
+  symbol: string;
+  price: number;
+  bid: number | null;
+  ask: number | null;
+  last: number | null;
+  timestamp: number;
+}
+
+/**
+ * Best discovered price discrepancy for a normalized asset.
+ */
+export interface PriceArbitrageOpportunity {
+  asset: string;
+  marketType: 'spot' | 'perp';
+  quoteCurrency: string;
+  bestBuyExchange: SupportedExchange;
+  bestSellExchange: SupportedExchange;
+  buyPrice: number;
+  sellPrice: number;
+  spread: number;
+  spreadBps: number;
+  quotes: PriceArbitrageQuote[];
+  timestamp: number;
+}
+
+/**
+ * Response from /arbitrage/prices.
+ */
+export interface PriceArbitrageResponse {
+  opportunities: PriceArbitrageOpportunity[];
+  count: number;
+  exchanges: SupportedExchange[];
+  marketType: 'spot' | 'perp';
+  quoteCurrency: string;
+  minSpreadBps: number;
+  timestamp: number;
+}
 
 /**
  * Pagination metadata

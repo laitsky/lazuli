@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { LazuliAPI, formatCurrency, formatPercentage } from '@/lib/api-client';
 import { TrendingUp } from 'lucide-react';
 import type { Ticker } from '@lazuli/shared';
+import { appRoutes } from '@/lib/navigation';
 
 /**
  * Top Gainers Widget - Terminal Luxe
@@ -68,7 +69,7 @@ export function TopGainers() {
           <span className="text-sm font-semibold text-foreground">Gainers</span>
         </div>
         <Link
-          to="/markets?exchange=bybit&sortBy=change&sortOrder=desc"
+          to={`${appRoutes.markets.href}?exchange=bybit&sortBy=change&sortOrder=desc`}
           className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-primary transition-colors"
         >
           View All
@@ -80,7 +81,7 @@ export function TopGainers() {
         {gainers.map((ticker, index) => (
           <Link
             key={ticker.symbol}
-            to={`/markets?exchange=bybit&symbol=${ticker.symbol}`}
+            to={`${appRoutes.markets.href}?exchange=bybit&symbol=${ticker.symbol}`}
             className="flex items-center justify-between p-2 rounded-lg hover:bg-accent transition-colors group"
           >
             <div className="flex items-center gap-2.5">

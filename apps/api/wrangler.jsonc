@@ -15,6 +15,7 @@
   "vars": {
     "ENVIRONMENT": "local",
     "PUBLIC_API_BASE_URL": "http://localhost:8787",
+    "CORS_ORIGIN": "http://localhost:3001,http://localhost:8788",
   },
 
   "d1_databases": [
@@ -99,6 +100,8 @@
       "vars": {
         "ENVIRONMENT": "staging",
         "PUBLIC_API_BASE_URL": "https://api-staging.lazuli.app",
+        "CORS_ORIGIN": "https://staging.lazuli.app,https://lazuli-web-staging.lazuli.workers.dev",
+        "ADMIN_API_KEY_ID": "lazuli-admin-staging",
       },
       "d1_databases": [
         {
@@ -165,6 +168,8 @@
       "vars": {
         "ENVIRONMENT": "production",
         "PUBLIC_API_BASE_URL": "https://api.lazuli.app",
+        "CORS_ORIGIN": "https://lazuli.app,https://www.lazuli.app",
+        "ADMIN_API_KEY_ID": "lazuli-admin-production",
       },
       "d1_databases": [
         {

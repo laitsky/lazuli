@@ -84,8 +84,8 @@ bun run dev:web
 
 ```bash
 cd apps/api
-bunx wrangler secret put ADMIN_API_KEY --env staging
-bunx wrangler secret put ADMIN_API_KEY --env production
+bunx wrangler secret put ADMIN_SIGNING_SECRET --env staging
+bunx wrangler secret put ADMIN_SIGNING_SECRET --env production
 ```
 
 **Frontend Web:**

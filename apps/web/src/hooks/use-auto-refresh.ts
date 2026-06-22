@@ -135,6 +135,10 @@ export function useAutoRefresh<T>({
   const [lastUpdated, setLastUpdated] = useState<Date | null>(initialData ? new Date() : null);
   const [isPaused, setIsPaused] = useState(!enabled);
   const [countdown, setCountdown] = useState(Math.floor(interval / 1000));
+  const [visibilityPaused, setVisibilityPaused] = useState(
+    typeof document !== 'undefined' ? document.hidden : false
+  );
+  const [backoffMultiplier, setBackoffMultiplier] = useState(1);
 
   // Refs for cleanup and tracking
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -142,6 +146,9 @@ export function useAutoRefresh<T>({
   const abortControllerRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(true);
   const fetchFnRef = useRef(fetchFn);
+  const inFlightRef = useRef(false);
+  const failureCountRef = useRef(0);
+  const effectiveInterval = interval * (visibilityPaused ? 6 : backoffMultiplier);
 
   // Keep fetchFn ref updated
   useEffect(() => {
@@ -154,10 +161,11 @@ export function useAutoRefresh<T>({
    */
   const fetchData = useCallback(
     async (isInitial = false) => {
-      // Cancel any in-flight requests to prevent race conditions
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+      // Avoid overlapping refreshes when a slow exchange/API response is still in flight.
+      if (inFlightRef.current) {
+        return;
       }
+      inFlightRef.current = true;
       abortControllerRef.current = new AbortController();
 
       // Set appropriate loading state
@@ -177,10 +185,14 @@ export function useAutoRefresh<T>({
           setData(response.data);
           setError(null);
           setLastUpdated(new Date());
+          failureCountRef.current = 0;
+          setBackoffMultiplier(1);
           onSuccess?.(response.data);
         } else {
           const errorMsg = response.error || 'Failed to fetch data';
           setError(errorMsg);
+          failureCountRef.current += 1;
+          setBackoffMultiplier(Math.min(8, 2 ** failureCountRef.current));
           onError?.(errorMsg);
         }
       } catch (err) {
@@ -193,17 +205,20 @@ export function useAutoRefresh<T>({
 
         const errorMsg = err instanceof Error ? err.message : 'Unknown error';
         setError(errorMsg);
+        failureCountRef.current += 1;
+        setBackoffMultiplier(Math.min(8, 2 ** failureCountRef.current));
         onError?.(errorMsg);
       } finally {
+        inFlightRef.current = false;
         if (isMountedRef.current) {
           setIsLoading(false);
           setIsRefreshing(false);
           // Reset countdown after fetch completes
-          setCountdown(Math.floor(interval / 1000));
+          setCountdown(Math.floor(effectiveInterval / 1000));
         }
       }
     },
-    [interval, onSuccess, onError]
+    [effectiveInterval, onSuccess, onError]
   );
 
   /**
@@ -212,8 +227,8 @@ export function useAutoRefresh<T>({
   const refresh = useCallback(async () => {
     await fetchData(false);
     // Reset countdown after manual refresh
-    setCountdown(Math.floor(interval / 1000));
-  }, [fetchData, interval]);
+    setCountdown(Math.floor(effectiveInterval / 1000));
+  }, [effectiveInterval, fetchData]);
 
   /**
    * Pause auto-refresh
@@ -227,8 +242,8 @@ export function useAutoRefresh<T>({
    */
   const resume = useCallback(() => {
     setIsPaused(false);
-    setCountdown(Math.floor(interval / 1000));
-  }, [interval]);
+    setCountdown(Math.floor(effectiveInterval / 1000));
+  }, [effectiveInterval]);
 
   // Initial fetch on mount and cleanup on unmount
   useEffect(() => {
@@ -245,9 +260,17 @@ export function useAutoRefresh<T>({
         abortControllerRef.current.abort();
       }
     };
-    // Only run on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      setVisibilityPaused(document.hidden);
+      setCountdown(Math.floor((document.hidden ? interval * 6 : interval) / 1000));
+    };
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+  }, [interval]);
 
   // Set up auto-refresh interval
   useEffect(() => {
@@ -263,7 +286,7 @@ export function useAutoRefresh<T>({
     // Set up new interval
     intervalRef.current = setInterval(() => {
       fetchData(false);
-    }, interval);
+    }, effectiveInterval);
 
     return () => {
       if (intervalRef.current) {
@@ -271,7 +294,7 @@ export function useAutoRefresh<T>({
         intervalRef.current = null;
       }
     };
-  }, [fetchData, interval, isPaused]);
+  }, [effectiveInterval, fetchData, isPaused]);
 
   // Countdown timer (updates every second)
   useEffect(() => {
@@ -287,7 +310,7 @@ export function useAutoRefresh<T>({
     countdownRef.current = setInterval(() => {
       setCountdown((prev) => {
         if (prev <= 1) {
-          return Math.floor(interval / 1000);
+          return Math.floor(effectiveInterval / 1000);
         }
         return prev - 1;
       });
@@ -299,7 +322,7 @@ export function useAutoRefresh<T>({
         countdownRef.current = null;
       }
     };
-  }, [interval, isPaused, isRefreshing]);
+  }, [effectiveInterval, isPaused, isRefreshing]);
 
   /**
    * Format last updated time - memoized to avoid unnecessary re-computation

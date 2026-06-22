@@ -1,0 +1,11 @@
+# Security-sensitive project controls require trusted review.
+/.github/ @laitsky
+/apps/api/wrangler.jsonc @laitsky
+/apps/web/wrangler.jsonc @laitsky
+/package.json @laitsky
+/bun.lock @laitsky
+/apps/*/package.json @laitsky
+/apps/api/src/utils/security.ts @laitsky
+/apps/api/src/services/RateLimiterDO.ts @laitsky
+/apps/api/src/services/MarketDataCacheDO.ts @laitsky
+/apps/api/src/services/ccxtService.ts @laitsky

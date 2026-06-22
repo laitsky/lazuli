@@ -10,7 +10,7 @@ import path from 'path';
  * - Simpler SPA architecture
  * - Better Bun integration
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react()],
   resolve: {
     alias: {
@@ -32,9 +32,9 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    sourcemap: mode !== 'production',
   },
   css: {
     postcss: './postcss.config.mjs',
   },
-});
+}));

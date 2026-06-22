@@ -191,7 +191,7 @@ export default function SuperEMAPage() {
         // Deduplicate tickers by symbol to prevent React key errors
         const uniqueTickers = Array.from(new Map(allTickers.map((t) => [t.symbol, t])).values());
         setTickers(uniqueTickers);
-      } catch (err) {
+      } catch {
         setError('Failed to load tickers');
       } finally {
         setTickersLoading(false);

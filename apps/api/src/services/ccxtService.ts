@@ -15,9 +15,11 @@ import { Ticker, Market, OHLCV, Timeframe } from '../types';
 import { FundingRateData, OrderBook, OrderBookEntry } from '@lazuli/shared';
 import { convertFromCCXTNotation, convertToCCXTNotation, parseSymbol } from '../utils/validation';
 import {
+  ErrorCode,
   ExchangeError,
   ValidationError,
   exchangeNotSupported,
+  exchangeUnavailable,
   invalidTimeframe,
   classifyCcxtError,
 } from '../errors';
@@ -25,6 +27,15 @@ import { createServiceLogger } from '../utils/logger';
 
 // Create logger for CCXT service
 const log = createServiceLogger('ccxt');
+const EXCHANGE_TIMEOUT_MS = 12_000;
+const MAX_TRANSIENT_ATTEMPTS = 3;
+const CIRCUIT_FAILURE_THRESHOLD = 3;
+const CIRCUIT_COOLDOWN_MS = 30_000;
+
+interface CircuitState {
+  failures: number;
+  openUntil: number;
+}
 
 // CCXT's TypeScript typings don't expose every subclass (e.g. binanceusdm) on
 // the default export, so we cast to a record for dynamic access.
@@ -38,12 +49,15 @@ function baseOptions(): Record<string, unknown> {
   return {
     enableRateLimit: true,
     fetchImplementation: fetch,
+    timeout: EXCHANGE_TIMEOUT_MS,
   };
 }
 
 export class CCXTService {
   private spotExchanges: Map<string, any>;
   private perpExchanges: Map<string, any>;
+  private circuits = new Map<string, CircuitState>();
+  private inFlight = new Map<string, Promise<unknown>>();
 
   constructor() {
     this.spotExchanges = new Map();
@@ -198,12 +212,16 @@ export class CCXTService {
 
     if (this.hasSpotMarkets(exchangeId)) {
       const spotExchange = this.getExchange(exchangeId, 'spot');
-      loadPromises.push(spotExchange.loadMarkets());
+      loadPromises.push(
+        this.withExchangeOperation(exchangeId, 'markets:spot', () => spotExchange.loadMarkets())
+      );
     }
 
     if (this.hasPerpMarkets(exchangeId)) {
       const perpExchange = this.getExchange(exchangeId, 'perp');
-      loadPromises.push(perpExchange.loadMarkets());
+      loadPromises.push(
+        this.withExchangeOperation(exchangeId, 'markets:perp', () => perpExchange.loadMarkets())
+      );
     }
 
     await Promise.all(loadPromises);
@@ -236,7 +254,11 @@ export class CCXTService {
   private async getTickersByType(exchangeId: string, type: 'spot' | 'perp'): Promise<Ticker[]> {
     try {
       const exchange = this.getExchange(exchangeId, type);
-      const tickers = await exchange.fetchTickers();
+      const tickers = await this.withExchangeOperation<Record<string, any>>(
+        exchangeId,
+        `tickers:${type}`,
+        () => exchange.fetchTickers()
+      );
 
       return Object.entries(tickers).map(([ccxtSymbol, ticker]: [string, any]) => {
         const standardSymbol = convertFromCCXTNotation(ccxtSymbol, type);
@@ -395,7 +417,12 @@ export class CCXTService {
         throw invalidTimeframe(timeframe, supported);
       }
 
-      const ohlcvData = await exchange.fetchOHLCV(ccxtSymbol, timeframe, since, limit);
+      const ohlcvData = await this.withExchangeOperation<number[][]>(
+        exchangeId,
+        `ohlcv:${marketType}:${timeframe}:${ccxtSymbol}:${since ?? 'latest'}:${limit}`,
+        `ohlcv:${marketType}:${timeframe}`,
+        () => exchange.fetchOHLCV(ccxtSymbol, timeframe, since, limit)
+      );
 
       return ohlcvData.map((candle: number[]) => ({
         timestamp: candle[0],
@@ -431,7 +458,17 @@ export class CCXTService {
         await exchange.loadMarkets();
       }
 
-      const orderBookData = await exchange.fetchOrderBook(ccxtSymbol, limit);
+      const orderBookData = await this.withExchangeOperation<{
+        bids: Array<[number, number]>;
+        asks: Array<[number, number]>;
+        timestamp?: number;
+        nonce?: number;
+      }>(
+        exchangeId,
+        `orderbook:${marketType}:${ccxtSymbol}:${limit}`,
+        `orderbook:${marketType}`,
+        () => exchange.fetchOrderBook(ccxtSymbol, limit)
+      );
 
       let bidCumulative = 0;
       const bids: OrderBookEntry[] = orderBookData.bids.map((entry: [number, number]) => {
@@ -484,14 +521,18 @@ export class CCXTService {
         await exchange.loadMarkets();
       }
 
-      const rawRates =
-        typeof exchange.fetchFundingRates === 'function'
-          ? await exchange.fetchFundingRates()
-          : await Promise.all(
-              Object.keys(exchange.markets)
-                .slice(0, 200)
-                .map((symbol) => exchange.fetchFundingRate(symbol))
-            );
+      const rawRates = await this.withExchangeOperation<any[] | Record<string, any>>(
+        exchangeId,
+        'funding:perp',
+        () =>
+          typeof exchange.fetchFundingRates === 'function'
+            ? exchange.fetchFundingRates()
+            : Promise.all(
+                Object.keys(exchange.markets)
+                  .slice(0, 200)
+                  .map((symbol) => exchange.fetchFundingRate(symbol))
+              )
+      );
 
       const rates = Array.isArray(rawRates) ? rawRates : Object.values(rawRates);
 
@@ -529,7 +570,138 @@ export class CCXTService {
       throw classifyCcxtError(error, exchangeId);
     }
   }
+
+  private async withExchangeOperation<T>(
+    exchangeId: string,
+    resource: string,
+    circuitResourceOrOperation: string | (() => Promise<T>),
+    maybeOperation?: () => Promise<T>
+  ): Promise<T> {
+    const circuitResource =
+      typeof circuitResourceOrOperation === 'string' ? circuitResourceOrOperation : resource;
+    const operation =
+      typeof circuitResourceOrOperation === 'function'
+        ? circuitResourceOrOperation
+        : maybeOperation;
+    if (!operation) {
+      throw new Error(`Missing exchange operation for ${resource}`);
+    }
+
+    const circuitKey = `${exchangeId}:${circuitResource}`;
+    const inFlightKey = `${exchangeId}:${resource}`;
+    const circuit = this.circuits.get(circuitKey);
+    if (circuit && circuit.openUntil > Date.now()) {
+      throw exchangeUnavailable(exchangeId, `circuit open for ${circuitResource}`);
+    }
+
+    const existing = this.inFlight.get(inFlightKey);
+    if (existing) {
+      return existing as Promise<T>;
+    }
+
+    const task = this.runWithRetries(exchangeId, circuitResource, operation).finally(() => {
+      this.inFlight.delete(inFlightKey);
+    });
+    this.inFlight.set(inFlightKey, task);
+    return task;
+  }
+
+  private async runWithRetries<T>(
+    exchangeId: string,
+    resource: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= MAX_TRANSIENT_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await this.withTimeout(operation(), EXCHANGE_TIMEOUT_MS, resource);
+        this.circuits.delete(`${exchangeId}:${resource}`);
+        return result;
+      } catch (error) {
+        lastError = error;
+        if (!isTransientExchangeError(error) || attempt === MAX_TRANSIENT_ATTEMPTS) {
+          break;
+        }
+        await sleep(jitterDelay(attempt));
+      }
+    }
+
+    if (isTransientExchangeError(lastError)) {
+      this.recordCircuitFailure(exchangeId, resource);
+    }
+    throw lastError;
+  }
+
+  private async withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    resource: string
+  ): Promise<T> {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new Error(`Request timeout after ${timeoutMs}ms for ${resource}`)),
+        timeoutMs
+      );
+    });
+
+    try {
+      return await Promise.race([promise, timeout]);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    }
+  }
+
+  private recordCircuitFailure(exchangeId: string, resource: string): void {
+    const key = `${exchangeId}:${resource}`;
+    const previous = this.circuits.get(key) ?? { failures: 0, openUntil: 0 };
+    const failures = previous.failures + 1;
+    this.circuits.set(key, {
+      failures,
+      openUntil:
+        failures >= CIRCUIT_FAILURE_THRESHOLD
+          ? Date.now() + CIRCUIT_COOLDOWN_MS
+          : previous.openUntil,
+    });
+  }
 }
 
 // Export singleton instance for use across the application
 export const ccxtService = new CCXTService();
+
+export function isTransientExchangeError(error: unknown): boolean {
+  if (error instanceof ValidationError) {
+    return false;
+  }
+  if (error instanceof ExchangeError) {
+    return (
+      error.code === ErrorCode.EXCHANGE_TIMEOUT ||
+      error.code === ErrorCode.EXCHANGE_RATE_LIMIT ||
+      error.code === ErrorCode.EXCHANGE_UNAVAILABLE ||
+      error.code === ErrorCode.EXCHANGE_NETWORK_ERROR
+    );
+  }
+
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    message.includes('timeout') ||
+    message.includes('fetch failed') ||
+    message.includes('network') ||
+    message.includes('rate limit') ||
+    message.includes('429') ||
+    message.includes('503') ||
+    message.includes('502') ||
+    message.includes('504')
+  );
+}
+
+function jitterDelay(attempt: number): number {
+  return Math.min(2_000, 250 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

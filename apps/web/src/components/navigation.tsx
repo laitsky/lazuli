@@ -13,22 +13,9 @@ import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  LayoutDashboard,
-  TrendingUp,
-  LayoutGrid,
-  GitMerge,
-  PieChart,
-  Activity,
-  Zap,
-  Menu,
-  X,
-  Percent,
-  Search,
-  Command,
-  BookOpen,
-} from 'lucide-react';
+import { Menu, X, Search, Command } from 'lucide-react';
 import { LazuliAPI } from '@/lib/api-client';
+import { navigationSections } from '@/lib/navigation';
 
 /**
  * System health status interface
@@ -38,63 +25,6 @@ interface SystemHealth {
   exchangeCount: number;
   message: string;
 }
-
-/**
- * Navigation items with semantic icons
- */
-const navItems = [
-  {
-    href: '/',
-    label: 'Dashboard',
-    icon: LayoutDashboard,
-  },
-  // TODO: Revamp exchanges page
-  // {
-  //   href: '/exchanges',
-  //   label: 'Exchanges',
-  //   icon: Globe,
-  // },
-  {
-    href: '/markets',
-    label: 'Markets',
-    icon: TrendingUp,
-  },
-  {
-    href: '/orderbook',
-    label: 'Order Book',
-    icon: BookOpen,
-  },
-  {
-    href: '/alt-screener',
-    label: 'Alt Screener',
-    icon: Zap,
-  },
-  {
-    href: '/funding-rates',
-    label: 'Funding Rates',
-    icon: Percent,
-  },
-  {
-    href: '/multitf',
-    label: 'Multi-TF',
-    icon: LayoutGrid,
-  },
-  {
-    href: '/synthetic-pair',
-    label: 'Synthetic',
-    icon: GitMerge,
-  },
-  {
-    href: '/custom-index',
-    label: 'Index',
-    icon: PieChart,
-  },
-  {
-    href: '/superema',
-    label: 'SuperEMA',
-    icon: Activity,
-  },
-];
 
 /**
  * Refined animation variants
@@ -358,65 +288,77 @@ export function Navigation() {
 
         {/* Navigation Links */}
         <div className="flex-1 overflow-y-auto px-3 py-4 custom-scrollbar">
-          <motion.div
-            className="space-y-0.5"
-            variants={navItemsContainerVariants}
-            initial="closed"
-            animate="open"
-          >
-            {navItems.map((item) => {
-              const isActive = pathname === item.href;
-              const Icon = item.icon;
+          <div className="space-y-5">
+            {navigationSections.map((section) => (
+              <div key={section.id} className="space-y-1.5">
+                <div className="px-3 text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
+                  {section.label}
+                </div>
+                <motion.div
+                  className="space-y-0.5"
+                  variants={navItemsContainerVariants}
+                  initial="closed"
+                  animate="open"
+                >
+                  {section.items.map((item) => {
+                    const isActive = pathname === item.href;
+                    const Icon = item.icon;
 
-              return (
-                <motion.div key={item.href} variants={navItemVariants}>
-                  <Link to={item.href} onClick={closeMobileMenu} className="block">
-                    <motion.div
-                      className={cn(
-                        'group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors duration-200',
-                        isActive
-                          ? 'bg-primary/10 text-primary'
-                          : 'text-muted-foreground hover:bg-accent hover:text-foreground'
-                      )}
-                      whileHover={{ x: isActive ? 0 : 2 }}
-                      whileTap={{ scale: 0.99 }}
-                    >
-                      {/* Active indicator line */}
-                      {isActive && (
-                        <motion.div
-                          className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-full"
-                          layoutId="activeNav"
-                          transition={{
-                            type: 'spring',
-                            stiffness: 500,
-                            damping: 35,
-                          }}
-                        />
-                      )}
+                    return (
+                      <motion.div key={item.href} variants={navItemVariants}>
+                        <Link to={item.href} onClick={closeMobileMenu} className="block">
+                          <motion.div
+                            className={cn(
+                              'group relative flex min-h-10 items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors duration-200',
+                              isActive
+                                ? 'bg-primary/10 text-primary'
+                                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                            )}
+                            whileHover={{ x: isActive ? 0 : 2 }}
+                            whileTap={{ scale: 0.99 }}
+                          >
+                            {/* Active indicator line */}
+                            {isActive && (
+                              <motion.div
+                                className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
+                                layoutId="activeNav"
+                                transition={{
+                                  type: 'spring',
+                                  stiffness: 500,
+                                  damping: 35,
+                                }}
+                              />
+                            )}
 
-                      {/* Icon */}
-                      <Icon
-                        className={cn(
-                          'h-[18px] w-[18px] shrink-0 transition-colors',
-                          isActive
-                            ? 'text-primary'
-                            : 'text-muted-foreground group-hover:text-foreground'
-                        )}
-                        strokeWidth={isActive ? 2.5 : 2}
-                      />
+                            {/* Icon */}
+                            <Icon
+                              className={cn(
+                                'h-[18px] w-[18px] shrink-0 transition-colors',
+                                isActive
+                                  ? 'text-primary'
+                                  : 'text-muted-foreground group-hover:text-foreground'
+                              )}
+                              strokeWidth={isActive ? 2.5 : 2}
+                            />
 
-                      {/* Label */}
-                      <span
-                        className={cn('font-medium tracking-tight', isActive && 'font-semibold')}
-                      >
-                        {item.label}
-                      </span>
-                    </motion.div>
-                  </Link>
+                            {/* Label */}
+                            <span
+                              className={cn(
+                                'font-medium tracking-tight',
+                                isActive && 'font-semibold'
+                              )}
+                            >
+                              {item.label}
+                            </span>
+                          </motion.div>
+                        </Link>
+                      </motion.div>
+                    );
+                  })}
                 </motion.div>
-              );
-            })}
-          </motion.div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Status Footer - Dynamic health status from API */}

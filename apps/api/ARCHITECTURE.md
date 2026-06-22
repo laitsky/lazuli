@@ -21,4 +21,4 @@ Admin endpoints create bounded OHLCV backfill jobs. Workflows enqueue pending ta
 
 ## Security
 
-Admin routes require `ADMIN_API_KEY` outside local development. Production and staging secrets are stored with Wrangler secrets, not committed to the repository.
+Admin routes use local-only `X-Admin-API-Key` in `ENVIRONMENT=local`. Staging and production require signed requests with `X-Admin-Key-Id`, `X-Admin-Timestamp`, `X-Admin-Nonce`, and `X-Admin-Signature`; `ADMIN_SIGNING_SECRET` is stored with Wrangler secrets and nonces are rejected on replay.

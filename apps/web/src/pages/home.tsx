@@ -25,6 +25,7 @@ import { MarketTicker } from '@/components/market-ticker';
 import { TopGainers } from '@/components/top-gainers';
 import { TopLosers } from '@/components/top-losers';
 import type { ExchangeInfo } from '@lazuli/shared';
+import { appRoutes } from '@/lib/navigation';
 
 export default function HomePage() {
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
@@ -52,9 +53,6 @@ export default function HomePage() {
 
       {/* Hero Section - Asymmetric Layout */}
       <section className="relative pt-8 lg:pt-16">
-        {/* Subtle gradient orb */}
-        <div className="absolute top-0 right-0 w-[500px] h-[500px] rounded-full bg-primary/5 blur-[120px] -translate-y-1/2 translate-x-1/4 pointer-events-none" />
-
         <div className="relative grid lg:grid-cols-[1fr,420px] gap-12 lg:gap-16 items-start">
           {/* Left Column - Headlines */}
           <div className="space-y-8">
@@ -84,7 +82,7 @@ export default function HomePage() {
             {/* CTA Buttons */}
             <div className="flex flex-wrap gap-3">
               <Link
-                to="/markets"
+                to={appRoutes.markets.href}
                 className="group inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:bg-primary/90 transition-colors"
               >
                 <TrendingUp className="h-4 w-4" />
@@ -92,11 +90,11 @@ export default function HomePage() {
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Link>
               <Link
-                to="/multitf"
+                to={appRoutes.workspace.href}
                 className="group inline-flex items-center gap-2 px-6 py-3 bg-card border border-border text-foreground rounded-lg font-medium text-sm hover:bg-accent hover:border-primary/30 transition-colors"
               >
                 <BarChart3 className="h-4 w-4" />
-                Multi-Timeframe
+                Market Workspace
               </Link>
             </div>
 
@@ -203,7 +201,7 @@ export default function HomePage() {
             </p>
           </div>
           <Link
-            to="/exchanges"
+            to={appRoutes.exchanges.href}
             className="group inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
           >
             View All
@@ -222,7 +220,7 @@ export default function HomePage() {
             {exchanges.map((exchange, index) => (
               <Link
                 key={exchange.id}
-                to={`/markets?exchange=${exchange.id}`}
+                to={`${appRoutes.markets.href}?exchange=${exchange.id}`}
                 className="group block"
                 style={{ animationDelay: `${index * 50}ms` }}
               >
@@ -327,28 +325,28 @@ export default function HomePage() {
       {/* Quick Links Section */}
       <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <QuickLinkCard
-          to="/markets"
+          to={appRoutes.markets.href}
           icon={TrendingUp}
           title="Markets"
           description="Browse all tickers"
           color="primary"
         />
         <QuickLinkCard
-          to="/multitf"
+          to={appRoutes.workspace.href}
           icon={BarChart3}
-          title="Multi-TF"
-          description="Timeframe analysis"
+          title="Workspace"
+          description="Single-market cockpit"
           color="muted"
         />
         <QuickLinkCard
-          to="/synthetic-pair"
+          to={appRoutes.priceArbitrage.href}
           icon={Layers}
-          title="Synthetic"
-          description="Custom pairs"
+          title="Price Arb"
+          description="Cross-exchange spreads"
           color="muted"
         />
         <QuickLinkCard
-          to="/custom-index"
+          to={appRoutes.customIndex.href}
           icon={Activity}
           title="Index"
           description="Build indices"

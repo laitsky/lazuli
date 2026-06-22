@@ -39,6 +39,7 @@ import {
   getFundingColor,
 } from '@/lib/api-client';
 import { useAutoRefresh } from '@/hooks/use-auto-refresh';
+import { appRoutes } from '@/lib/navigation';
 import {
   RefreshCw,
   Search,
@@ -265,7 +266,7 @@ function TopArbitrageOpportunities({
               exchange.
             </CardDescription>
           </div>
-          <Link to="/funding-rates/arbitrage">
+          <Link to={appRoutes.fundingArbitrage.href}>
             <Button variant="outline" size="sm" className="gap-2">
               View All
               <ArrowRight className="h-3 w-3" />

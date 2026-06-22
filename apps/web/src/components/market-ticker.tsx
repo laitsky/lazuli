@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { LazuliAPI, formatCurrency, formatPercentage } from '@/lib/api-client';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import type { Ticker } from '@lazuli/shared';
+import { appRoutes } from '@/lib/navigation';
 
 /**
  * Market Ticker Strip - Terminal Luxe
@@ -63,7 +64,7 @@ export function MarketTicker() {
           return (
             <Link
               key={ticker.symbol}
-              to={`/markets?exchange=${exchange}&symbol=${ticker.symbol}`}
+              to={`${appRoutes.markets.href}?exchange=${exchange}&symbol=${ticker.symbol}`}
               className="group flex items-center gap-3 px-4 py-1.5 rounded-lg hover:bg-accent transition-colors shrink-0"
             >
               {/* Symbol */}

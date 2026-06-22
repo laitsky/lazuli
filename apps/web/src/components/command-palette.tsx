@@ -16,14 +16,8 @@ import { useNavigate } from 'react-router-dom';
 import { Command } from 'cmdk';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  LayoutDashboard,
   Globe,
   TrendingUp,
-  LayoutGrid,
-  GitMerge,
-  PieChart,
-  Activity,
-  Zap,
   Search,
   ArrowRight,
   Command as CommandIcon,
@@ -32,69 +26,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-/**
- * Navigation items matching the sidebar navigation
- * Each item includes keywords for better search filtering
- */
-const navigationItems = [
-  {
-    href: '/',
-    label: 'Dashboard',
-    description: 'Overview and system status',
-    icon: LayoutDashboard,
-    keywords: ['home', 'overview', 'main'],
-  },
-  {
-    href: '/exchanges',
-    label: 'Exchanges',
-    description: 'View all connected exchanges',
-    icon: Globe,
-    keywords: ['binance', 'bybit', 'okx', 'hyperliquid'],
-  },
-  {
-    href: '/markets',
-    label: 'Markets',
-    description: 'Real-time ticker data',
-    icon: TrendingUp,
-    keywords: ['tickers', 'prices', 'spot', 'perpetual'],
-  },
-  {
-    href: '/alt-screener',
-    label: 'Alt Screener',
-    description: 'Scan altcoins for opportunities',
-    icon: Zap,
-    keywords: ['altcoins', 'screener', 'scan', 'movers'],
-  },
-  {
-    href: '/multitf',
-    label: 'Multi-TF',
-    description: 'Multi-timeframe chart analysis',
-    icon: LayoutGrid,
-    keywords: ['timeframe', 'chart', 'analysis', 'candlestick'],
-  },
-  {
-    href: '/synthetic-pair',
-    label: 'Synthetic Pairs',
-    description: 'Create custom pair ratios',
-    icon: GitMerge,
-    keywords: ['synthetic', 'ratio', 'custom', 'pair'],
-  },
-  {
-    href: '/custom-index',
-    label: 'Custom Index',
-    description: 'Build weighted portfolios',
-    icon: PieChart,
-    keywords: ['index', 'portfolio', 'weighted', 'basket'],
-  },
-  {
-    href: '/superema',
-    label: 'SuperEMA',
-    description: '400 EMA trend analysis',
-    icon: Activity,
-    keywords: ['ema', 'trend', 'moving average', 'technical'],
-  },
-];
+import { appRoutes, commandNavigationItems } from '@/lib/navigation';
 
 /**
  * Exchange quick switch items
@@ -218,7 +150,7 @@ export function CommandPalette({ className }: CommandPaletteProps) {
   const handleExchangeSwitch = React.useCallback(
     (exchangeId: string) => {
       setOpen(false);
-      navigate(`/markets?exchange=${exchangeId}`);
+      navigate(`${appRoutes.markets.href}?exchange=${exchangeId}`);
     },
     [navigate]
   );
@@ -229,7 +161,7 @@ export function CommandPalette({ className }: CommandPaletteProps) {
   const handleMarketTypeSwitch = React.useCallback(
     (marketType: string) => {
       setOpen(false);
-      navigate(`/markets?type=${marketType}`);
+      navigate(`${appRoutes.markets.href}?type=${marketType}`);
     },
     [navigate]
   );
@@ -240,7 +172,7 @@ export function CommandPalette({ className }: CommandPaletteProps) {
   const handleSymbolSearch = React.useCallback(() => {
     if (search.trim()) {
       setOpen(false);
-      navigate(`/markets?search=${encodeURIComponent(search.trim())}`);
+      navigate(`${appRoutes.markets.href}?search=${encodeURIComponent(search.trim())}`);
     }
   }, [navigate, search]);
 
@@ -377,7 +309,7 @@ export function CommandPalette({ className }: CommandPaletteProps) {
 
                   {/* Navigation Commands */}
                   <Command.Group heading="Navigation">
-                    {navigationItems.map((item) => {
+                    {commandNavigationItems.map((item) => {
                       const Icon = item.icon;
                       return (
                         <Command.Item
@@ -481,7 +413,7 @@ export function CommandPalette({ className }: CommandPaletteProps) {
                     </Command.Item>
                     <Command.Item
                       value="api status health"
-                      onSelect={() => handleNavigate('/exchanges')}
+                      onSelect={() => handleNavigate(appRoutes.exchanges.href)}
                       className={cn(
                         'flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer',
                         'text-sm text-foreground',

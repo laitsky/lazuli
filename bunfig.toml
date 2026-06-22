@@ -22,7 +22,6 @@ globalBin = "~/.bun/bin"
 [test]
 # Configure test behavior
 coverage = false
-preload = []
 
 [run]
 # Configure runtime behavior
