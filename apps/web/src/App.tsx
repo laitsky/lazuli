@@ -1,15 +1,24 @@
+/**
+ * Route definitions
+ *
+ * Flat URL structure (no section prefixes). All 12 routes are direct children
+ * of the layout. Legacy section-prefixed paths 301-redirect.
+ *
+ * Pages are lazy-loaded for code-splitting. Suspense fallback is a full-page
+ * loader that doesn't shift layout.
+ */
+
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Suspense, lazy } from 'react';
-import { Layout } from './components/layout';
+import { AppFrame } from './components/shell/AppFrame';
 import { LoadingPage } from './components/loading-page';
 import { ErrorBoundary } from './components/error-boundary';
+import { CommandPalette } from './components/command-palette';
+import NotFoundPage from './pages/not-found';
 import { legacyRouteAliases } from './lib/navigation';
 
-/**
- * Lazy-loaded page components for code splitting
- * This improves initial load time by only loading pages when needed
- */
-const HomePage = lazy(() => import('./pages/home'));
+// Lazy-loaded page components. Each is a separate chunk.
+const DashboardPage = lazy(() => import('./pages/home'));
 const ExchangesPage = lazy(() => import('./pages/exchanges'));
 const MarketsPage = lazy(() => import('./pages/markets'));
 const OrderBookPage = lazy(() => import('./pages/orderbook'));
@@ -23,39 +32,36 @@ const SuperEMAPage = lazy(() => import('./pages/superema'));
 const MarketWorkspacePage = lazy(() => import('./pages/market-workspace'));
 const PriceArbitragePage = lazy(() => import('./pages/price-arbitrage'));
 
+/** Preserve query string on legacy redirects */
 function LegacyRedirect({ to }: { to: string }) {
   const location = useLocation();
   return <Navigate to={{ pathname: to, search: location.search }} replace />;
 }
 
-/**
- * Main Application Component
- *
- * Defines the application routing structure with:
- * - Shared layout wrapper (navigation, command palette)
- * - Lazy-loaded pages with Suspense fallback
- * - React Router v7 route definitions
- */
 export default function App() {
   return (
     <ErrorBoundary>
-      <Layout>
+      <AppFrame>
+        <CommandPalette showTrigger={false} />
         <ErrorBoundary>
           <Suspense fallback={<LoadingPage />}>
             <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/discover/exchanges" element={<ExchangesPage />} />
-              <Route path="/discover/markets" element={<MarketsPage />} />
-              <Route path="/discover/screener" element={<AltScreenerPage />} />
-              <Route path="/analyze/workspace" element={<MarketWorkspacePage />} />
-              <Route path="/analyze/orderbook" element={<OrderBookPage />} />
-              <Route path="/analyze/multi-timeframe" element={<MultiTFPage />} />
-              <Route path="/analyze/superema" element={<SuperEMAPage />} />
-              <Route path="/strategies/funding" element={<FundingRatesPage />} />
-              <Route path="/strategies/funding/arbitrage" element={<FundingArbitragePage />} />
-              <Route path="/strategies/price-arbitrage" element={<PriceArbitragePage />} />
-              <Route path="/strategies/synthetic-pair" element={<SyntheticPairPage />} />
-              <Route path="/strategies/custom-index" element={<CustomIndexPage />} />
+              {/* Primary routes — flat URLs */}
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/markets" element={<MarketsPage />} />
+              <Route path="/screener" element={<AltScreenerPage />} />
+              <Route path="/exchanges" element={<ExchangesPage />} />
+              <Route path="/workspace" element={<MarketWorkspacePage />} />
+              <Route path="/orderbook" element={<OrderBookPage />} />
+              <Route path="/multi-timeframe" element={<MultiTFPage />} />
+              <Route path="/superema" element={<SuperEMAPage />} />
+              <Route path="/price-arbitrage" element={<PriceArbitragePage />} />
+              <Route path="/funding" element={<FundingRatesPage />} />
+              <Route path="/funding-arbitrage" element={<FundingArbitragePage />} />
+              <Route path="/synthetic-pair" element={<SyntheticPairPage />} />
+              <Route path="/custom-index" element={<CustomIndexPage />} />
+
+              {/* Legacy aliases — 301 to new flat URLs */}
               {Object.entries(legacyRouteAliases).map(([legacyPath, newPath]) => (
                 <Route
                   key={legacyPath}
@@ -63,10 +69,13 @@ export default function App() {
                   element={<LegacyRedirect to={newPath} />}
                 />
               ))}
+
+              {/* Catch-all 404 */}
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </ErrorBoundary>
-      </Layout>
+      </AppFrame>
     </ErrorBoundary>
   );
 }

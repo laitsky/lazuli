@@ -1,240 +1,204 @@
 /**
- * Exchanges Page - Terminal Luxe
- * List all supported cryptocurrency exchanges with clean cards and comparison table
+ * Exchanges page — capabilities matrix + status board
+ *
+ * Drops the marketing-style grid. Shows a tight comparison table + per-exchange
+ * deep-link cards. Mobile: stacked cards. Desktop: matrix table.
  */
 
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { LazuliAPI } from '@/lib/api-client';
+import { ArrowRight, Check, Globe, Minus } from 'lucide-react';
+import { PageHeader } from '@/components/ui/page-header';
+import { Panel } from '@/components/ui/panel';
+import { Metric } from '@/components/ui/metric';
+import { Tag } from '@/components/ui/tag';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ExchangeLogo } from '@/components/exchange-logo';
-import { PageHeader } from '@/components/page-header';
-import type { ExchangeInfo } from '@lazuli/shared';
-import { ArrowRight, Check, X, Activity, Globe } from 'lucide-react';
-import { appRoutes } from '@/lib/navigation';
+import { useExchanges, useHealth } from '@/lib/queries';
+import { cn } from '@/lib/utils';
 
 export default function ExchangesPage() {
-  const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data: exchangesData, isLoading, error } = useExchanges();
+  const { data: health } = useHealth();
+  const exchanges = exchangesData?.data ?? [];
 
-  useEffect(() => {
-    async function fetchExchanges() {
-      const response = await LazuliAPI.getExchanges();
-      if (response.success) {
-        setExchanges(response.data);
-      } else {
-        setError(response.error);
-      }
-      setLoading(false);
-    }
-    fetchExchanges();
-  }, []);
+  const activeCount = exchanges.filter((e) => e.supported).length;
+  const spotCount = exchanges.filter((e) => e.hasSpot).length;
+  const perpCount = exchanges.filter((e) => e.hasPerp).length;
+  const healthyCount = health?.exchanges?.length ?? 0;
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <PageHeader
         icon={Globe}
         title="Exchanges"
-        description="Connect to the world's leading cryptocurrency exchanges. Access real-time market data through a unified interface."
-        badge={{ text: `${exchanges.length} Connected`, variant: 'success' }}
+        description="Connected venues and their data capabilities. Most users pick an exchange on Markets and never need this page."
+        freshnessMeta={null}
       />
 
-      {/* Loading State */}
-      {loading && (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="h-40 rounded-xl bg-card border border-border animate-pulse" />
-          ))}
-        </div>
-      )}
+      {/* Stats strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Panel>
+          <Metric label="Active" value={activeCount.toString()} mono size="md" />
+          <p className="mt-1 text-[11px] text-muted-foreground">Supported venues</p>
+        </Panel>
+        <Panel>
+          <Metric label="Healthy" value={healthyCount.toString()} mono size="md" />
+          <p className="mt-1 text-[11px] text-muted-foreground">Responding to pings</p>
+        </Panel>
+        <Panel>
+          <Metric label="Spot Markets" value={spotCount.toString()} mono size="md" />
+          <p className="mt-1 text-[11px] text-muted-foreground">Venues with spot</p>
+        </Panel>
+        <Panel>
+          <Metric label="Perp Markets" value={perpCount.toString()} mono size="md" />
+          <p className="mt-1 text-[11px] text-muted-foreground">Venues with perps</p>
+        </Panel>
+      </div>
 
-      {/* Error State */}
-      {!loading && error && (
-        <div className="bg-destructive/10 border border-destructive/20 rounded-xl p-6">
-          <p className="text-destructive font-medium">Error loading exchanges</p>
-          <p className="text-sm text-muted-foreground mt-1">{error}</p>
-        </div>
-      )}
-
-      {/* Exchanges Grid */}
-      {!loading && !error && (
-        <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {exchanges.map((exchange, index) => (
+      {/* Mobile: cards */}
+      <div className="md:hidden space-y-3">
+        {isLoading
+          ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32" />)
+          : exchanges.map((ex) => (
               <Link
-                key={exchange.id}
-                to={`${appRoutes.markets.href}?exchange=${exchange.id}`}
-                className="group block"
-                style={{ animationDelay: `${index * 50}ms` }}
+                key={ex.id}
+                to={`/markets?exchange=${ex.id}`}
+                className="block rounded-md border border-border bg-surface-1 p-4 active:bg-surface-2 no-tap-highlight transition-colors"
               >
-                <div className="relative h-full bg-card rounded-xl border border-border p-5 card-terminal-hover overflow-hidden">
-                  {/* Hover gradient */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-
-                  <div className="relative space-y-4">
-                    {/* Header */}
-                    <div className="flex items-center justify-between">
-                      <div className="relative h-12 w-12 rounded-lg bg-secondary flex items-center justify-center border border-border group-hover:border-primary/30 transition-colors">
-                        <ExchangeLogo exchangeId={exchange.id} className="h-7 w-7" />
-                        {/* Status indicator */}
-                        <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-                          <span
-                            className={`absolute inline-flex h-full w-full rounded-full ${
-                              exchange.supported
-                                ? 'bg-[hsl(152_60%_45%)] animate-ping'
-                                : 'bg-muted-foreground'
-                            } opacity-75`}
-                          />
-                          <span
-                            className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-                              exchange.supported ? 'bg-[hsl(152_60%_45%)]' : 'bg-muted-foreground'
-                            }`}
-                          />
-                        </span>
-                      </div>
-
-                      <span
-                        className={`text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded ${
-                          exchange.supported
-                            ? 'text-[hsl(152_60%_50%)] bg-[hsl(152_60%_45%/0.1)]'
-                            : 'text-muted-foreground bg-secondary'
-                        }`}
-                      >
-                        {exchange.supported ? 'Active' : 'Inactive'}
-                      </span>
+                <div className="flex items-center gap-3">
+                  <div className="relative h-10 w-10 rounded-md bg-surface-2 border border-border flex items-center justify-center">
+                    <ExchangeLogo exchangeId={ex.id} className="h-6 w-6" />
+                    {ex.supported && (
+                      <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-success border border-surface-1" />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-display font-semibold text-foreground truncate">
+                      {ex.name}
                     </div>
-
-                    {/* Info */}
-                    <div>
-                      <h2 className="text-lg font-display font-semibold text-foreground capitalize group-hover:text-primary transition-colors">
-                        {exchange.name}
-                      </h2>
-                      <div className="flex gap-1.5 mt-2">
-                        {exchange.hasSpot && (
-                          <span className="text-[10px] font-mono text-[hsl(152_60%_50%)] bg-[hsl(152_60%_45%/0.1)] px-1.5 py-0.5 rounded">
-                            SPOT
-                          </span>
-                        )}
-                        {exchange.hasPerp && (
-                          <span className="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                            PERP
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* CTA */}
-                    <div className="flex items-center text-xs text-muted-foreground group-hover:text-primary transition-colors">
-                      <span>View Markets</span>
-                      <ArrowRight className="ml-1.5 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                    <div className="text-[11px] font-mono uppercase text-muted-foreground">
+                      {ex.id}
                     </div>
                   </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+                </div>
+                <div className="mt-3 flex gap-1.5">
+                  {ex.hasSpot && <Tag variant="up">SPOT</Tag>}
+                  {ex.hasPerp && <Tag variant="accent">PERP</Tag>}
+                  {!ex.supported && <Tag variant="down">DISABLED</Tag>}
                 </div>
               </Link>
             ))}
-          </div>
+      </div>
 
-          {/* Comparison Table */}
-          <div className="bg-card rounded-xl border border-border overflow-hidden">
-            <div className="p-5 border-b border-border">
-              <div className="flex items-center gap-3">
-                <Activity className="h-5 w-5 text-primary" />
-                <h2 className="text-lg font-display font-semibold">Feature Comparison</h2>
-              </div>
-              <p className="text-sm text-muted-foreground mt-1">
-                Detailed breakdown of supported features per exchange
-              </p>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left p-4 text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                      Exchange
-                    </th>
-                    <th className="text-left p-4 text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                      Spot Trading
-                    </th>
-                    <th className="text-left p-4 text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                      Perpetual Futures
-                    </th>
-                    <th className="text-left p-4 text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                      Status
-                    </th>
-                    <th className="text-right p-4 text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {exchanges.map((exchange) => (
-                    <tr
-                      key={exchange.id}
-                      className="border-b border-border last:border-0 hover:bg-accent transition-colors"
-                    >
-                      <td className="p-4">
-                        <div className="flex items-center gap-3">
-                          <ExchangeLogo exchangeId={exchange.id} className="h-5 w-5" />
-                          <span className="font-medium text-foreground capitalize">
-                            {exchange.name}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        {exchange.hasSpot ? (
-                          <div className="flex items-center gap-1.5 text-[hsl(152_60%_50%)]">
-                            <Check className="h-4 w-4" />
-                            <span className="text-sm">Supported</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 text-muted-foreground/50">
-                            <X className="h-4 w-4" />
-                            <span className="text-sm">Not Available</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-4">
-                        {exchange.hasPerp ? (
-                          <div className="flex items-center gap-1.5 text-[hsl(152_60%_50%)]">
-                            <Check className="h-4 w-4" />
-                            <span className="text-sm">Supported</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 text-muted-foreground/50">
-                            <X className="h-4 w-4" />
-                            <span className="text-sm">Not Available</span>
-                          </div>
-                        )}
-                      </td>
-                      <td className="p-4">
-                        <span
-                          className={`inline-flex items-center px-2 py-1 rounded text-xs font-mono ${
-                            exchange.supported
-                              ? 'text-[hsl(152_60%_50%)] bg-[hsl(152_60%_45%/0.1)]'
-                              : 'text-muted-foreground bg-secondary'
-                          }`}
-                        >
-                          {exchange.supported ? 'Online' : 'Offline'}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right">
-                        <Link
-                          to={`${appRoutes.markets.href}?exchange=${exchange.id}`}
-                          className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                        >
-                          Explore
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </Link>
+      {/* Desktop: matrix table */}
+      <Panel flush className="hidden md:block">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr>
+                <th>Exchange</th>
+                <th>Status</th>
+                <th>Spot</th>
+                <th>Perp</th>
+                <th className="text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading
+                ? Array.from({ length: 5 }).map((_, i) => (
+                    <tr key={i}>
+                      <td colSpan={5}>
+                        <Skeleton className="h-10 m-2" />
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
+                  ))
+                : exchanges.map((ex) => {
+                    const isHealthy = health?.exchanges?.some((e) => e === ex.id) ?? false;
+                    return (
+                      <tr
+                        key={ex.id}
+                        className="border-b border-border last:border-0 hover:bg-surface-2/50 transition-colors"
+                      >
+                        <td>
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-md bg-surface-2 border border-border flex items-center justify-center">
+                              <ExchangeLogo exchangeId={ex.id} className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <div className="font-display font-semibold text-foreground">
+                                {ex.name}
+                              </div>
+                              <div className="text-[10px] font-mono uppercase text-muted-foreground">
+                                {ex.id}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          {ex.supported ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs">
+                              <span
+                                className={cn(
+                                  'h-1.5 w-1.5 rounded-full',
+                                  isHealthy ? 'bg-success animate-blink-soft' : 'bg-warning'
+                                )}
+                              />
+                              <span className={isHealthy ? 'text-up' : 'text-warning'}>
+                                {isHealthy ? 'Online' : 'Degraded'}
+                              </span>
+                            </span>
+                          ) : (
+                            <Tag variant="down">Disabled</Tag>
+                          )}
+                        </td>
+                        <td>
+                          {ex.hasSpot ? (
+                            <span className="inline-flex items-center gap-1 text-up">
+                              <Check className="h-3.5 w-3.5" aria-hidden />
+                              <span className="text-xs">Yes</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-muted-foreground/60">
+                              <Minus className="h-3.5 w-3.5" aria-hidden />
+                              <span className="text-xs">No</span>
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          {ex.hasPerp ? (
+                            <span className="inline-flex items-center gap-1 text-up">
+                              <Check className="h-3.5 w-3.5" aria-hidden />
+                              <span className="text-xs">Yes</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-muted-foreground/60">
+                              <Minus className="h-3.5 w-3.5" aria-hidden />
+                              <span className="text-xs">No</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="text-right">
+                          <Link
+                            to={`/markets?exchange=${ex.id}`}
+                            className="inline-flex items-center gap-1 text-xs text-accent hover:underline no-tap-highlight"
+                          >
+                            View markets
+                            <ArrowRight className="h-3 w-3" aria-hidden />
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      {error && (
+        <Panel className="border-destructive/30 bg-destructive/5">
+          <p className="text-sm text-destructive">{error.message}</p>
+        </Panel>
       )}
     </div>
   );

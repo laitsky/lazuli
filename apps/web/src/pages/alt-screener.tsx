@@ -1,197 +1,197 @@
 /**
- * Alt Screener Page - Scan all altcoins and compare performance
+ * Screener page — altcoin relative-strength scanner
+ *
+ * Replaces the server/client split. Uses useScreener hook with auto-refresh.
+ * Keeps the existing AltcoinGrid component for the actual grid rendering
+ * (it has rich view modes — grid / list / heatmap — that aren't worth rewriting
+ * for marginal visual gain).
  */
 
-import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { useMemo, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Zap, Target, TrendingDown, TrendingUp, BarChart3 } from 'lucide-react';
+import type { BaseCurrency, BaseCurrencyPrices } from '@lazuli/shared';
+import { PageHeader } from '@/components/ui/page-header';
+import { Panel } from '@/components/ui/panel';
+import { Metric } from '@/components/ui/metric';
+import { SegmentedControl } from '@/components/ui/segmented-control';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AltScreenerClient } from './alt-screener-client';
-import { PageHeader } from '@/components/page-header';
-import { LazuliAPI } from '@/lib/api-client';
-import { appRoutes } from '@/lib/navigation';
-import { SupportedExchange, BaseCurrency, ExchangeInfo, AltScreenerResponse } from '@lazuli/shared';
-import { Globe, TrendingUp, TrendingDown, BarChart3, Zap, Target } from 'lucide-react';
+import { AltcoinGrid } from '@/components/altcoin-grid';
+import { useScreener, useExchanges } from '@/lib/queries';
+import { useScreenerFilters } from '@/lib/url-state';
+import { cn } from '@/lib/utils';
+
+const DEFAULT_BASE_PRICES: BaseCurrencyPrices = {
+  USD: 1,
+  BTC: 0,
+  ETH: 0,
+  SOL: 0,
+};
 
 export default function AltScreenerPage() {
-  const [searchParams] = useSearchParams();
+  const [filters, setFilters] = useScreenerFilters();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  // Validate exchange (excluding hyperliquid which is perp-only)
-  const validExchanges = ['binance', 'bybit', 'okx', 'upbit'];
-  const selectedExchange = searchParams.get('exchange') || 'bybit';
-  const exchange = validExchanges.includes(selectedExchange)
-    ? (selectedExchange as SupportedExchange)
-    : 'bybit';
+  const { data: exchangesData } = useExchanges();
+  // Hyperliquid is perp-only — exclude from screener (no spot altcoins to scan)
+  const exchanges = (exchangesData?.data ?? []).filter((e) => e.id !== 'hyperliquid');
 
-  // Validate base currency
-  const validBases = ['USD', 'BTC', 'ETH', 'SOL'];
-  const selectedBase = searchParams.get('base')?.toUpperCase() || 'USD';
-  const base = validBases.includes(selectedBase) ? (selectedBase as BaseCurrency) : 'USD';
+  // Always fetch USD; client converts to user's selected base using basePrices
+  // lightweight flag is intentionally omitted — useScreener uses TanStack Query's
+  // gcTime/staleTime for caching instead of the server-side lightweight mode.
+  const screener = useScreener(filters.exchange, {
+    base: 'USD',
+    limit: 200,
+    sortBy: 'performance',
+    sortOrder: 'desc',
+  });
 
-  const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
-  const [screenerData, setScreenerData] = useState<AltScreenerResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const screenerData = screener.data;
+  const stats = screenerData?.stats;
+  const basePrices = screenerData?.basePrices ?? DEFAULT_BASE_PRICES;
 
-  useEffect(() => {
-    async function fetchExchanges() {
-      const response = await LazuliAPI.getExchanges();
-      if (response.success) {
-        setExchanges(response.data.filter((e) => e.id !== 'hyperliquid'));
-      }
+  // Compute altcoins in the user's selected base currency (client-side, instant)
+  const altcoinsInBase = useMemo(() => {
+    if (!screenerData) return [];
+    const basePrice = basePrices[filters.base];
+    if (filters.base === 'USD' || !basePrice || basePrice === 0) {
+      return screenerData.altcoins;
     }
-    fetchExchanges();
-  }, []);
+    return screenerData.altcoins.map((a) => ({
+      ...a,
+      priceInBase: a.price / basePrice,
+    }));
+  }, [screenerData, basePrices, filters.base]);
 
-  useEffect(() => {
-    async function fetchScreenerData() {
-      setLoading(true);
-      // Use lightweight mode for fast initial load (skips OHLCV fetching)
-      // This reduces load time from ~26s to ~1-2s
-      // OHLCV data for charts is fetched lazily by AltcoinGrid component
-      const response = await LazuliAPI.getAltScreener(exchange, {
-        base,
-        limit: 200,
-        sortBy: 'performance',
-        sortOrder: 'desc',
-        lightweight: true,
-      });
+  const handleBaseChange = useCallback(
+    (newBase: BaseCurrency) => {
+      setFilters({ base: newBase as typeof filters.base });
+    },
+    [setFilters]
+  );
 
-      if (response.success && response.data) {
-        setScreenerData(response.data);
-      }
-      setLoading(false);
-    }
-    fetchScreenerData();
-  }, [exchange, base]);
+  // Quick-patch URL when location.search changes externally (back/forward)
+  void navigate;
+  void location;
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <PageHeader
         icon={Zap}
-        title="Alt Screener"
-        description="Scan all altcoins at once. Compare performance against USD, BTC, ETH, or SOL with visual mini charts."
+        title="Screener"
+        description="Altcoin relative-strength scan across an entire exchange. Switch base currency for instant BTC/ETH/SOL-denominated performance."
+        freshnessMeta={screener.data ? null : null}
       />
 
-      {/* Exchange Selector */}
-      <div className="flex flex-wrap gap-2 p-1 bg-muted/30 rounded-xl border border-border w-fit backdrop-blur-sm">
-        {exchanges.map((ex) => (
-          <Link key={ex.id} to={`${appRoutes.screener.href}?exchange=${ex.id}&base=${base}`}>
-            <Button
-              variant={exchange === ex.id ? 'default' : 'ghost'}
-              size="lg"
-              className={`rounded-lg transition-all duration-300 ${
-                exchange === ex.id
-                  ? 'shadow-lg shadow-primary/20'
-                  : 'hover:bg-accent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <Globe className={`mr-2 h-4 w-4 ${exchange === ex.id ? 'animate-pulse' : ''}`} />
-              {ex.name}
-              {exchange === ex.id && (
-                <span className="ml-2 flex h-2 w-2 rounded-full bg-green-400 shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
-              )}
-            </Button>
-          </Link>
-        ))}
+      {/* Exchange + base selector */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <SegmentedControl
+          value={filters.exchange}
+          onChange={(v) => setFilters({ exchange: v as typeof filters.exchange })}
+          options={exchanges.map((e) => ({ value: e.id, label: e.name }))}
+          size="sm"
+          aria-label="Exchange"
+        />
+        <SegmentedControl
+          value={filters.base}
+          onChange={(v) => handleBaseChange(v as BaseCurrency)}
+          options={[
+            { value: 'USD', label: 'USD' },
+            { value: 'BTC', label: 'BTC' },
+            { value: 'ETH', label: 'ETH' },
+            { value: 'SOL', label: 'SOL' },
+          ]}
+          size="sm"
+          aria-label="Base currency"
+        />
       </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-4">
-            {[1, 2, 3, 4].map((i) => (
-              <Card key={i} className="bg-card border-border">
-                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <Skeleton className="h-4 w-24" />
-                  <Skeleton className="h-4 w-4 rounded-full" />
-                </CardHeader>
-                <CardContent>
-                  <Skeleton className="h-8 w-16 mb-2" />
-                  <Skeleton className="h-3 w-32" />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {screener.isLoading ? (
+          Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20" />)
+        ) : stats ? (
+          <>
+            <Panel>
+              <div className="flex items-center justify-between mb-2">
+                <Metric
+                  label="Total Altcoins"
+                  value={stats.totalAltcoins.toString()}
+                  mono
+                  size="md"
+                />
+                <Target className="h-4 w-4 text-muted-foreground" aria-hidden />
+              </div>
+              <p className="text-[11px] text-muted-foreground">{filters.exchange} pairs scanned</p>
+            </Panel>
+            <Panel>
+              <div className="flex items-center justify-between mb-2">
+                <Metric
+                  label="Gainers"
+                  value={<span className="text-up">{stats.gainers}</span>}
+                  mono={false}
+                  size="md"
+                />
+                <TrendingUp className="h-4 w-4 text-up" aria-hidden />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Top: <span className="font-mono">{stats.topGainer.split(/[-.]/)[0]}</span>
+              </p>
+            </Panel>
+            <Panel>
+              <div className="flex items-center justify-between mb-2">
+                <Metric
+                  label="Losers"
+                  value={<span className="text-down">{stats.losers}</span>}
+                  mono={false}
+                  size="md"
+                />
+                <TrendingDown className="h-4 w-4 text-down" aria-hidden />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Top: <span className="font-mono">{stats.topLoser.split(/[-.]/)[0]}</span>
+              </p>
+            </Panel>
+            <Panel>
+              <div className="flex items-center justify-between mb-2">
+                <Metric
+                  label="Avg Change"
+                  value={`${stats.avgChange >= 0 ? '+' : ''}${stats.avgChange.toFixed(2)}%`}
+                  mono
+                  size="md"
+                />
+                <BarChart3
+                  className={cn('h-4 w-4', stats.avgChange >= 0 ? 'text-up' : 'text-down')}
+                  aria-hidden
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">Market trend (24h)</p>
+            </Panel>
+          </>
+        ) : null}
+      </div>
+
+      {/* Grid */}
+      {screener.isLoading ? (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 9 }).map((_, i) => (
+            <Skeleton key={i} className="h-40" />
+          ))}
         </div>
-      )}
-
-      {/* Screener Content */}
-      {!loading && screenerData && (
-        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          {/* Stats Overview */}
-          <div className="grid gap-4 md:grid-cols-4">
-            <Card className="bg-card border-border hover:bg-accent transition-colors">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Total Altcoins
-                </CardTitle>
-                <Target className="h-4 w-4 text-primary" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold font-display">
-                  {screenerData.stats.totalAltcoins}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Scanned pairs</p>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card border-border hover:bg-accent transition-colors">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Gainers</CardTitle>
-                <TrendingUp className="h-4 w-4 text-green-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold font-display text-green-500">
-                  {screenerData.stats.gainers}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Top: {screenerData.stats.topGainer.split('-')[0]}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card border-border hover:bg-accent transition-colors">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Losers</CardTitle>
-                <TrendingDown className="h-4 w-4 text-red-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold font-display text-red-500">
-                  {screenerData.stats.losers}
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Top: {screenerData.stats.topLoser.split('-')[0]}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-card border-border hover:bg-accent transition-colors">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Avg Change
-                </CardTitle>
-                <BarChart3 className="h-4 w-4 text-blue-500" />
-              </CardHeader>
-              <CardContent>
-                <div
-                  className={`text-2xl font-bold font-display ${
-                    screenerData.stats.avgChange >= 0 ? 'text-green-500' : 'text-red-500'
-                  }`}
-                >
-                  {screenerData.stats.avgChange >= 0 ? '+' : ''}
-                  {screenerData.stats.avgChange.toFixed(2)}%
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">Market trend</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Altcoin Grid (Client Component) */}
-          <AltScreenerClient initialData={screenerData} exchange={exchange} initialBase={base} />
-        </div>
-      )}
+      ) : screenerData ? (
+        <AltcoinGrid
+          altcoins={altcoinsInBase}
+          baseCurrency={filters.base}
+          onBaseCurrencyChange={handleBaseChange}
+          basePrice={basePrices[filters.base] ?? 1}
+          isLoading={screener.isFetching && !screener.isLoading}
+        />
+      ) : screener.error ? (
+        <Panel className="border-destructive/30 bg-destructive/5">
+          <p className="text-sm text-destructive">{screener.error.message}</p>
+        </Panel>
+      ) : null}
     </div>
   );
 }

@@ -23,21 +23,11 @@ import {
   FileImage,
   FileSpreadsheet,
   Layers,
-  PieChart,
+  PieChart as PieChartIcon,
 } from 'lucide-react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart as RechartsPieChart,
-  Pie,
-  Cell,
-} from 'recharts';
+import { MultiLineChart, type Series } from '@/components/charts/MultiLineChart';
+import { PieChart } from '@/components/charts/PieChart';
+import { captureElementScreenshot } from '@/lib/screenshot';
 
 /**
  * Custom Index Page - Redesigned with better UX
@@ -367,20 +357,16 @@ export default function CustomIndexPage() {
   };
 
   /**
-   * Export chart as PNG
+   * Export chart as PNG — uses native canvas capture
    */
   const exportToPNG = async () => {
     if (!chartRef.current) return;
     try {
-      const { default: html2canvas } = await import('html2canvas');
-      const canvas = await html2canvas(chartRef.current, {
-        backgroundColor: '#0a0a0a',
-        scale: 2,
-      });
-      const link = document.createElement('a');
-      link.download = `${indexResult?.name || 'custom-index'}-chart.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
+      await captureElementScreenshot(
+        chartRef.current,
+        `${indexResult?.name || 'custom-index'}-chart.png`,
+        '#0a0e1f'
+      );
     } catch {
       setError('Failed to export PNG. Please try again.');
     }
@@ -459,7 +445,7 @@ export default function CustomIndexPage() {
     }
   }
 
-  // Performance chart data
+  // Performance chart data (for CSV export — kept as flat record format)
   const chartData = useMemo(() => {
     if (!indexResult) return [];
     return indexResult.performance.map((point, i) => {
@@ -480,11 +466,39 @@ export default function CustomIndexPage() {
     });
   }, [indexResult]);
 
+  // MultiLineChart series — built directly from indexResult
+  const lineSeries: Series[] = useMemo(() => {
+    if (!indexResult) return [];
+    const benchmarkColors: Record<string, string> = {
+      BTC: CHART_COLORS.BTC,
+      ETH: CHART_COLORS.ETH,
+      SOL: CHART_COLORS.SOL,
+    };
+    const benchmarks = indexResult.benchmarks.map((b) => {
+      const key = b.symbol.replace('-USDT', '');
+      return {
+        key,
+        label: key,
+        color: benchmarkColors[key] ?? '#888',
+        strokeWidth: 1.5,
+        data: b.data.map((p) => ({ timestamp: p.timestamp, value: p.change })),
+      } satisfies Series;
+    });
+    const indexSeries: Series = {
+      key: indexResult.name,
+      label: indexResult.name,
+      color: CHART_COLORS.index,
+      strokeWidth: 3,
+      data: indexResult.performance.map((p) => ({ timestamp: p.timestamp, value: p.change })),
+    };
+    return [indexSeries, ...benchmarks];
+  }, [indexResult]);
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
       <PageHeader
-        icon={PieChart}
+        icon={PieChartIcon}
         title="Custom Index"
         description="Build weighted baskets of assets and track performance. Compare your custom index against BTC, ETH, and SOL."
       />
@@ -787,33 +801,16 @@ export default function CustomIndexPage() {
                   Add assets to see composition
                 </div>
               ) : (
-                <div className="h-48">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RechartsPieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={40}
-                        outerRadius={70}
-                        paddingAngle={2}
-                        dataKey="value"
-                      >
-                        {pieData.map((_, idx) => (
-                          <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value) => [`${Number(value ?? 0).toFixed(1)}%`, 'Weight']}
-                        contentStyle={{
-                          backgroundColor: '#1a1a1a',
-                          border: '1px solid #333',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                        }}
-                      />
-                    </RechartsPieChart>
-                  </ResponsiveContainer>
+                <div className="h-48 flex items-center justify-center">
+                  <PieChart
+                    slices={pieData.map((d, idx) => ({
+                      label: d.name,
+                      value: d.value,
+                      color: PIE_COLORS[idx % PIE_COLORS.length],
+                    }))}
+                    size={70}
+                    formatValue={(v) => `${v.toFixed(1)}%`}
+                  />
                 </div>
               )}
 
@@ -875,70 +872,19 @@ export default function CustomIndexPage() {
 
           <Card className="glass border-white/5">
             <CardContent className="p-4" ref={chartRef}>
-              <ResponsiveContainer width="100%" height={350}>
-                <LineChart data={chartData} onMouseLeave={() => setHoveredLine(null)}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                  <XAxis
-                    dataKey="time"
-                    stroke="#666"
-                    tick={{ fontSize: 11 }}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis
-                    stroke="#666"
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={(v) => `${v.toFixed(0)}%`}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#1a1a1a',
-                      border: '1px solid #333',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                    }}
-                    formatter={(value) => [`${Number(value ?? 0).toFixed(2)}%`, '']}
-                  />
-                  <Legend
-                    onMouseEnter={(e) => setHoveredLine(e.dataKey as string)}
-                    onMouseLeave={() => setHoveredLine(null)}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="BTC"
-                    stroke={CHART_COLORS.BTC}
-                    strokeWidth={hoveredLine === 'BTC' ? 3 : 1.5}
-                    strokeOpacity={hoveredLine && hoveredLine !== 'BTC' ? 0.3 : 1}
-                    dot={false}
-                    strokeDasharray="4 4"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="ETH"
-                    stroke={CHART_COLORS.ETH}
-                    strokeWidth={hoveredLine === 'ETH' ? 3 : 1.5}
-                    strokeOpacity={hoveredLine && hoveredLine !== 'ETH' ? 0.3 : 1}
-                    dot={false}
-                    strokeDasharray="4 4"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="SOL"
-                    stroke={CHART_COLORS.SOL}
-                    strokeWidth={hoveredLine === 'SOL' ? 3 : 1.5}
-                    strokeOpacity={hoveredLine && hoveredLine !== 'SOL' ? 0.3 : 1}
-                    dot={false}
-                    strokeDasharray="4 4"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey={indexResult.name}
-                    stroke={CHART_COLORS.index}
-                    strokeWidth={hoveredLine === indexResult.name ? 4 : 3}
-                    strokeOpacity={hoveredLine && hoveredLine !== indexResult.name ? 0.3 : 1}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <MultiLineChart
+                series={lineSeries}
+                height={350}
+                formatY={(v) => `${v.toFixed(0)}%`}
+                formatX={(ts) =>
+                  new Date(ts).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                  })
+                }
+                highlightedKey={hoveredLine}
+                onHighlight={setHoveredLine}
+              />
             </CardContent>
           </Card>
 

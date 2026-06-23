@@ -1,294 +1,376 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { PageHeader } from '@/components/page-header';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
-import { LazuliAPI } from '@/lib/api-client';
+/**
+ * Price Arbitrage — cross-exchange price discrepancy scanner
+ *
+ * Live opportunity table with detail drawer. URL-state driven filters.
+ * Row click opens a drawer showing all exchange quotes for that asset.
+ *
+ * Data: usePriceArbitrage hook, refreshed every 10s.
+ */
+
+import { useMemo, useState } from 'react';
+import { ArrowRightLeft, AlertTriangle } from 'lucide-react';
+import type { PriceArbitrageOpportunity } from '@lazuli/shared';
+import { PageHeader } from '@/components/ui/page-header';
+import { Panel } from '@/components/ui/panel';
+import { DataTable, type Column } from '@/components/ui/data-table';
+import { SegmentedControl } from '@/components/ui/segmented-control';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { SearchInput } from '@/components/ui/search-input';
+import { Slider } from '@/components/ui/slider';
+import { Metric } from '@/components/ui/metric';
+import { Tag } from '@/components/ui/tag';
+import { ChangeText } from '@/components/ui/price-text';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import { useArbitrageFilters } from '@/lib/url-state';
+import { usePriceArbitrage } from '@/lib/queries';
 import { formatPrice } from '@/lib/format';
-import type { PriceArbitrageOpportunity, PriceArbitrageResponse } from '@lazuli/shared';
-import { AlertCircle, ArrowRightLeft, RefreshCw, Search } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+const QUOTES = ['USDT', 'USDC', 'FDUSD', 'KRW'] as const;
 
 export default function PriceArbitragePage() {
-  const [marketType, setMarketType] = useState<'spot' | 'perp'>('spot');
-  const [quote, setQuote] = useState('USDT');
-  const [minSpreadBps, setMinSpreadBps] = useState(10);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [data, setData] = useState<PriceArbitrageResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useArbitrageFilters();
+  const [search, setSearch] = useState('');
+  const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
 
-  const loadArbitrage = useCallback(
-    async (isRefresh = false) => {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-      setError(null);
+  const { data, isLoading, error, refetch } = usePriceArbitrage({
+    type: filters.type,
+    quote: filters.quote,
+    minSpreadBps: filters.minSpreadBps,
+    limit: 100,
+  });
 
-      const response = await LazuliAPI.getPriceArbitrage({
-        type: marketType,
-        quote,
-        minSpreadBps,
-        limit: 100,
-      });
+  const opportunities = data?.data.opportunities ?? [];
 
-      if (response.success && response.data) {
-        setData(response.data);
-      } else {
-        setError(response.error || 'Failed to load price arbitrage opportunities');
-      }
+  // Search filter (client-side)
+  const filteredOpps = useMemo(() => {
+    if (!search.trim()) return opportunities;
+    const q = search.toLowerCase();
+    return opportunities.filter(
+      (o) =>
+        o.asset.toLowerCase().includes(q) ||
+        o.bestBuyExchange.toLowerCase().includes(q) ||
+        o.bestSellExchange.toLowerCase().includes(q)
+    );
+  }, [opportunities, search]);
 
-      setLoading(false);
-      setRefreshing(false);
-    },
-    [marketType, minSpreadBps, quote]
+  // Sorted desc by spread
+  const sortedOpps = useMemo(
+    () => [...filteredOpps].sort((a, b) => b.spreadBps - a.spreadBps),
+    [filteredOpps]
   );
 
-  useEffect(() => {
-    loadArbitrage();
-  }, [loadArbitrage]);
+  const selected = selectedAsset
+    ? (opportunities.find((o) => o.asset === selectedAsset) ?? null)
+    : null;
 
-  const filteredOpportunities = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const opportunities = data?.opportunities ?? [];
-    if (!query) {
-      return opportunities;
-    }
-    return opportunities.filter(
-      (item) =>
-        item.asset.toLowerCase().includes(query) ||
-        item.bestBuyExchange.toLowerCase().includes(query) ||
-        item.bestSellExchange.toLowerCase().includes(query)
-    );
-  }, [data?.opportunities, searchQuery]);
+  const stats = useMemo(() => {
+    if (opportunities.length === 0) return { count: 0, bestBps: 0, avgBps: 0 };
+    const bps = opportunities.map((o) => o.spreadBps);
+    return {
+      count: opportunities.length,
+      bestBps: Math.max(...bps),
+      avgBps: bps.reduce((a, b) => a + b, 0) / bps.length,
+    };
+  }, [opportunities]);
 
-  const topOpportunity = filteredOpportunities[0];
+  const columns: Array<Column<PriceArbitrageOpportunity>> = useMemo(
+    () => [
+      {
+        id: 'asset',
+        header: 'Asset',
+        alwaysVisible: true,
+        cell: (o) => (
+          <div className="flex items-center gap-2">
+            <span className="font-mono font-semibold text-foreground">{o.asset}</span>
+            <Tag variant={o.marketType === 'perp' ? 'accent' : 'default'}>{o.marketType}</Tag>
+          </div>
+        ),
+        sortAccessor: (o) => o.asset,
+        cellClassName: 'min-w-[140px]',
+      },
+      {
+        id: 'buy',
+        header: 'Buy On',
+        cell: (o) => (
+          <div>
+            <div className="font-mono text-sm text-foreground capitalize">{o.bestBuyExchange}</div>
+            <div className="numeric text-xs text-muted-foreground">${formatPrice(o.buyPrice)}</div>
+          </div>
+        ),
+        cellClassName: 'min-w-[120px]',
+      },
+      {
+        id: 'sell',
+        header: 'Sell On',
+        cell: (o) => (
+          <div>
+            <div className="font-mono text-sm text-foreground capitalize">{o.bestSellExchange}</div>
+            <div className="numeric text-xs text-muted-foreground">${formatPrice(o.sellPrice)}</div>
+          </div>
+        ),
+        cellClassName: 'min-w-[120px]',
+      },
+      {
+        id: 'spread',
+        header: 'Spread',
+        numeric: true,
+        sortable: true,
+        sortAccessor: (o) => o.spreadBps,
+        cell: (o) => (
+          <div className="text-right">
+            <div className="numeric font-semibold text-up">+{o.spreadBps.toFixed(2)} bps</div>
+            <div className="numeric text-[10px] text-muted-foreground">
+              ${formatPrice(o.spread)}
+            </div>
+          </div>
+        ),
+        cellClassName: 'min-w-[120px]',
+      },
+      {
+        id: 'venueCount',
+        header: 'Venues',
+        numeric: true,
+        hideBelow: 'lg',
+        cell: (o) => <span className="numeric text-muted-foreground">{o.quotes.length}</span>,
+        cellClassName: 'min-w-[60px]',
+      },
+    ],
+    []
+  );
 
   return (
     <div className="space-y-6">
       <PageHeader
         icon={ArrowRightLeft}
         title="Price Arbitrage"
-        description="Discover cross-exchange price discrepancies. This view does not execute trades or account for fees, slippage, transfer delays, or venue limits."
+        description="Cross-exchange price discrepancies in real time. Filter, sort, drill in. Spreads do not account for fees, slippage, or transfer time."
+        freshnessMeta={data?.meta ?? null}
       />
 
-      <Card>
-        <CardContent className="grid gap-3 pt-5 md:grid-cols-2 xl:grid-cols-5">
-          <Field label="Market Type">
-            <select
-              value={marketType}
-              onChange={(event) => setMarketType(event.target.value as 'spot' | 'perp')}
-              className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <option value="spot">Spot</option>
-              <option value="perp">Perp</option>
-            </select>
-          </Field>
-          <Field label="Quote">
-            <select
-              value={quote}
-              onChange={(event) => setQuote(event.target.value)}
-              className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <option value="USDT">USDT</option>
-              <option value="USDC">USDC</option>
-              <option value="KRW">KRW</option>
-            </select>
-          </Field>
-          <Field label="Min Spread">
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              max={10000}
-              value={minSpreadBps}
-              onChange={(event) => setMinSpreadBps(Number(event.target.value))}
-            />
-          </Field>
-          <Field label="Search">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Asset or exchange"
-                className="pl-9"
-              />
-            </div>
-          </Field>
-          <div className="flex items-end">
-            <Button
-              type="button"
-              onClick={() => loadArbitrage(true)}
-              disabled={refreshing}
-              className="h-11 w-full"
-            >
-              <RefreshCw className={refreshing ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
-              Refresh
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="rounded-lg border border-primary/20 bg-primary/10 p-4 text-sm text-muted-foreground">
-        <div className="flex gap-3">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <p>
-            Spreads use ticker ask for the buy side and bid for the sell side when available. Always
-            account for fees, order book depth, borrow/transfer constraints, and execution latency
-            before acting.
-          </p>
-        </div>
+      {/* Caveat banner */}
+      <div className="flex items-start gap-2.5 p-3 rounded-md border border-warning/30 bg-warning/5">
+        <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" aria-hidden />
+        <p className="text-xs text-muted-foreground">
+          Spreads use ask for buy side and bid for sell side. Always account for fees, depth,
+          borrow/transfer constraints, and execution latency before acting.
+        </p>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-          {error}
-        </div>
-      )}
+      {/* Stats strip */}
+      <div className="grid grid-cols-3 gap-3">
+        <Panel>
+          <Metric label="Active Spreads" value={stats.count.toString()} mono size="md" />
+        </Panel>
+        <Panel>
+          <Metric label="Best Spread" value={`${stats.bestBps.toFixed(1)} bps`} mono size="md" />
+        </Panel>
+        <Panel>
+          <Metric label="Average Spread" value={`${stats.avgBps.toFixed(1)} bps`} mono size="md" />
+        </Panel>
+      </div>
 
-      {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3, 4].map((item) => (
-            <Skeleton key={item} className="h-28 w-full" />
-          ))}
-        </div>
-      ) : filteredOpportunities.length === 0 ? (
-        <Card>
-          <CardContent className="pt-5 text-sm text-muted-foreground">
-            No price discrepancies match the current filters.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Summary</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Metric label="Matches" value={filteredOpportunities.length.toLocaleString()} />
-              <Metric
-                label="Best Spread"
-                value={topOpportunity ? `${topOpportunity.spreadBps.toFixed(2)} bps` : 'N/A'}
-              />
-              <Metric
-                label="Exchanges"
-                value={
-                  data?.exchanges.map((exchange) => exchange.toUpperCase()).join(', ') ?? 'N/A'
-                }
-              />
-            </CardContent>
-          </Card>
-
-          <div className="space-y-3">
-            {filteredOpportunities.map((opportunity) => (
-              <OpportunityCard key={opportunity.asset} opportunity={opportunity} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function OpportunityCard({ opportunity }: { opportunity: PriceArbitrageOpportunity }) {
-  return (
-    <Card>
-      <CardContent className="grid gap-4 pt-5 lg:grid-cols-[220px_minmax(0,1fr)_160px] lg:items-center">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="font-display text-2xl font-bold">{opportunity.asset}</h2>
-            <Badge variant={opportunity.marketType === 'perp' ? 'default' : 'secondary'}>
-              {opportunity.marketType.toUpperCase()}
-            </Badge>
-          </div>
-          <p className="mt-1 text-xs font-mono uppercase tracking-wider text-muted-foreground">
-            {opportunity.quoteCurrency} quoted
-          </p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <VenueBlock
-            label="Buy"
-            exchange={opportunity.bestBuyExchange}
-            price={opportunity.buyPrice}
+      {/* Filters */}
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedControl
+            value={filters.type}
+            onChange={(v) => setFilters({ type: v })}
+            options={[
+              { value: 'spot', label: 'Spot' },
+              { value: 'perp', label: 'Perp' },
+            ]}
+            size="sm"
+            aria-label="Market type"
           />
-          <VenueBlock
-            label="Sell"
-            exchange={opportunity.bestSellExchange}
-            price={opportunity.sellPrice}
-          />
-        </div>
-
-        <div className="rounded-lg border border-[hsl(152_60%_45%/0.25)] bg-[hsl(152_60%_45%/0.08)] p-3 text-right">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-            Spread
-          </div>
-          <div className="mt-1 font-display text-2xl font-bold text-[hsl(152_60%_50%)]">
-            {opportunity.spreadBps.toFixed(2)}
-          </div>
-          <div className="text-xs text-muted-foreground">basis points</div>
-        </div>
-      </CardContent>
-      <div className="border-t border-border px-5 py-3">
-        <div className="flex flex-wrap gap-2">
-          {opportunity.quotes.map((quote) => (
-            <span
-              key={`${opportunity.asset}-${quote.exchange}`}
-              className="rounded-md border border-border bg-secondary/40 px-2 py-1 text-xs text-muted-foreground"
-            >
-              <span className="font-medium text-foreground">{quote.exchange}</span>{' '}
-              {formatPrice(quote.price)}
+          <Select
+            value={filters.quote}
+            onValueChange={(v) => setFilters({ quote: v as typeof filters.quote })}
+          >
+            <SelectTrigger className="h-8 w-[100px]">
+              <SelectValue placeholder="Quote" />
+            </SelectTrigger>
+            <SelectContent>
+              {QUOTES.map((q) => (
+                <SelectItem key={q} value={q}>
+                  {q}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex items-center gap-2 px-3 h-8 rounded-md border border-border bg-surface-1">
+            <span className="text-[10px] font-mono uppercase text-muted-foreground">Min</span>
+            <span className="numeric text-xs text-foreground font-medium">
+              {filters.minSpreadBps} bps
             </span>
-          ))}
+            <Slider
+              value={[filters.minSpreadBps]}
+              onValueChange={(v) => setFilters({ minSpreadBps: v[0] })}
+              min={0}
+              max={200}
+              step={5}
+              className="w-24"
+              aria-label="Minimum spread in basis points"
+            />
+          </div>
+        </div>
+
+        <div className="w-full md:w-64">
+          <SearchInput
+            value={search}
+            onValueChange={setSearch}
+            placeholder="Search asset or exchange…"
+          />
         </div>
       </div>
-    </Card>
-  );
-}
 
-function VenueBlock({
-  label,
-  exchange,
-  price,
-}: {
-  label: string;
-  exchange: string;
-  price: number;
-}) {
-  return (
-    <div className="rounded-lg border border-border bg-secondary/30 p-3">
-      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-1 text-sm font-semibold capitalize">{exchange}</div>
-      <div className="mt-1 font-mono text-sm text-foreground">{formatPrice(price)}</div>
+      {/* Table */}
+      <DataTable
+        columns={columns}
+        rows={sortedOpps}
+        rowKey={(o) => `${o.asset}-${o.marketType}`}
+        loading={isLoading}
+        error={error?.message ?? null}
+        onRetry={() => refetch()}
+        onRowClick={(o) => setSelectedAsset(o.asset)}
+        renderMobileCard={(o) => (
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div>
+                <div className="font-mono font-semibold text-foreground">{o.asset}</div>
+                <div className="text-[10px] text-muted-foreground">
+                  {o.bestBuyExchange} → {o.bestSellExchange}
+                </div>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="numeric font-semibold text-up">+{o.spreadBps.toFixed(1)} bps</div>
+              <Tag variant={o.marketType === 'perp' ? 'accent' : 'default'}>{o.marketType}</Tag>
+            </div>
+          </div>
+        )}
+        emptyTitle="No active spreads"
+        emptyDescription={
+          search ? `Nothing matches "${search}".` : 'Try lowering the minimum spread filter.'
+        }
+        sort={{ column: 'spread', direction: 'desc' }}
+        height="calc(100vh - 480px)"
+        aria-label="Price arbitrage opportunities"
+      />
+
+      {/* Detail drawer (Dialog on mobile, side sheet on desktop) */}
+      <Dialog open={!!selected} onOpenChange={(open) => !open && setSelectedAsset(null)}>
+        <DialogContent className="md:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {selected?.asset}
+              {selected && (
+                <Tag variant={selected.marketType === 'perp' ? 'accent' : 'default'}>
+                  {selected.marketType}
+                </Tag>
+              )}
+            </DialogTitle>
+            <DialogDescription>
+              All exchange quotes for {selected?.asset} ({selected?.quoteCurrency} pair)
+            </DialogDescription>
+          </DialogHeader>
+
+          {selected && (
+            <div className="flex-1 overflow-y-auto p-5 pt-3 space-y-4 scrollbar-thin">
+              {/* Best opportunity summary */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-md border border-success/30 bg-success/5 p-3">
+                  <div className="text-[10px] font-mono uppercase text-muted-foreground">
+                    Buy on
+                  </div>
+                  <div className="font-mono text-sm font-semibold text-foreground capitalize">
+                    {selected.bestBuyExchange}
+                  </div>
+                  <div className="numeric text-xs text-up mt-1">
+                    ${formatPrice(selected.buyPrice)}
+                  </div>
+                </div>
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                  <div className="text-[10px] font-mono uppercase text-muted-foreground">
+                    Sell on
+                  </div>
+                  <div className="font-mono text-sm font-semibold text-foreground capitalize">
+                    {selected.bestSellExchange}
+                  </div>
+                  <div className="numeric text-xs text-down mt-1">
+                    ${formatPrice(selected.sellPrice)}
+                  </div>
+                </div>
+              </div>
+
+              {/* All quotes */}
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-2">
+                  All venues
+                </div>
+                <ul className="space-y-1">
+                  {[...selected.quotes]
+                    .sort((a, b) => a.price - b.price)
+                    .map((q, i, arr) => {
+                      const isMin = i === 0;
+                      const isMax = i === arr.length - 1;
+                      return (
+                        <li
+                          key={q.exchange}
+                          className={cn(
+                            'flex items-center justify-between gap-2 px-2 py-1.5 rounded',
+                            isMin && 'bg-success/5',
+                            isMax && 'bg-destructive/5'
+                          )}
+                        >
+                          <span className="font-mono text-sm text-foreground capitalize">
+                            {q.exchange}
+                          </span>
+                          <span
+                            className={cn(
+                              'numeric text-sm',
+                              isMin && 'text-up font-semibold',
+                              isMax && 'text-down font-semibold',
+                              !isMin && !isMax && 'text-foreground'
+                            )}
+                          >
+                            ${formatPrice(q.price)}
+                          </span>
+                        </li>
+                      );
+                    })}
+                </ul>
+              </div>
+
+              {/* Spread summary */}
+              <div className="pt-3 border-t border-border flex items-baseline justify-between">
+                <span className="text-[11px] text-muted-foreground">Spread</span>
+                <ChangeText
+                  value={selected.spreadBps / 100}
+                  signed
+                  size="md"
+                  className="font-display font-bold text-up"
+                />
+                <span className="numeric text-xs text-muted-foreground ml-1">
+                  ({selected.spreadBps.toFixed(2)} bps)
+                </span>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-secondary/30 p-3">
-      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-        {label}
-      </div>
-      <div className="mt-1 text-sm font-semibold">{value}</div>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="space-y-1.5">
-      <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      {children}
-    </label>
   );
 }

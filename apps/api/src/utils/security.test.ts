@@ -18,14 +18,14 @@ describe('admin request signing', () => {
   test('canonicalizes paths with sorted query parameters', async () => {
     const left = await buildAdminCanonicalRequest({
       method: 'get',
-      url: 'https://api.lazuli.app/api/v1/admin/health?b=2&a=1',
+      url: 'https://api.lazuli.now/api/v1/admin/health?b=2&a=1',
       timestamp,
       nonce,
       body: '',
     });
     const right = await buildAdminCanonicalRequest({
       method: 'GET',
-      url: 'https://api.lazuli.app/api/v1/admin/health?a=1&b=2',
+      url: 'https://api.lazuli.now/api/v1/admin/health?a=1&b=2',
       timestamp,
       nonce,
       body: '',
@@ -38,7 +38,7 @@ describe('admin request signing', () => {
   test('accepts a valid signature and rejects query/body tampering', async () => {
     const request = {
       method: 'POST',
-      url: 'https://api.lazuli.app/api/v1/admin/backfills?dryRun=false',
+      url: 'https://api.lazuli.now/api/v1/admin/backfills?dryRun=false',
       timestamp,
       nonce,
       body: JSON.stringify({ exchanges: ['bybit'] }),
@@ -82,7 +82,7 @@ describe('admin request signing', () => {
   test('rejects expired timestamps, invalid nonces, and wrong key ids', async () => {
     const request = {
       method: 'GET',
-      url: 'https://api.lazuli.app/api/v1/admin/health',
+      url: 'https://api.lazuli.now/api/v1/admin/health',
       timestamp,
       nonce,
       body: '',

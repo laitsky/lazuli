@@ -184,7 +184,7 @@
 - [x] **Health Checks** - Cloudflare service health exposed via `/health`
 - [x] **Managed HTTPS** - Cloudflare Workers provide TLS at the edge
 - [x] **D1/R2 Migration** - Legacy database path retired in favor of Cloudflare storage
-- [ ] **Custom Domain Routes** - Attach `api.lazuli.app` when the zone is available
+- [x] **Custom Domain Routes** - Attach `api.lazuli.now` when the zone is available
 
 ### Monitoring & Observability
 

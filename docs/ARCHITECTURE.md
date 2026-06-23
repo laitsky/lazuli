@@ -42,7 +42,10 @@ Backfills are idempotent, task-based, and retry-aware. Queue retries stay pendin
 
 ## Production URLs
 
+- API: `https://api.lazuli.now`
+- Web: `https://lazuli.now`
+- Web alias: `https://www.lazuli.now`
 - API: `https://lazuli-api.vincent-diamond15.workers.dev`
 - Web: `https://lazuli-web.vincent-diamond15.workers.dev`
 
-Custom domain routes can be added when the `lazuli.app` zone is available in the Cloudflare account.
+Custom domain routes are configured for `lazuli.now`, `www.lazuli.now`, and `api.lazuli.now`.

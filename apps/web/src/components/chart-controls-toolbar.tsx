@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Camera, LineChart, Volume2, VolumeX } from 'lucide-react';
+import { captureElementScreenshot } from '@/lib/screenshot';
 
 /**
  * Props for the ChartControlsToolbar component
@@ -187,34 +188,15 @@ export function useChartControls(
     filename?: string
   ): Promise<void> => {
     if (!element) return;
-
     setIsCapturing(true);
-
     try {
-      // Dynamically import html2canvas to avoid SSR issues
-      const html2canvas = (await import('html2canvas')).default;
-
-      // Capture the chart element
-      const canvas = await html2canvas(element, {
-        backgroundColor: '#0a0a0a', // Dark background matching the app theme
-        scale: 2, // Higher resolution for better quality
-        logging: false,
-        useCORS: true,
-      });
-
-      // Convert to blob and download
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.download = filename || `chart-${Date.now()}.png`;
-          link.href = url;
-          link.click();
-
-          // Cleanup
-          URL.revokeObjectURL(url);
-        }
-      }, 'image/png');
+      // Use native canvas capture (works for lightweight-charts' <canvas>)
+      // Falls back to SVG foreignObject serialization for non-canvas elements.
+      await captureElementScreenshot(
+        element,
+        filename || `lazuli-chart-${Date.now()}.png`,
+        '#0a0e1f'
+      );
     } catch (error) {
       console.error('Failed to capture screenshot:', error);
     } finally {

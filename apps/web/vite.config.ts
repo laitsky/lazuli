@@ -33,6 +33,31 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: 'dist',
     sourcemap: mode !== 'production',
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split large vendor bundles for better caching
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-query': ['@tanstack/react-query'],
+          'vendor-charts': ['lightweight-charts'],
+          'vendor-radix': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-popover',
+            '@radix-ui/react-tooltip',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-select',
+            '@radix-ui/react-slider',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-separator',
+            '@radix-ui/react-toggle',
+            '@radix-ui/react-toggle-group',
+            '@radix-ui/react-slot',
+          ],
+          'vendor-motion': ['framer-motion'],
+          'vendor-cmdk': ['cmdk'],
+        },
+      },
+    },
   },
   css: {
     postcss: './postcss.config.mjs',

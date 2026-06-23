@@ -1,401 +1,464 @@
 /**
- * Homepage - Terminal Luxe Dashboard
+ * Dashboard — live operational cockpit
  *
- * A refined, data-focused landing page with:
- * - Live market ticker with elegant scrolling
- * - Key metrics displayed prominently
- * - Clean grid layout with asymmetric visual interest
+ * Replaces the old marketing landing. Every panel shows real data:
+ *  - KPI strip (4 cards): volume, gainers/losers, top exchange, opportunities
+ *  - Top Movers (gainers + losers tabs)
+ *  - Market Sentiment (funding heatmap)
+ *  - Arbitrage Feed (live cross-exchange opportunities)
+ *  - Watchlist (user's starred symbols, or default BTC/ETH/SOL)
+ *
+ * Data sources: TanStack Query hooks. URL state: none (this is the dashboard).
  */
 
-import { useEffect, useState, Suspense } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { LazuliAPI } from '@/lib/api-client';
-import { ApiStatusIndicator } from '@/components/api-status-indicator';
-import { ExchangeLogo } from '@/components/exchange-logo';
+import { Activity, ArrowRight, Flame, Radar, Star, TrendingDown, TrendingUp } from 'lucide-react';
+import type { Ticker, PriceArbitrageOpportunity, FundingSentiment } from '@lazuli/shared';
+import { PageHeader } from '@/components/ui/page-header';
+import { Panel, PanelHeader, PanelTitle } from '@/components/ui/panel';
+import { Metric } from '@/components/ui/metric';
+import { PriceText, ChangeText } from '@/components/ui/price-text';
+import { Tag } from '@/components/ui/tag';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { FreshnessBadge } from '@/components/ui/freshness-badge';
 import {
-  ArrowRight,
-  ArrowUpRight,
-  TrendingUp,
-  Activity,
-  Zap,
-  BarChart3,
-  Layers,
-} from 'lucide-react';
-import { MarketTicker } from '@/components/market-ticker';
-import { TopGainers } from '@/components/top-gainers';
-import { TopLosers } from '@/components/top-losers';
-import type { ExchangeInfo } from '@lazuli/shared';
-import { appRoutes } from '@/lib/navigation';
+  useAllTickers,
+  useFundingRates,
+  usePriceArbitrage,
+  useTicker,
+  useExchanges,
+  useHealth,
+} from '@/lib/queries';
+import { usePreferences, parseWatchlistKey } from '@/lib/preferences';
+import { formatVolume } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
+
+const DEFAULT_WATCH = ['bybit:BTC-USDT', 'bybit:ETH-USDT', 'bybit:SOL-USDT'];
 
 export default function HomePage() {
-  const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { watchlist } = usePreferences();
+  const watchKeys = watchlist.length > 0 ? watchlist.slice(0, 6) : DEFAULT_WATCH;
 
-  useEffect(() => {
-    async function fetchExchanges() {
-      const response = await LazuliAPI.getExchanges();
-      if (response.success) {
-        setExchanges(response.data);
-      }
-      setLoading(false);
+  // KPIs
+  const { data: exchangesData } = useExchanges();
+  const { data: health } = useHealth();
+  const bybitTickers = useAllTickers('bybit', {
+    quote: 'USDT',
+    sortBy: 'volume',
+    sortOrder: 'desc',
+  });
+  const arbitrage = usePriceArbitrage({ limit: 8 });
+  const funding = useFundingRates('bybit', { limit: 100 });
+
+  // Aggregate stats from bybit tickers (proxy for market-wide)
+  const stats = useMemo(() => {
+    if (!bybitTickers.data) {
+      return {
+        volume: 0,
+        gainers: 0,
+        losers: 0,
+        topGainer: null as Ticker | null,
+        topLoser: null as Ticker | null,
+      };
     }
-    fetchExchanges();
-  }, []);
+    const all = bybitTickers.data.pages.flatMap((p) => p.data.tickers);
+    const usdt = all.filter((t) => t.symbol.includes('USDT') && t.percentage24h !== null);
+    const volume = all.reduce((sum, t) => sum + (t.quoteVolume24h ?? 0), 0);
+    const sorted = [...usdt].sort((a, b) => (b.percentage24h ?? 0) - (a.percentage24h ?? 0));
+    return {
+      volume,
+      gainers: usdt.filter((t) => (t.percentage24h ?? 0) > 0).length,
+      losers: usdt.filter((t) => (t.percentage24h ?? 0) < 0).length,
+      topGainer: sorted[0] ?? null,
+      topLoser: sorted[sorted.length - 1] ?? null,
+    };
+  }, [bybitTickers.data]);
+
+  const arbitrageFreshness = arbitrage.data?.meta;
+  const exchanges = exchangesData?.data ?? [];
 
   return (
-    <div className="space-y-8 pb-16">
-      {/* Market Ticker Strip */}
-      <div className="-mx-4 lg:-mx-8 -mt-8 lg:mt-0">
-        <Suspense fallback={<div className="h-12 bg-card border-b border-border animate-pulse" />}>
-          <MarketTicker />
-        </Suspense>
+    <div className="space-y-6">
+      <PageHeader
+        title="Dashboard"
+        description="Live market pulse across supported exchanges."
+        freshnessMeta={arbitrageFreshness ?? null}
+      />
+
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <Panel>
+          <Metric label="24h Volume" value={`$${formatVolume(stats.volume)}`} mono size="lg" />
+          <p className="mt-1 text-[11px] text-muted-foreground">Bybit USDT pairs (proxy)</p>
+        </Panel>
+
+        <Panel>
+          <Metric
+            label="Market Breadth"
+            value={
+              <span className="flex items-baseline gap-1.5">
+                <span className="text-up">{stats.gainers}</span>
+                <span className="text-muted-foreground text-base">/</span>
+                <span className="text-down">{stats.losers}</span>
+              </span>
+            }
+            mono={false}
+            size="lg"
+          />
+          <p className="mt-1 text-[11px] text-muted-foreground">Gainers / losers (24h)</p>
+        </Panel>
+
+        <Panel>
+          <Metric
+            label="Opportunities"
+            value={(arbitrage.data?.data.opportunities?.length ?? 0).toString()}
+            mono
+            size="lg"
+          />
+          <p className="mt-1 text-[11px] text-muted-foreground">Active cross-exchange spreads</p>
+        </Panel>
+
+        <Panel>
+          <Metric
+            label="Exchanges"
+            value={exchanges.filter((e) => e.supported).length.toString()}
+            mono
+            size="lg"
+          />
+          <div className="mt-1 flex items-center gap-1.5">
+            <span
+              className={cn(
+                'h-1.5 w-1.5 rounded-full',
+                health?.api === 'ready' ? 'bg-success animate-blink-soft' : 'bg-destructive'
+              )}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              {health?.api === 'ready' ? 'API operational' : 'API offline'}
+            </p>
+          </div>
+        </Panel>
       </div>
 
-      {/* Hero Section - Asymmetric Layout */}
-      <section className="relative pt-8 lg:pt-16">
-        <div className="relative grid lg:grid-cols-[1fr,420px] gap-12 lg:gap-16 items-start">
-          {/* Left Column - Headlines */}
-          <div className="space-y-8">
-            {/* Status Badge */}
-            <div className="inline-flex items-center gap-2">
-              <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-card border border-border text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                <span className="status-dot status-online" />
-                Live Data
-              </span>
-              <span className="px-3 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-xs font-mono uppercase tracking-wider text-primary">
-                v0.1 Alpha
-              </span>
+      {/* Main grid */}
+      <div className="grid lg:grid-cols-12 gap-4">
+        {/* Top Movers — large */}
+        <Panel className="lg:col-span-8" flush>
+          <PanelHeader className="px-5 pt-5 mb-0">
+            <div className="flex items-center gap-2">
+              <Flame className="h-4 w-4 text-accent" aria-hidden />
+              <PanelTitle>Top Movers</PanelTitle>
             </div>
-
-            {/* Main Headline */}
-            <div className="space-y-4">
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-display font-bold tracking-tight leading-[1.05]">
-                <span className="text-foreground">Command the</span>
-                <br />
-                <span className="gradient-text">Hidden Markets</span>
-              </h1>
-              <p className="text-lg text-muted-foreground max-w-lg leading-relaxed">
-                Unified market intelligence platform for the sovereign trader.
-              </p>
-            </div>
-
-            {/* CTA Buttons */}
-            <div className="flex flex-wrap gap-3">
-              <Link
-                to={appRoutes.markets.href}
-                className="group inline-flex items-center gap-2 px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium text-sm hover:bg-primary/90 transition-colors"
-              >
-                <TrendingUp className="h-4 w-4" />
-                Explore Markets
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-              </Link>
-              <Link
-                to={appRoutes.workspace.href}
-                className="group inline-flex items-center gap-2 px-6 py-3 bg-card border border-border text-foreground rounded-lg font-medium text-sm hover:bg-accent hover:border-primary/30 transition-colors"
-              >
-                <BarChart3 className="h-4 w-4" />
-                Market Workspace
-              </Link>
-            </div>
-
-            {/* Quick Stats */}
-            <div className="flex flex-wrap items-center gap-6 pt-4">
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Layers className="h-4 w-4 text-primary" />
-                </div>
-                <div className="text-sm">
-                  <span className="font-semibold text-foreground">{exchanges.length}</span>
-                  <span className="text-muted-foreground ml-1">Exchanges</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-[hsl(152_60%_45%/0.1)] flex items-center justify-center">
-                  <Zap className="h-4 w-4 text-[hsl(152_60%_45%)]" />
-                </div>
-                <div className="text-sm">
-                  <span className="font-semibold text-foreground">Real-time</span>
-                  <span className="text-muted-foreground ml-1">Data</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-lg bg-secondary flex items-center justify-center">
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="text-sm">
-                  <span className="font-semibold text-foreground">Spot & Perp</span>
-                  <span className="text-muted-foreground ml-1">Markets</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column - Top Movers Grid */}
-          <div className="grid grid-cols-2 gap-3">
-            <Suspense
-              fallback={
-                <div className="col-span-1 h-[300px] bg-card rounded-xl border border-border animate-pulse" />
-              }
+            <Link
+              to="/markets"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              <TopGainers />
-            </Suspense>
-            <Suspense
-              fallback={
-                <div className="col-span-1 h-[300px] bg-card rounded-xl border border-border animate-pulse" />
-              }
-            >
-              <TopLosers />
-            </Suspense>
-          </div>
-        </div>
-      </section>
+              All markets <ArrowRight className="inline h-3 w-3 ml-0.5" aria-hidden />
+            </Link>
+          </PanelHeader>
 
-      {/* Status & Stats Section */}
-      <section className="grid lg:grid-cols-3 gap-4">
-        {/* System Status - Wide */}
-        <div className="lg:col-span-2 bg-card rounded-xl border border-border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Activity className="h-5 w-5 text-primary" />
-              <h2 className="text-lg font-display font-semibold">System Status</h2>
-            </div>
-            <span className="text-xs font-mono text-muted-foreground">Auto-refresh: 30s</span>
-          </div>
-          <ApiStatusIndicator />
-        </div>
+          {bybitTickers.isLoading ? (
+            <Skeleton className="m-5 h-64" />
+          ) : (
+            <Tabs defaultValue="gainers" className="p-5 pt-2">
+              <TabsList>
+                <TabsTrigger value="gainers">
+                  <TrendingUp className="h-3.5 w-3.5" aria-hidden /> Gainers
+                </TabsTrigger>
+                <TabsTrigger value="losers">
+                  <TrendingDown className="h-3.5 w-3.5" aria-hidden /> Losers
+                </TabsTrigger>
+              </TabsList>
 
-        {/* Platform Stats - Narrow */}
-        <div className="bg-card rounded-xl border border-border p-6">
-          <div className="flex items-center gap-3 mb-4">
-            <Layers className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-display font-semibold">Platform</h2>
-          </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/50">
-              <span className="text-sm text-muted-foreground">Active Exchanges</span>
-              <span className="text-2xl font-display font-bold text-primary">
-                {exchanges.length}
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[hsl(152_60%_45%/0.1)] border border-[hsl(152_60%_45%/0.2)] text-xs font-mono text-[hsl(152_60%_50%)]">
-                <TrendingUp className="h-3 w-3" />
-                SPOT
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary/10 border border-primary/20 text-xs font-mono text-primary">
-                <BarChart3 className="h-3 w-3" />
-                PERP
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
+              <TabsContent value="gainers">
+                <MoverList tickers={bybitTickers.data} sortDir="desc" />
+              </TabsContent>
+              <TabsContent value="losers">
+                <MoverList tickers={bybitTickers.data} sortDir="asc" />
+              </TabsContent>
+            </Tabs>
+          )}
+        </Panel>
 
-      {/* Exchanges Grid */}
-      <section className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-display font-bold">Exchanges</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Direct integration with major global exchanges
-            </p>
-          </div>
-          <Link
-            to={appRoutes.exchanges.href}
-            className="group inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
-          >
-            View All
-            <ArrowUpRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </Link>
-        </div>
+        {/* Sentiment + Arbitrage — narrow column */}
+        <div className="lg:col-span-4 space-y-4">
+          {/* Sentiment panel */}
+          <Panel>
+            <PanelHeader>
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-accent" aria-hidden />
+                <PanelTitle>Market Sentiment</PanelTitle>
+              </div>
+              {funding.data && <FreshnessBadge meta={funding.data ? null : null} />}
+            </PanelHeader>
+            {funding.isLoading ? (
+              <Skeleton className="h-32" />
+            ) : funding.data?.data ? (
+              <SentimentPanel data={funding.data.data} />
+            ) : (
+              <EmptyState title="No funding data" compact />
+            )}
+          </Panel>
 
-        {loading ? (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="h-24 bg-card rounded-xl border border-border animate-pulse" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {exchanges.map((exchange, index) => (
+          {/* Arbitrage feed */}
+          <Panel flush>
+            <PanelHeader className="px-5 pt-5 mb-0">
+              <div className="flex items-center gap-2">
+                <Radar className="h-4 w-4 text-accent" aria-hidden />
+                <PanelTitle>Arbitrage Feed</PanelTitle>
+              </div>
               <Link
-                key={exchange.id}
-                to={`${appRoutes.markets.href}?exchange=${exchange.id}`}
-                className="group block"
-                style={{ animationDelay: `${index * 50}ms` }}
+                to="/price-arbitrage"
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                <div className="relative bg-card rounded-xl border border-border p-4 card-terminal-hover overflow-hidden">
-                  {/* Hover gradient */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-
-                  <div className="relative flex items-center gap-4">
-                    {/* Exchange Logo */}
-                    <div className="relative h-12 w-12 rounded-lg bg-secondary flex items-center justify-center border border-border group-hover:border-primary/30 transition-colors">
-                      <ExchangeLogo exchangeId={exchange.id} className="h-7 w-7" />
-                      {/* Online indicator */}
-                      <span className="absolute -top-0.5 -right-0.5 flex h-2.5 w-2.5">
-                        <span className="absolute inline-flex h-full w-full rounded-full bg-[hsl(152_60%_45%)] opacity-75 animate-ping" />
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[hsl(152_60%_45%)]" />
-                      </span>
-                    </div>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                        {exchange.name}
-                      </h3>
-                      <div className="flex gap-1.5 mt-1">
-                        {exchange.hasSpot && (
-                          <span className="text-[10px] font-mono text-[hsl(152_60%_50%)] bg-[hsl(152_60%_45%/0.1)] px-1.5 py-0.5 rounded">
-                            SPOT
-                          </span>
-                        )}
-                        {exchange.hasPerp && (
-                          <span className="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                            PERP
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Arrow */}
-                    <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:text-primary transition-all -translate-x-2 group-hover:translate-x-0" />
-                  </div>
-                </div>
+                View all <ArrowRight className="inline h-3 w-3 ml-0.5" aria-hidden />
               </Link>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Features Section */}
-      <section className="space-y-6">
-        <div className="text-center max-w-xl mx-auto">
-          <h2 className="text-2xl font-display font-bold">Why Lazuli</h2>
-          <p className="text-sm text-muted-foreground mt-2">
-            Built for traders who demand precision and speed
-          </p>
+            </PanelHeader>
+            <div className="p-5 pt-3">
+              {arbitrage.isLoading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-10" />
+                  ))}
+                </div>
+              ) : (
+                <ArbitrageFeed opportunities={arbitrage.data?.data.opportunities ?? []} />
+              )}
+            </div>
+          </Panel>
         </div>
+      </div>
 
-        <div className="grid md:grid-cols-3 gap-4">
-          {/* Feature 1 */}
-          <div className="group bg-card rounded-xl border border-border p-6 card-terminal-hover">
-            <div className="h-12 w-12 rounded-lg bg-[hsl(152_60%_45%/0.1)] flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
-              <Zap className="h-6 w-6 text-[hsl(152_60%_45%)]" />
-            </div>
-            <h3 className="font-display font-semibold text-foreground mb-2 group-hover:text-primary transition-colors">
-              Real-time Data
-            </h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Live price updates from all supported exchanges with minimal latency for accurate
-              trading decisions.
-            </p>
+      {/* Watchlist */}
+      <Panel flush>
+        <PanelHeader className="px-5 pt-5 mb-0">
+          <div className="flex items-center gap-2">
+            <Star className="h-4 w-4 text-accent" aria-hidden />
+            <PanelTitle>Watchlist</PanelTitle>
           </div>
-
-          {/* Feature 2 */}
-          <div className="group bg-card rounded-xl border border-border p-6 card-terminal-hover">
-            <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
-              <Activity className="h-6 w-6 text-primary" />
-            </div>
-            <h3 className="font-display font-semibold text-foreground mb-2 group-hover:text-primary transition-colors">
-              Unified Interface
-            </h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Normalized data structure across exchanges for a consistent experience without
-              switching platforms.
-            </p>
-          </div>
-
-          {/* Feature 3 */}
-          <div className="group bg-card rounded-xl border border-border p-6 card-terminal-hover">
-            <div className="h-12 w-12 rounded-lg bg-secondary flex items-center justify-center mb-4 group-hover:scale-105 transition-transform">
-              <BarChart3 className="h-6 w-6 text-muted-foreground group-hover:text-primary transition-colors" />
-            </div>
-            <h3 className="font-display font-semibold text-foreground mb-2 group-hover:text-primary transition-colors">
-              Deep Analysis
-            </h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Multi-timeframe charts, custom indices, and advanced indicators for comprehensive
-              market analysis.
-            </p>
-          </div>
+          {watchlist.length === 0 && (
+            <span className="text-[11px] text-muted-foreground">
+              Star symbols in Markets to add them here
+            </span>
+          )}
+        </PanelHeader>
+        <div className="p-5 pt-3">
+          <WatchlistItems keys={watchKeys} />
         </div>
-      </section>
-
-      {/* Quick Links Section */}
-      <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <QuickLinkCard
-          to={appRoutes.markets.href}
-          icon={TrendingUp}
-          title="Markets"
-          description="Browse all tickers"
-          color="primary"
-        />
-        <QuickLinkCard
-          to={appRoutes.workspace.href}
-          icon={BarChart3}
-          title="Workspace"
-          description="Single-market cockpit"
-          color="muted"
-        />
-        <QuickLinkCard
-          to={appRoutes.priceArbitrage.href}
-          icon={Layers}
-          title="Price Arb"
-          description="Cross-exchange spreads"
-          color="muted"
-        />
-        <QuickLinkCard
-          to={appRoutes.customIndex.href}
-          icon={Activity}
-          title="Index"
-          description="Build indices"
-          color="muted"
-        />
-      </section>
+      </Panel>
     </div>
   );
 }
 
-/**
- * Quick Link Card Component
- */
-function QuickLinkCard({
-  to,
-  icon: Icon,
-  title,
-  description,
-  color,
+/* ============================================================
+   Sub-components
+   ============================================================ */
+
+function MoverList({
+  tickers,
+  sortDir,
 }: {
-  to: string;
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-  color: 'primary' | 'muted';
+  tickers: ReturnType<typeof useAllTickers>['data'];
+  sortDir: 'asc' | 'desc';
 }) {
+  const movers = useMemo(() => {
+    if (!tickers) return [];
+    const all = tickers.pages.flatMap((p) => p.data.tickers);
+    const usdt = all.filter(
+      (t) =>
+        t.symbol.includes('USDT') && t.percentage24h !== null && (t.quoteVolume24h ?? 0) > 1_000_000
+    );
+    return [...usdt]
+      .sort((a, b) =>
+        sortDir === 'desc'
+          ? (b.percentage24h ?? 0) - (a.percentage24h ?? 0)
+          : (a.percentage24h ?? 0) - (b.percentage24h ?? 0)
+      )
+      .slice(0, 7);
+  }, [tickers, sortDir]);
+
+  if (movers.length === 0) {
+    return <EmptyState title="No data" compact />;
+  }
+
   return (
-    <Link to={to} className="group block">
-      <div className="bg-card rounded-xl border border-border p-4 card-terminal-hover">
-        <div className="flex items-center gap-3">
-          <div
-            className={`h-10 w-10 rounded-lg flex items-center justify-center ${
-              color === 'primary' ? 'bg-primary/10' : 'bg-secondary'
-            } group-hover:bg-primary/10 transition-colors`}
+    <ul className="divide-y divide-border -mx-1">
+      {movers.map((t, idx) => (
+        <li key={t.symbol}>
+          <Link
+            to={`/workspace?exchange=${t.exchange}&symbol=${t.symbol}&type=${t.type}&timeframe=1h`}
+            className={cn(
+              'flex items-center justify-between gap-3 px-1 py-2',
+              'hover:bg-surface-2 -mx-1 px-2 rounded transition-colors'
+            )}
           >
-            <Icon
-              className={`h-5 w-5 ${
-                color === 'primary' ? 'text-primary' : 'text-muted-foreground'
-              } group-hover:text-primary transition-colors`}
-            />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-foreground text-sm group-hover:text-primary transition-colors">
-              {title}
-            </h3>
-            <p className="text-xs text-muted-foreground truncate">{description}</p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 group-hover:text-primary transition-all -translate-x-2 group-hover:translate-x-0" />
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <span className="numeric text-[10px] text-muted-foreground w-5 text-right">
+                {idx + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="font-medium text-foreground text-sm truncate">
+                  {t.symbol.replace('-USDT', '/USDT').replace('.P', ' PERP')}
+                </div>
+                <div className="text-[10px] font-mono uppercase text-muted-foreground">
+                  {t.exchange} · ${formatVolume(t.quoteVolume24h ?? 0)}
+                </div>
+              </div>
+            </div>
+            <PriceText value={t.last} size="sm" inlineChange={false} />
+            <ChangeText value={t.percentage24h} size="sm" className="w-20 text-right" />
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SentimentPanel({
+  data,
+}: {
+  data: NonNullable<ReturnType<typeof useFundingRates>['data']>['data'];
+}) {
+  const stats = data.stats;
+  const sentiment: FundingSentiment = stats?.marketSentiment ?? 'neutral';
+
+  const sentimentLabels: Record<FundingSentiment, string> = {
+    extremely_bullish: 'Extremely Bullish',
+    bullish: 'Bullish',
+    neutral: 'Neutral',
+    bearish: 'Bearish',
+    extremely_bearish: 'Extremely Bearish',
+  };
+  const sentimentLabel = sentimentLabels[sentiment];
+
+  const sentimentColors: Record<FundingSentiment, string> = {
+    extremely_bullish: 'text-up',
+    bullish: 'text-up',
+    neutral: 'text-muted-foreground',
+    bearish: 'text-down',
+    extremely_bearish: 'text-down',
+  };
+  const sentimentColor = sentimentColors[sentiment];
+
+  const avgRate = stats?.avgFundingRate ?? 0;
+  const positive = stats?.positiveCount ?? 0;
+  const negative = stats?.negativeCount ?? 0;
+  const total = positive + negative || 1;
+  const positivePct = (positive / total) * 100;
+
+  return (
+    <div className="space-y-3">
+      <div className="text-center">
+        <p className={cn('font-display text-lg font-semibold', sentimentColor)}>{sentimentLabel}</p>
+        <p className="text-[11px] text-muted-foreground mt-0.5">Bybit perp funding</p>
+      </div>
+
+      {/* Bull/bear bar */}
+      <div className="flex h-2 rounded-full overflow-hidden bg-surface-3">
+        <div className="bg-success" style={{ width: `${positivePct}%` }} />
+        <div className="bg-destructive flex-1" />
+      </div>
+
+      <div className="flex justify-between text-[11px]">
+        <span className="text-up">{positive} positive</span>
+        <span className="numeric text-foreground">avg {(avgRate * 100).toFixed(4)}%</span>
+        <span className="text-down">{negative} negative</span>
+      </div>
+
+      {stats?.highestFunding && (
+        <div className="pt-2 border-t border-border flex items-center justify-between">
+          <span className="text-[11px] text-muted-foreground">Highest funding</span>
+          <span className="numeric text-xs text-foreground">
+            {stats.highestFunding.symbol}{' '}
+            <span className="text-up">+{stats.highestFunding.percent.toFixed(4)}%</span>
+          </span>
         </div>
+      )}
+    </div>
+  );
+}
+
+function ArbitrageFeed({ opportunities }: { opportunities: PriceArbitrageOpportunity[] }) {
+  if (opportunities.length === 0) {
+    return (
+      <EmptyState
+        title="No active spreads"
+        description="Cross-exchange price discrepancies will appear here."
+        compact
+      />
+    );
+  }
+
+  return (
+    <ul className="space-y-1">
+      {opportunities.slice(0, 6).map((opp) => (
+        <li key={`${opp.asset}-${opp.marketType}`}>
+          <Link
+            to={`/price-arbitrage?type=${opp.marketType}&quote=${opp.quoteCurrency}`}
+            className={cn(
+              'flex items-center justify-between gap-2 px-2 py-1.5 rounded',
+              'hover:bg-surface-2 transition-colors no-tap-highlight'
+            )}
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-mono text-sm font-medium text-foreground">{opp.asset}</span>
+              <Tag variant="default">{opp.marketType}</Tag>
+            </div>
+            <div className="text-right">
+              <div className="numeric text-sm font-semibold text-up">
+                +{opp.spreadBps.toFixed(1)} bps
+              </div>
+              <div className="text-[10px] font-mono text-muted-foreground">
+                {opp.bestBuyExchange} → {opp.bestSellExchange}
+              </div>
+            </div>
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function WatchlistItems({ keys }: { keys: string[] }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {keys.map((k) => (
+        <WatchlistItem key={k} key_={k} />
+      ))}
+    </div>
+  );
+}
+
+function WatchlistItem({ key_ }: { key_: string }) {
+  const [exchange, symbol] = parseWatchlistKey(key_);
+  const { data, isLoading } = useTicker(exchange, symbol);
+
+  if (isLoading || !data) {
+    return <Skeleton className="h-20" />;
+  }
+
+  const t = data.data;
+  return (
+    <Link
+      to={`/workspace?exchange=${exchange}&symbol=${symbol}&type=${t.type}&timeframe=1h`}
+      className={cn(
+        'block p-3 rounded-md border border-border bg-surface-1',
+        'hover:bg-surface-2 hover:border-border-strong transition-colors no-tap-highlight'
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-sm font-medium text-foreground truncate">
+          {symbol.replace('-USDT', '/USDT').replace('.P', ' PERP')}
+        </span>
+        <ChangeText value={t.percentage24h} size="xs" />
+      </div>
+      <div className="mt-1 flex items-baseline justify-between gap-2">
+        <PriceText value={t.last} size="md" inlineChange={false} />
+        <span className="text-[10px] font-mono text-muted-foreground">
+          ${formatVolume(t.quoteVolume24h ?? 0)}
+        </span>
       </div>
     </Link>
   );

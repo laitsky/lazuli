@@ -86,9 +86,10 @@ const dialogVariants = {
 
 interface CommandPaletteProps {
   className?: string;
+  showTrigger?: boolean;
 }
 
-export function CommandPalette({ className }: CommandPaletteProps) {
+export function CommandPalette({ className, showTrigger = true }: CommandPaletteProps) {
   const navigate = useNavigate();
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState('');
@@ -186,27 +187,29 @@ export function CommandPalette({ className }: CommandPaletteProps) {
   return (
     <>
       {/* Trigger Button - Visible on desktop, shows keyboard shortcut */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={cn(
-          'hidden lg:flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground',
-          'bg-card border border-border rounded-lg',
-          'hover:bg-accent hover:text-foreground hover:border-primary/30',
-          'transition-all duration-200',
-          className
-        )}
-        aria-label="Open command palette (Cmd+K)"
-        aria-haspopup="dialog"
-        aria-expanded={open}
-      >
-        <Search className="h-4 w-4" aria-hidden="true" />
-        <span className="text-xs">Search...</span>
-        <kbd className="ml-2 hidden md:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono font-medium bg-muted rounded border border-border">
-          <CommandIcon className="h-3 w-3" aria-hidden="true" />
-          <span>K</span>
-        </kbd>
-      </button>
+      {showTrigger && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={cn(
+            'hidden lg:flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground',
+            'bg-card border border-border rounded-lg',
+            'hover:bg-accent hover:text-foreground hover:border-primary/30',
+            'transition-all duration-200',
+            className
+          )}
+          aria-label="Open command palette (Cmd+K)"
+          aria-haspopup="dialog"
+          aria-expanded={open}
+        >
+          <Search className="h-4 w-4" aria-hidden="true" />
+          <span className="text-xs">Search...</span>
+          <kbd className="ml-2 hidden md:inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono font-medium bg-muted rounded border border-border">
+            <CommandIcon className="h-3 w-3" aria-hidden="true" />
+            <span>K</span>
+          </kbd>
+        </button>
+      )}
 
       {/* Command Palette Dialog */}
       <AnimatePresence>

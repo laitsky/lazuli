@@ -1,529 +1,445 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { PageHeader } from '@/components/page-header';
-import { CandlestickChartWithIndicators } from '@/components/candlestick-chart-with-indicators';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
-import {
-  formatCurrency,
-  formatPercentage,
-  formatVolume,
-  getFundingColor,
-  LazuliAPI,
-} from '@/lib/api-client';
-import { formatPrice } from '@/lib/format';
-import { appRoutes } from '@/lib/navigation';
-import type {
-  ExchangeInfo,
-  FundingRateData,
-  IndicatorDataPoint,
-  OrderBookResponse,
-  SupportedExchange,
-  Ticker,
-  Timeframe,
-} from '@lazuli/shared';
-import { Activity, BookOpen, GitMerge, LineChart, PieChart, RefreshCw, Search } from 'lucide-react';
+/**
+ * Workspace — single-symbol analysis cockpit
+ *
+ * Combines:
+ *  - Main candlestick chart (lightweight-charts) with SMA/EMA/RSI overlays
+ *  - Right rail: order book preview, perp funding, key stats
+ *  - Header: symbol/exchange/type/timeframe controls + star + share
+ *
+ * State: full URL state via useWorkspaceFilters — shareable links, back/forward.
+ * Mobile: stacked layout — chart first, then order book, then funding.
+ */
 
-const DEFAULT_EXCHANGE: SupportedExchange = 'bybit';
-const DEFAULT_TIMEFRAME: Timeframe = '1h';
-const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'];
+import { Link } from 'react-router-dom';
+import { Star, Share2, BookOpen, Activity, ChevronRight } from 'lucide-react';
+import { CandlestickChartWithIndicators } from '@/components/candlestick-chart-with-indicators';
+import { PageHeader } from '@/components/ui/page-header';
+import { Panel, PanelHeader, PanelTitle } from '@/components/ui/panel';
+import { SegmentedControl } from '@/components/ui/segmented-control';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { SearchInput } from '@/components/ui/search-input';
+import { IconButton } from '@/components/ui/icon-button';
+import { Button } from '@/components/ui/button';
+import { Metric } from '@/components/ui/metric';
+import { Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { FreshnessBadge } from '@/components/ui/freshness-badge';
+import { PriceText } from '@/components/ui/price-text';
+import { Tag } from '@/components/ui/tag';
+import { useStringParam, TIMEFRAMES, type TimeframeValue } from '@/lib/url-state';
+import { useExchanges, useTicker, useTechnicalIndicators, useOrderBook } from '@/lib/queries';
+import { usePreferences, watchlistKey } from '@/lib/preferences';
+import { formatPrice } from '@/lib/format';
+import { formatVolume } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
+
+// Workspace filters (not using useWorkspaceFilters because we want fine control over each param)
+function useWorkspaceParams() {
+  const [exchange, setExchange] = useStringParam('exchange', 'bybit');
+  const [symbol, setSymbol] = useStringParam('symbol', 'BTC-USDT');
+  const [type, setType] = useStringParam('type', 'spot');
+  const [timeframe, setTimeframe] = useStringParam('timeframe', '1h');
+  return {
+    exchange,
+    symbol,
+    type: type as 'spot' | 'perp',
+    timeframe: timeframe as TimeframeValue,
+    setExchange,
+    setSymbol,
+    setType,
+    setTimeframe,
+  };
+}
 
 export default function MarketWorkspacePage() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const exchange = parseExchange(searchParams.get('exchange'));
-  const marketType = parseMarketType(searchParams.get('type'));
-  const timeframe = parseTimeframe(searchParams.get('timeframe'));
-  const selectedSymbol = searchParams.get('symbol') ?? '';
+  const params = useWorkspaceParams();
+  const { exchange, symbol, type, timeframe } = params;
+  const { data: exchangesData } = useExchanges();
+  const { toggleWatchlist, isWatched } = usePreferences();
 
-  const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
-  const [tickers, setTickers] = useState<Ticker[]>([]);
-  const [tickerLoading, setTickerLoading] = useState(true);
-  const [panelLoading, setPanelLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [symbolSearch, setSymbolSearch] = useState('');
-  const [indicatorData, setIndicatorData] = useState<IndicatorDataPoint[]>([]);
-  const [indicatorConfig, setIndicatorConfig] = useState<{
-    sma: number[];
-    ema: number[];
-    rsi: number[];
-  } | null>(null);
-  const [orderBook, setOrderBook] = useState<OrderBookResponse | null>(null);
-  const [funding, setFunding] = useState<FundingRateData | null>(null);
+  // Primary data
+  const ticker = useTicker(exchange, symbol);
+  const indicators = useTechnicalIndicators(exchange, symbol, {
+    timeframe,
+    type,
+  });
+  const orderBook = useOrderBook(exchange, symbol, { type, limit: 20 }, { refreshMs: 10_000 });
 
-  const selectedTicker = useMemo(
-    () => tickers.find((ticker) => ticker.symbol === selectedSymbol) ?? null,
-    [selectedSymbol, tickers]
-  );
-
-  const visibleTickers = useMemo(() => {
-    const query = symbolSearch.trim().toLowerCase();
-    return tickers
-      .filter((ticker) => (query ? ticker.symbol.toLowerCase().includes(query) : true))
-      .slice(0, 80);
-  }, [symbolSearch, tickers]);
-
-  useEffect(() => {
-    async function loadExchanges() {
-      const response = await LazuliAPI.getExchanges();
-      if (response.success && response.data) {
-        setExchanges(response.data);
+  const selectedTicker = ticker.data?.data ?? null;
+  const watched = isWatched(watchlistKey(exchange, symbol));
+  const indicatorData = indicators.data?.data ?? [];
+  const indicatorConfig = indicators.data
+    ? {
+        sma: [20, 50, 200],
+        ema: [9, 12, 21, 26],
+        rsi: [14],
       }
-    }
-    loadExchanges();
-  }, []);
+    : null;
 
-  useEffect(() => {
-    async function loadTickers() {
-      setTickerLoading(true);
-      setError(null);
-      try {
-        const response = await LazuliAPI.getTickers(exchange, {
-          type: marketType,
-          quote: exchange === 'hyperliquid' ? 'USDC' : 'USDT',
-          sortBy: 'volume',
-          sortOrder: 'desc',
-          limit: 500,
-        });
+  const exchanges = exchangesData?.data ?? [];
 
-        if (!response.success || !response.data) {
-          setError(response.error || 'Failed to load market symbols');
-          setTickers([]);
-          return;
-        }
-
-        setTickers(response.data.tickers);
-        if (!selectedSymbol && response.data.tickers[0]) {
-          updateQuery({ symbol: response.data.tickers[0].symbol });
-        }
-      } finally {
-        setTickerLoading(false);
-      }
-    }
-
-    loadTickers();
-  }, [exchange, marketType]);
-
-  useEffect(() => {
-    async function loadPanels() {
-      if (!selectedSymbol) {
-        return;
-      }
-
-      setPanelLoading(true);
-      setError(null);
-      try {
-        const [indicatorResponse, orderBookResponse, fundingResponse] = await Promise.all([
-          LazuliAPI.getTechnicalIndicators(exchange, selectedSymbol, {
-            timeframe,
-            type: marketType,
-            limit: 220,
-          }),
-          LazuliAPI.getOrderBook(exchange, selectedSymbol, { type: marketType, limit: 15 }),
-          marketType === 'perp'
-            ? LazuliAPI.getFundingRates(exchange, { limit: 300 })
-            : Promise.resolve(null),
-        ]);
-
-        if (indicatorResponse.success && indicatorResponse.data) {
-          setIndicatorData(indicatorResponse.data.data);
-          setIndicatorConfig(indicatorResponse.data.indicators);
-        } else {
-          setIndicatorData([]);
-          setIndicatorConfig(null);
-        }
-
-        if (orderBookResponse.success && orderBookResponse.data) {
-          setOrderBook(orderBookResponse.data);
-        } else {
-          setOrderBook(null);
-        }
-
-        if (fundingResponse?.success && fundingResponse.data) {
-          setFunding(
-            fundingResponse.data.fundingRates.find((item) => item.symbol === selectedSymbol) ?? null
-          );
-        } else {
-          setFunding(null);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load workspace panels');
-      } finally {
-        setPanelLoading(false);
-      }
-    }
-
-    loadPanels();
-  }, [exchange, marketType, selectedSymbol, timeframe]);
-
-  function updateQuery(
-    nextValues: Partial<Record<'exchange' | 'symbol' | 'type' | 'timeframe', string>>
-  ) {
-    const next = new URLSearchParams(searchParams);
-    for (const [key, value] of Object.entries(nextValues)) {
-      if (value) {
-        next.set(key, value);
-      } else {
-        next.delete(key);
-      }
-    }
-    setSearchParams(next, { replace: true });
-  }
-
-  const currentExchange = exchanges.find((item) => item.id === exchange);
-  const compatibleExchanges = exchanges.filter((item) =>
-    marketType === 'spot' ? item.hasSpot : item.hasPerp
-  );
+  const onShare = () => {
+    const url = window.location.href;
+    navigator.clipboard
+      .writeText(url)
+      .then(() => toast.success('Workspace URL copied to clipboard'))
+      .catch(() => toast.error('Could not copy URL'));
+  };
 
   return (
     <div className="space-y-6">
       <PageHeader
-        icon={LineChart}
-        title="Market Workspace"
-        description="Inspect one market across price action, liquidity, funding, and related strategy tools."
+        title="Workspace"
+        description="Deep single-symbol analysis with chart, order book, and funding."
+        freshnessMeta={ticker.data?.meta ?? null}
+        actions={
+          <>
+            <IconButton
+              aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+              icon={Star}
+              variant="outline"
+              onClick={() => toggleWatchlist(watchlistKey(exchange, symbol))}
+              className={cn(watched && 'text-warning')}
+            />
+            <Button variant="outline" size="sm" onClick={onShare}>
+              <Share2 className="h-3.5 w-3.5" aria-hidden /> Share
+            </Button>
+          </>
+        }
       />
 
-      <Card>
-        <CardContent className="grid gap-3 pt-5 md:grid-cols-2 xl:grid-cols-5">
-          <Field label="Exchange">
-            <select
-              value={exchange}
-              onChange={(event) =>
-                updateQuery({ exchange: event.target.value, symbol: '', type: marketType })
-              }
-              className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              {compatibleExchanges.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </Field>
+      {/* Header controls — exchange / type / symbol search / timeframe */}
+      <Panel>
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={exchange} onValueChange={params.setExchange}>
+              <SelectTrigger className="h-8 w-[110px]">
+                <SelectValue placeholder="Exchange" />
+              </SelectTrigger>
+              <SelectContent>
+                {exchanges
+                  .filter((e) => e.supported)
+                  .map((e) => (
+                    <SelectItem key={e.id} value={e.id}>
+                      {e.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+            <SegmentedControl
+              value={type}
+              onChange={(v) => params.setType(v)}
+              options={[
+                { value: 'spot', label: 'Spot' },
+                { value: 'perp', label: 'Perp' },
+              ]}
+              size="sm"
+              aria-label="Market type"
+            />
+            <Tag variant={type === 'perp' ? 'accent' : 'default'}>{exchange}</Tag>
+          </div>
 
-          <Field label="Type">
-            <select
-              value={marketType}
-              onChange={(event) =>
-                updateQuery({ type: event.target.value, symbol: '', exchange: exchange })
-              }
-              className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <option value="spot" disabled={currentExchange ? !currentExchange.hasSpot : false}>
-                Spot
-              </option>
-              <option value="perp" disabled={currentExchange ? !currentExchange.hasPerp : false}>
-                Perp
-              </option>
-            </select>
-          </Field>
+          <div className="flex flex-1 max-w-md">
+            <SearchInput
+              value={symbol}
+              onValueChange={params.setSymbol}
+              placeholder="Symbol (e.g. BTC-USDT)"
+            />
+          </div>
 
-          <Field label="Symbol">
-            <select
-              value={selectedSymbol}
-              onChange={(event) => updateQuery({ symbol: event.target.value })}
-              className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <option value="">Select symbol</option>
-              {visibleTickers.map((ticker) => (
-                <option key={ticker.symbol} value={ticker.symbol}>
-                  {ticker.symbol}
-                </option>
-              ))}
-            </select>
-          </Field>
-
-          <Field label="Search">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={symbolSearch}
-                onChange={(event) => setSymbolSearch(event.target.value)}
-                placeholder="Filter symbols"
-                className="pl-9"
-              />
-            </div>
-          </Field>
-
-          <Field label="Timeframe">
-            <select
-              value={timeframe}
-              onChange={(event) => updateQuery({ timeframe: event.target.value })}
-              className="h-11 w-full rounded-lg border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              {TIMEFRAMES.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </CardContent>
-      </Card>
-
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-          {error}
+          <SegmentedControl
+            value={timeframe}
+            onChange={(v) => params.setTimeframe(v)}
+            options={TIMEFRAMES.map((tf) => ({ value: tf, label: tf }))}
+            size="sm"
+            aria-label="Timeframe"
+          />
         </div>
-      )}
+      </Panel>
 
-      {tickerLoading ? (
-        <WorkspaceSkeleton />
-      ) : !selectedTicker ? (
-        <Card>
-          <CardContent className="pt-5 text-sm text-muted-foreground">
-            No symbol selected for this workspace.
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="space-y-6">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <MetricCard label="Last" value={formatCurrency(selectedTicker.last)} />
-              <MetricCard
-                label="24h Change"
-                value={formatPercentage(selectedTicker.percentage24h)}
-              />
-              <MetricCard
-                label="24h Volume"
-                value={formatVolume(selectedTicker.quoteVolume24h ?? selectedTicker.volume24h)}
-              />
-              <MetricCard
-                label="Spread"
-                value={
-                  selectedTicker.bid && selectedTicker.ask
-                    ? formatPrice(selectedTicker.ask - selectedTicker.bid)
-                    : 'N/A'
-                }
-              />
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Activity className="h-4 w-4 text-primary" />
-                  Indicator Chart
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {panelLoading && indicatorData.length === 0 ? (
-                  <Skeleton className="h-[360px] w-full" />
-                ) : indicatorData.length > 0 ? (
-                  <CandlestickChartWithIndicators
-                    data={indicatorData}
-                    timeframe={timeframe}
-                    symbol={selectedSymbol}
-                    height={360}
-                    availableSMA={indicatorConfig?.sma}
-                    availableEMA={indicatorConfig?.ema}
-                    availableRSI={indicatorConfig?.rsi}
+      {/* Main grid: chart + right rail */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        {/* Chart column */}
+        <div className="space-y-4">
+          {/* KPI strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {selectedTicker ? (
+              <>
+                <Panel>
+                  <Metric
+                    label="Last Price"
+                    value={formatPrice(selectedTicker.last ?? 0)}
+                    mono
+                    size="md"
                   />
-                ) : (
-                  <p className="text-sm text-muted-foreground">No indicator data returned.</p>
-                )}
-              </CardContent>
-            </Card>
+                </Panel>
+                <Panel>
+                  <Metric
+                    label="24h Change"
+                    value={`${selectedTicker.percentage24h !== null && selectedTicker.percentage24h >= 0 ? '+' : ''}${(selectedTicker.percentage24h ?? 0).toFixed(2)}%`}
+                    mono
+                    size="md"
+                  />
+                </Panel>
+                <Panel>
+                  <Metric
+                    label="24h Volume"
+                    value={`$${formatVolume(selectedTicker.quoteVolume24h ?? 0)}`}
+                    mono
+                    size="md"
+                  />
+                </Panel>
+                <Panel>
+                  <Metric
+                    label="24h High / Low"
+                    value={`${formatPrice(selectedTicker.high24h ?? 0)} / ${formatPrice(selectedTicker.low24h ?? 0)}`}
+                    mono
+                    size="sm"
+                  />
+                </Panel>
+              </>
+            ) : (
+              Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20" />)
+            )}
           </div>
 
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <BookOpen className="h-4 w-4 text-primary" />
-                  Order Book Preview
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {orderBook ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <MetricBlock label="Mid" value={formatCurrency(orderBook.midPrice)} />
-                      <MetricBlock
-                        label="Spread"
-                        value={
-                          orderBook.spreadPercent === null
-                            ? 'N/A'
-                            : `${orderBook.spreadPercent.toFixed(4)}%`
-                        }
-                      />
-                    </div>
-                    <BookSide title="Asks" rows={orderBook.orderbook.asks.slice(0, 5)} tone="ask" />
-                    <BookSide title="Bids" rows={orderBook.orderbook.bids.slice(0, 5)} tone="bid" />
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">Order book preview unavailable.</p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Perp Funding</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {marketType === 'perp' && funding ? (
-                  <div className="space-y-3">
-                    <MetricBlock
-                      label="Funding"
-                      value={`${funding.fundingRatePercent >= 0 ? '+' : ''}${funding.fundingRatePercent.toFixed(4)}%`}
-                      valueClassName={getFundingColor(funding.fundingRatePercent)}
-                    />
-                    <MetricBlock
-                      label="Annualized"
-                      value={`${funding.annualizedRate >= 0 ? '+' : ''}${funding.annualizedRate.toFixed(2)}%`}
-                    />
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    Funding data appears when a perpetual symbol is selected.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Continue In</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-2">
-                <Button asChild variant="outline" className="justify-start">
-                  <Link
-                    to={`${appRoutes.superema.href}?exchange=${exchange}&symbol=${selectedSymbol}`}
-                  >
-                    <Activity className="h-4 w-4" />
-                    SuperEMA
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="justify-start">
-                  <Link to={appRoutes.syntheticPair.href}>
-                    <GitMerge className="h-4 w-4" />
-                    Synthetic Pair
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" className="justify-start">
-                  <Link to={appRoutes.customIndex.href}>
-                    <PieChart className="h-4 w-4" />
-                    Custom Index
-                  </Link>
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => updateQuery({ symbol: selectedSymbol })}
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  Refresh Workspace
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
+          {/* Chart */}
+          <Panel flush>
+            <PanelHeader className="px-5 pt-5 mb-0">
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-accent" aria-hidden />
+                <PanelTitle>
+                  {symbol.replace('-', '/').replace('.P', ' PERP')} · {timeframe}
+                </PanelTitle>
+              </div>
+              {selectedTicker && (
+                <PriceText
+                  value={selectedTicker.last}
+                  changePercent={selectedTicker.percentage24h}
+                  size="md"
+                />
+              )}
+            </PanelHeader>
+            <div className="p-5 pt-3">
+              {indicators.isLoading && indicatorData.length === 0 ? (
+                <Skeleton className="h-[400px]" />
+              ) : indicatorData.length > 0 ? (
+                <CandlestickChartWithIndicators
+                  data={indicatorData}
+                  timeframe={timeframe}
+                  symbol={symbol}
+                  height={400}
+                  availableSMA={indicatorConfig?.sma}
+                  availableEMA={indicatorConfig?.ema}
+                  availableRSI={indicatorConfig?.rsi}
+                />
+              ) : (
+                <EmptyState
+                  icon={Activity}
+                  title="No chart data"
+                  description="This symbol may not have OHLCV data on this exchange/timeframe."
+                />
+              )}
+            </div>
+          </Panel>
         </div>
-      )}
+
+        {/* Right rail */}
+        <div className="space-y-4">
+          {/* Order book */}
+          <Panel flush>
+            <PanelHeader className="px-5 pt-5 mb-0">
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4 text-accent" aria-hidden />
+                <PanelTitle>Order Book</PanelTitle>
+              </div>
+              {orderBook.data && <FreshnessBadge meta={orderBook.data.meta} compact />}
+            </PanelHeader>
+            <div className="p-5 pt-3">
+              {orderBook.isLoading ? (
+                <Skeleton className="h-48" />
+              ) : orderBook.data?.data ? (
+                <OrderBookPreview
+                  midPrice={orderBook.data.data.midPrice}
+                  spread={orderBook.data.data.spread}
+                  spreadPercent={orderBook.data.data.spreadPercent}
+                  asks={orderBook.data.data.orderbook.asks.slice(0, 6)}
+                  bids={orderBook.data.data.orderbook.bids.slice(0, 6)}
+                />
+              ) : (
+                <EmptyState title="Order book unavailable" compact />
+              )}
+            </div>
+          </Panel>
+
+          {/* Continue in */}
+          <Panel flush>
+            <PanelHeader className="px-5 pt-5 mb-0">
+              <PanelTitle>Continue in</PanelTitle>
+            </PanelHeader>
+            <div className="p-5 pt-3 space-y-1">
+              <ContinueLink
+                to={`/superema?exchange=${exchange}&symbol=${symbol}&type=${type}&timeframe=${timeframe}`}
+                icon={Activity}
+                label="SuperEMA"
+                description="400-EMA trend heatmap"
+              />
+              <ContinueLink
+                to={`/multi-timeframe?exchange=${exchange}&symbol=${symbol}&type=${type}`}
+                icon={ChevronRight}
+                label="Multi-Timeframe"
+                description="Trend across timeframes"
+              />
+              <ContinueLink
+                to={`/synthetic-pair?exchange=${exchange}&symbol1=${symbol}&symbol2=BTC-USDT&type=${type}&timeframe=${timeframe}`}
+                icon={ChevronRight}
+                label="Synthetic Pair"
+                description="Relative-value ratio"
+              />
+            </div>
+          </Panel>
+        </div>
+      </div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="space-y-1.5">
-      <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
+/* ============================================================
+   Sub-components
+   ============================================================ */
 
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card>
-      <CardContent className="pt-5">
-        <div className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-          {label}
-        </div>
-        <div className="mt-2 truncate font-display text-2xl font-bold">{value}</div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function MetricBlock({
-  label,
-  value,
-  valueClassName,
+function OrderBookPreview({
+  midPrice,
+  spread,
+  spreadPercent,
+  asks,
+  bids,
 }: {
-  label: string;
-  value: string;
-  valueClassName?: string;
+  midPrice: number | null;
+  spread: number | null;
+  spreadPercent: number | null;
+  asks: Array<{ price: number; amount: number; total: number }>;
+  bids: Array<{ price: number; amount: number; total: number }>;
 }) {
-  return (
-    <div className="rounded-lg border border-border bg-secondary/30 p-3">
-      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-        {label}
-      </div>
-      <div className={`mt-1 font-mono text-sm font-semibold ${valueClassName ?? ''}`}>{value}</div>
-    </div>
-  );
-}
+  // Find max cumulative total for depth bar scaling
+  const maxTotal = Math.max(...asks.map((a) => a.total), ...bids.map((b) => b.total), 1);
 
-function BookSide({
-  title,
-  rows,
-  tone,
-}: {
-  title: string;
-  rows: { price: number; amount: number }[];
-  tone: 'bid' | 'ask';
-}) {
   return (
-    <div>
-      <div className="mb-1 text-xs font-mono uppercase tracking-wider text-muted-foreground">
-        {title}
-      </div>
-      <div className="space-y-1">
-        {rows.map((row) => (
-          <div key={`${title}-${row.price}`} className="grid grid-cols-2 gap-2 text-xs">
-            <span className={tone === 'bid' ? 'text-[hsl(152_60%_50%)]' : 'text-destructive'}>
-              {formatPrice(row.price)}
-            </span>
-            <span className="truncate text-right text-muted-foreground">
-              {row.amount.toFixed(4)}
-            </span>
+    <div className="space-y-3">
+      {/* Mid + spread */}
+      <div className="grid grid-cols-2 gap-2 pb-3 border-b border-border">
+        <div>
+          <div className="text-[10px] font-mono uppercase text-muted-foreground">Mid</div>
+          <div className="numeric text-sm font-semibold text-foreground">
+            ${midPrice ? formatPrice(midPrice) : '—'}
           </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] font-mono uppercase text-muted-foreground">Spread</div>
+          <div className="numeric text-sm font-semibold text-foreground">
+            {spread !== null ? formatPrice(spread) : '—'}
+            {spreadPercent !== null && (
+              <span className="text-[10px] text-muted-foreground ml-1">
+                ({spreadPercent.toFixed(3)}%)
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Column headers */}
+      <div className="grid grid-cols-3 gap-2 text-[10px] font-mono uppercase text-muted-foreground">
+        <span>Price</span>
+        <span className="text-right">Size</span>
+        <span className="text-right">Total</span>
+      </div>
+
+      {/* Asks (reversed — highest at top) */}
+      <div className="space-y-0.5">
+        {[...asks].reverse().map((row, i) => (
+          <BookRow key={`a-${i}`} row={row} side="ask" maxTotal={maxTotal} />
+        ))}
+      </div>
+
+      {/* Divider */}
+      <div className="h-px bg-border my-1" />
+
+      {/* Bids */}
+      <div className="space-y-0.5">
+        {bids.map((row, i) => (
+          <BookRow key={`b-${i}`} row={row} side="bid" maxTotal={maxTotal} />
         ))}
       </div>
     </div>
   );
 }
 
-function WorkspaceSkeleton() {
+function BookRow({
+  row,
+  side,
+  maxTotal,
+}: {
+  row: { price: number; amount: number; total: number };
+  side: 'bid' | 'ask';
+  maxTotal: number;
+}) {
+  const pct = (row.total / maxTotal) * 100;
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="space-y-6">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {[1, 2, 3, 4].map((item) => (
-            <Skeleton key={item} className="h-28 w-full" />
-          ))}
-        </div>
-        <Skeleton className="h-[430px] w-full" />
-      </div>
-      <Skeleton className="h-[520px] w-full" />
+    <div className="relative grid grid-cols-3 gap-2 text-xs py-0.5">
+      {/* Depth bar */}
+      <div
+        className={cn(
+          'absolute inset-y-0 right-0',
+          side === 'bid' ? 'bg-success/10' : 'bg-destructive/10'
+        )}
+        style={{ width: `${pct}%` }}
+        aria-hidden
+      />
+      <span className={cn('relative numeric', side === 'bid' ? 'text-up' : 'text-down')}>
+        {formatPrice(row.price)}
+      </span>
+      <span className="relative numeric text-right text-muted-foreground">
+        {row.amount.toFixed(4)}
+      </span>
+      <span className="relative numeric text-right text-muted-foreground">
+        {row.total.toFixed(4)}
+      </span>
     </div>
   );
 }
 
-function parseExchange(value: string | null): SupportedExchange {
-  const exchanges: SupportedExchange[] = ['bybit', 'okx', 'hyperliquid', 'upbit'];
-  return value && exchanges.includes(value as SupportedExchange)
-    ? (value as SupportedExchange)
-    : DEFAULT_EXCHANGE;
-}
-
-function parseMarketType(value: string | null): 'spot' | 'perp' {
-  return value === 'perp' ? 'perp' : 'spot';
-}
-
-function parseTimeframe(value: string | null): Timeframe {
-  return TIMEFRAMES.includes(value as Timeframe) ? (value as Timeframe) : DEFAULT_TIMEFRAME;
+function ContinueLink({
+  to,
+  icon: Icon,
+  label,
+  description,
+}: {
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  description: string;
+}) {
+  return (
+    <Link
+      to={to}
+      className={cn(
+        'flex items-center gap-3 px-2 py-2 rounded',
+        'hover:bg-surface-2 transition-colors no-tap-highlight'
+      )}
+    >
+      <Icon className="h-4 w-4 text-muted-foreground" aria-hidden />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-foreground">{label}</div>
+        <div className="text-[11px] text-muted-foreground">{description}</div>
+      </div>
+      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+    </Link>
+  );
 }

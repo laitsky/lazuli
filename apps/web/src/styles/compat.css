@@ -1,0 +1,297 @@
+/**
+ * Backward-compat utility layer
+ *
+ * Existing pages (Phases 3-6 will rewrite them) reference older class names
+ * like `card-terminal`, `text-glow-primary`, `status-online`. This file
+ * aliases those to the new token-based styles so pages don't break visually
+ * during the migration. By end of Phase 6 this file should be deleted.
+ *
+ * Glow FX and noise overlay are intentionally NOT carried over — those were
+ * the "AI demo" tells we're removing.
+ */
+
+@layer utilities {
+  /* Cards — old name → new flat panel */
+  .card-terminal,
+  .card-terminal-hover {
+    background-color: var(--color-surface-1);
+    border: 1px solid var(--color-border);
+    position: relative;
+    transition: all var(--duration-base) var(--ease-out);
+  }
+  .card-terminal-hover:hover {
+    border-color: var(--color-accent-border);
+    transform: translateY(-1px);
+  }
+  .card-terminal::before,
+  .card-terminal::after {
+    content: none; /* drop old gradient overlay */
+  }
+
+  /* Status dots — used by many existing pages */
+  .status-dot {
+    position: relative;
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .status-online {
+    background-color: var(--color-success);
+  }
+  .status-warning {
+    background-color: var(--color-warning);
+  }
+  .status-offline {
+    background-color: var(--color-destructive);
+  }
+  .status-dot::after {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: 50%;
+    background: inherit;
+    opacity: 0.25;
+  }
+
+  /* Price colors — old name → new */
+  .price-up {
+    color: var(--color-success);
+  }
+  .price-down {
+    color: var(--color-destructive);
+  }
+  .price-up-bg {
+    background-color: hsl(152 60% 45% / 0.1);
+    color: var(--color-success);
+  }
+  .price-down-bg {
+    background-color: hsl(0 72% 58% / 0.1);
+    color: var(--color-destructive);
+  }
+
+  /* Lift effect — old name → new */
+  .lift {
+    transition: transform var(--duration-base) var(--ease-out);
+  }
+  .lift:hover {
+    transform: translateY(-2px);
+  }
+
+  /* Accent line — vertical bar prefix */
+  .accent-line {
+    position: relative;
+  }
+  .accent-line::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2px;
+    height: 60%;
+    background: var(--color-accent);
+    border-radius: 1px;
+  }
+
+  /* Gradient text — used in hero. Keep but tone down */
+  .gradient-text {
+    background: linear-gradient(
+      135deg,
+      var(--color-accent),
+      hsl(200 80% 50%),
+      hsl(230 70% 60%)
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .gradient-text-cool {
+    background: linear-gradient(135deg, hsl(210 40% 96%), hsl(215 20% 65%));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Text glow — DISABLED, intentionally. Inherit color, no glow */
+  .text-glow,
+  .text-glow-primary,
+  .text-glow-success,
+  .text-glow-destructive {
+    text-shadow: none;
+  }
+  .glow-primary,
+  .glow-success,
+  .glow-destructive,
+  .animate-glow-pulse {
+    box-shadow: none;
+    animation: none;
+  }
+
+  /* Background patterns — keep subtle */
+  .bg-grid {
+    background-image: linear-gradient(hsl(222 18% 18% / 0.4) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(222 18% 18% / 0.4) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+  .bg-dots {
+    background-image: radial-gradient(hsl(222 22% 28%) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .bg-diagonal {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 8px,
+      hsl(222 26% 14%) 8px,
+      hsl(222 26% 14%) 9px
+    );
+  }
+
+  /* Animation aliases */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes compat-fade-in-up {
+      from {
+        opacity: 0;
+        transform: translateY(16px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    @keyframes compat-fade-in-down {
+      from {
+        opacity: 0;
+        transform: translateY(-16px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    @keyframes compat-slide-in-left {
+      from {
+        opacity: 0;
+        transform: translateX(-24px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+    @keyframes compat-slide-in-right {
+      from {
+        opacity: 0;
+        transform: translateX(24px);
+      }
+      to {
+        opacity: 1;
+        transform: translateX(0);
+      }
+    }
+    @keyframes compat-pulse-subtle {
+      0%,
+      100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.6;
+      }
+    }
+    @keyframes compat-ticker-scroll {
+      0% {
+        transform: translateX(0);
+      }
+      100% {
+        transform: translateX(-50%);
+      }
+    }
+
+    .animate-fade-in-up,
+    .animate-fade-in-down {
+      animation: compat-fade-in-up var(--duration-slow) var(--ease-out) forwards;
+    }
+    .animate-fade-in-down {
+      animation-name: compat-fade-in-down;
+    }
+    .animate-slide-in-left {
+      animation: compat-slide-in-left var(--duration-slow) var(--ease-out) forwards;
+    }
+    .animate-slide-in-right {
+      animation: compat-slide-in-right var(--duration-slow) var(--ease-out) forwards;
+    }
+    .animate-pulse-subtle {
+      animation: compat-pulse-subtle 2s ease-in-out infinite;
+    }
+    .animate-ticker {
+      animation: compat-ticker-scroll 60s linear infinite;
+    }
+
+    /* Animation delays — used by home page stagger */
+    .animate-delay-75 {
+      animation-delay: 75ms;
+    }
+    .animate-delay-100 {
+      animation-delay: 100ms;
+    }
+    .animate-delay-150 {
+      animation-delay: 150ms;
+    }
+    .animate-delay-200 {
+      animation-delay: 200ms;
+    }
+    .animate-delay-300 {
+      animation-delay: 300ms;
+    }
+    .animate-delay-400 {
+      animation-delay: 400ms;
+    }
+    .animate-delay-500 {
+      animation-delay: 500ms;
+    }
+    .animate-delay-600 {
+      animation-delay: 600ms;
+    }
+    .animate-delay-700 {
+      animation-delay: 700ms;
+    }
+    .animate-delay-800 {
+      animation-delay: 800ms;
+    }
+
+    /* Shimmer — old name */
+    .animate-shimmer {
+      background: linear-gradient(
+        90deg,
+        transparent,
+        var(--color-accent-subtle),
+        transparent
+      );
+      background-size: 200% 100%;
+      animation: shimmer 2.5s infinite;
+    }
+  }
+
+  /* Cursor blink — for terminal aesthetic */
+  @media (prefers-reduced-motion: no-preference) {
+    .cursor-blink::after {
+      content: '_';
+      animation: compat-pulse-subtle 1s step-end infinite;
+    }
+  }
+
+  /* Border gradient */
+  .border-gradient {
+    border: 1px solid var(--color-accent-border);
+  }
+
+  /* Custom scrollbar legacy alias */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+  }
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+}

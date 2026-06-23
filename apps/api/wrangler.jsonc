@@ -4,6 +4,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
   "limits": {
     "cpu_ms": 300000,
   },
@@ -99,10 +100,16 @@
       "name": "lazuli-api-staging",
       "vars": {
         "ENVIRONMENT": "staging",
-        "PUBLIC_API_BASE_URL": "https://api-staging.lazuli.app",
-        "CORS_ORIGIN": "https://staging.lazuli.app,https://lazuli-web-staging.lazuli.workers.dev",
+        "PUBLIC_API_BASE_URL": "https://api-staging.lazuli.now",
+        "CORS_ORIGIN": "https://staging.lazuli.now,https://lazuli-web-staging.lazuli.workers.dev",
         "ADMIN_API_KEY_ID": "lazuli-admin-staging",
       },
+      "routes": [
+        {
+          "pattern": "api-staging.lazuli.now/*",
+          "zone_name": "lazuli.now",
+        },
+      ],
       "d1_databases": [
         {
           "binding": "DB",
@@ -167,10 +174,16 @@
       "name": "lazuli-api",
       "vars": {
         "ENVIRONMENT": "production",
-        "PUBLIC_API_BASE_URL": "https://api.lazuli.app",
-        "CORS_ORIGIN": "https://lazuli.app,https://www.lazuli.app",
+        "PUBLIC_API_BASE_URL": "https://api.lazuli.now",
+        "CORS_ORIGIN": "https://lazuli.now,https://www.lazuli.now",
         "ADMIN_API_KEY_ID": "lazuli-admin-production",
       },
+      "routes": [
+        {
+          "pattern": "api.lazuli.now/*",
+          "zone_name": "lazuli.now",
+        },
+      ],
       "d1_databases": [
         {
           "binding": "DB",

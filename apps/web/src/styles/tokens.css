@@ -1,0 +1,150 @@
+/**
+ * Lazuli Design Tokens — "Lapis Signal"
+ *
+ * Single source of truth for all design decisions. No hardcoded colors
+ * outside this file. See brand.md at project root for full reference.
+ *
+ * Tailwind v4 generates utilities from each --color-* and --font-* key:
+ *   --color-surface-1 → bg-surface-1, text-surface-1, border-surface-1
+ *   --font-mono       → font-mono
+ */
+
+@theme {
+  /* ============================================================ Typography */
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Clash Display', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Fira Code', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Type scale — tightened. Display maxes at 48px (no brochure headlines). */
+  --text-xs: 0.6875rem;     /* 11px — labels, badges */
+  --text-sm: 0.8125rem;     /* 13px — secondary text */
+  --text-base: 0.875rem;    /* 14px — body (was 15, tightened) */
+  --text-md: 0.9375rem;     /* 15px — emphasized body */
+  --text-lg: 1.0625rem;     /* 17px */
+  --text-xl: 1.25rem;       /* 20px — section title */
+  --text-2xl: 1.5rem;       /* 24px — page title */
+  --text-3xl: 2rem;         /* 32px — hero metric */
+  --text-4xl: 2.5rem;       /* 40px — hero metric large */
+  --text-5xl: 3rem;         /* 48px — display max */
+
+  /* ============================================================ Surfaces */
+  /* Three elevations communicate hierarchy without shadows. */
+  --color-surface-0: hsl(222 47% 6%);      /* page background */
+  --color-surface-1: hsl(222 40% 9%);      /* card / panel */
+  --color-surface-2: hsl(222 35% 13%);     /* popover / dialog / elevated */
+  --color-surface-3: hsl(222 30% 17%);     /* hover / active surface */
+
+  /* Aliases for shadcn-compatible utility names */
+  --color-background: var(--color-surface-0);
+  --color-foreground: hsl(210 40% 96%);
+  --color-card: var(--color-surface-1);
+  --color-card-foreground: hsl(210 40% 96%);
+  --color-popover: var(--color-surface-2);
+  --color-popover-foreground: hsl(210 40% 96%);
+
+  /* Muted (AA: muted-foreground on surface-1 = 4.7:1) */
+  --color-muted: hsl(222 26% 14%);
+  --color-muted-foreground: hsl(215 16% 62%);
+
+  /* ============================================================ Accent */
+  /* Default = lapis. Override via [data-accent] on <html>. */
+  --color-accent: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+  --color-accent-foreground: hsl(var(--accent-foreground-h) var(--accent-foreground-s) var(--accent-foreground-l));
+  --color-accent-subtle: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.1);
+  --color-accent-border: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.3);
+
+  /* Primary alias = accent (single source of truth, both point to same color) */
+  --color-primary: var(--color-accent);
+  --color-primary-foreground: var(--color-accent-foreground);
+  --color-secondary: var(--color-muted);
+  --color-secondary-foreground: hsl(210 40% 90%);
+
+  /* ============================================================ Semantic */
+  /* Industry-standard trading colors. NOT affected by accent. */
+  --color-success: hsl(152 60% 45%);       /* emerald — up / gain */
+  --color-success-foreground: hsl(152 60% 8%);
+  --color-destructive: hsl(0 72% 58%);     /* coral — down / loss */
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-warning: hsl(38 92% 55%);        /* amber — stale / caution */
+  --color-warning-foreground: hsl(38 92% 8%);
+  --color-info: hsl(200 85% 55%);          /* sky — neutral info */
+  --color-info-foreground: hsl(200 85% 8%);
+
+  /* Data freshness */
+  --color-fresh: var(--color-success);
+  --color-stale: var(--color-warning);
+  --color-dead: var(--color-destructive);
+
+  /* ============================================================ Borders */
+  --color-border: hsl(222 18% 18%);        /* hairline default */
+  --color-border-strong: hsl(222 22% 28%); /* hover / active */
+  --color-input: hsl(222 30% 12%);
+  --color-ring: var(--color-accent);
+
+  /* ============================================================ Radius */
+  --radius-sm: 0.25rem;     /* 4px — small chips */
+  --radius-md: 0.375rem;    /* 6px — inputs, buttons */
+  --radius-lg: 0.5rem;      /* 8px — cards, panels (default) */
+  --radius-xl: 0.75rem;     /* 12px — dialogs */
+  --radius-2xl: 1rem;       /* 16px — reserved for marketing */
+
+  /* ============================================================ Spacing */
+  /* Tailwind's default scale is fine. We add header heights for shell. */
+  --shell-topbar-h: 56px;
+  --shell-sidebar-w: 240px;
+  --shell-sidebar-collapsed-w: 56px;
+
+  /* ============================================================ Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 400ms;
+}
+
+/* ============================================================
+   Accent variant seeds — runtime overrides via [data-accent]
+   Each variant defines its HSL channels; --color-accent re-derives.
+   ============================================================ */
+:root,
+[data-accent='lapis'] {
+  --accent-h: 220;
+  --accent-s: 70%;
+  --accent-l: 55%;
+  --accent-foreground-h: 210;
+  --accent-foreground-s: 40%;
+  --accent-foreground-l: 98%;
+}
+
+[data-accent='amber'] {
+  --accent-h: 38;
+  --accent-s: 92%;
+  --accent-l: 55%;
+  --accent-foreground-h: 38;
+  --accent-foreground-s: 92%;
+  --accent-foreground-l: 8%;
+}
+
+[data-accent='emerald'] {
+  --accent-h: 152;
+  --accent-s: 60%;
+  --accent-l: 45%;
+  --accent-foreground-h: 152;
+  --accent-foreground-s: 60%;
+  --accent-foreground-l: 98%;
+}
+
+[data-accent='magenta'] {
+  --accent-h: 320;
+  --accent-s: 75%;
+  --accent-l: 60%;
+  --accent-foreground-h: 320;
+  --accent-foreground-s: 75%;
+  --accent-foreground-l: 98%;
+}
+
+/* Default density — comfortable. Override via [data-density="compact"] */
+[data-density='compact'] {
+  --text-base: 0.8125rem;  /* 13px */
+  --shell-topbar-h: 48px;
+}
