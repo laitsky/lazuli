@@ -208,6 +208,7 @@ export function DataTable<T>({
       {!error && (
         <>
           <div
+            ref={tableRef}
             className="hidden md:block overflow-auto rounded-md border border-border scrollbar-thin"
             style={containerStyle}
             aria-label={ariaLabel}
