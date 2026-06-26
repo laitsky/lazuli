@@ -36,13 +36,60 @@ import { useStringParam, TIMEFRAMES } from '@/lib/url-state';
 import { useSuperEma, useExchanges } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
-/** HSL color for an EMA period — rainbow from red (short) → blue (long) */
+/** Hex color for an EMA period — rainbow from red (short) → blue (long) */
 function getEMAColor(period: number): string {
   // Hue: 0 (red) for short → 240 (blue) for long
   const hue = Math.min((period / 400) * 240, 240);
   const saturation = 70;
   const lightness = 55;
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  return hslToHex(hue, saturation, lightness);
+}
+
+/**
+ * Convert HSL channels to hex because lightweight-charts rejects CSS Color 4
+ * and some HSL string formats.
+ */
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const normalizedSaturation = saturation / 100;
+  const normalizedLightness = lightness / 100;
+  const chroma = (1 - Math.abs(2 * normalizedLightness - 1)) * normalizedSaturation;
+  const huePrime = hue / 60;
+  const secondComponent = chroma * (1 - Math.abs((huePrime % 2) - 1));
+  const match = normalizedLightness - chroma / 2;
+
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+
+  if (huePrime >= 0 && huePrime < 1) {
+    red = chroma;
+    green = secondComponent;
+  } else if (huePrime >= 1 && huePrime < 2) {
+    red = secondComponent;
+    green = chroma;
+  } else if (huePrime >= 2 && huePrime < 3) {
+    green = chroma;
+    blue = secondComponent;
+  } else if (huePrime >= 3 && huePrime < 4) {
+    green = secondComponent;
+    blue = chroma;
+  } else if (huePrime >= 4 && huePrime < 5) {
+    red = secondComponent;
+    blue = chroma;
+  } else {
+    red = chroma;
+    blue = secondComponent;
+  }
+
+  return [red, green, blue]
+    .map((channel) =>
+      Math.round((channel + match) * 255)
+        .toString(16)
+        .padStart(2, '0')
+    )
+    .join('')
+    .padStart(6, '0')
+    .replace(/^/, '#');
 }
 
 export default function SuperEMAPage() {
@@ -79,16 +126,16 @@ export default function SuperEMAPage() {
     const chart = createChart(containerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: 'transparent' },
-        textColor: 'hsl(215 16% 62%)',
+        textColor: '#8f99a8',
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: 'hsl(222 18% 18% / 0.5)' },
-        horzLines: { color: 'hsl(222 18% 18% / 0.5)' },
+        vertLines: { color: 'rgba(38, 43, 54, 0.5)' },
+        horzLines: { color: 'rgba(38, 43, 54, 0.5)' },
       },
       crosshair: { mode: 1 },
-      rightPriceScale: { borderColor: 'hsl(222 18% 18%)' },
-      timeScale: { borderColor: 'hsl(222 18% 18%)', timeVisible: true, secondsVisible: false },
+      rightPriceScale: { borderColor: '#262b36' },
+      timeScale: { borderColor: '#262b36', timeVisible: true, secondsVisible: false },
       width: containerRef.current.clientWidth,
       height: 500,
     });
@@ -96,12 +143,12 @@ export default function SuperEMAPage() {
 
     // Candlesticks
     const candleSeries = chart.addCandlestickSeries({
-      upColor: 'hsl(152 60% 45%)',
-      downColor: 'hsl(0 72% 58%)',
-      borderUpColor: 'hsl(152 60% 45%)',
-      borderDownColor: 'hsl(0 72% 58%)',
-      wickUpColor: 'hsl(152 60% 45%)',
-      wickDownColor: 'hsl(0 72% 58%)',
+      upColor: '#2eb879',
+      downColor: '#e34444',
+      borderUpColor: '#2eb879',
+      borderDownColor: '#e34444',
+      wickUpColor: '#2eb879',
+      wickDownColor: '#e34444',
     });
     const candleData: CandlestickData[] = points.map((p) => ({
       time: (p.timestamp / 1000) as Time,

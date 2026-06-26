@@ -44,11 +44,8 @@ export default function MultiTFPage() {
     limit: 200,
   });
 
-  const tfData = multi.data?.data.timeframes ?? {};
-  const timeframesWithData = useMemo(
-    () => TIMEFRAMES.filter((tf) => tfData[tf]?.candles?.length),
-    [tfData]
-  );
+  const tfData = multi.data?.data.candles ?? {};
+  const timeframesWithData = useMemo(() => TIMEFRAMES.filter((tf) => tfData[tf]?.length), [tfData]);
 
   return (
     <div className="space-y-6">
@@ -126,7 +123,7 @@ export default function MultiTFPage() {
                 <TabsContent key={tf} value={tf}>
                   <Panel>
                     <CandlestickChart
-                      data={tfData[tf]?.candles ?? []}
+                      data={tfData[tf] ?? []}
                       timeframe={tf}
                       symbol={symbol}
                       height={320}
@@ -141,7 +138,7 @@ export default function MultiTFPage() {
           {/* Desktop: 2x4 grid */}
           <div className="hidden md:grid md:grid-cols-2 lg:grid-cols-4 gap-3">
             {TIMEFRAMES.map((tf) => {
-              const ohlcv = tfData[tf]?.candles ?? [];
+              const ohlcv = tfData[tf] ?? [];
               const last = ohlcv[ohlcv.length - 1];
               const first = ohlcv[0];
               const change =

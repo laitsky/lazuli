@@ -98,10 +98,11 @@
   "env": {
     "staging": {
       "name": "lazuli-api-staging",
+      "workers_dev": false,
       "vars": {
         "ENVIRONMENT": "staging",
         "PUBLIC_API_BASE_URL": "https://api-staging.lazuli.now",
-        "CORS_ORIGIN": "https://staging.lazuli.now,https://lazuli-web-staging.lazuli.workers.dev",
+        "CORS_ORIGIN": "https://staging.lazuli.now",
         "ADMIN_API_KEY_ID": "lazuli-admin-staging",
       },
       "routes": [
@@ -172,6 +173,7 @@
     },
     "production": {
       "name": "lazuli-api",
+      "workers_dev": false,
       "vars": {
         "ENVIRONMENT": "production",
         "PUBLIC_API_BASE_URL": "https://api.lazuli.now",

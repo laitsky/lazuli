@@ -21,10 +21,20 @@ import {
   PerformancePeriod,
   ScreenerSortBy,
   FundingRateResponse,
+  EtfFlowResponse,
+  EtfFundsResponse,
+  InstitutionalAsset,
+  InstitutionalConfluenceResponse,
+  InstitutionalOverviewResponse,
+  InstitutionalRange,
+  OptionsChainResponse,
+  OptionsExpiriesResponse,
+  OptionsVolatilityResponse,
   CrossExchangeFundingResponse,
   TechnicalIndicatorResponse,
   OrderBookResponse,
   PriceArbitrageResponse,
+  OHLCV,
 } from '@lazuli/shared';
 
 // API base URL - defaults to same-origin for Cloudflare Workers Static Assets.
@@ -40,7 +50,9 @@ type QueryParams = object;
 export interface MultiTimeframeOHLCVResponse {
   exchange: string;
   symbol: string;
-  timeframes: Record<string, OHLCVResponse>;
+  type: 'spot' | 'perp';
+  timeframes: Timeframe[];
+  candles: Record<string, OHLCV[]>;
   timestamp: number;
 }
 
@@ -177,6 +189,27 @@ export interface PriceArbitrageQueryParams {
   quote?: string;
   minSpreadBps?: number;
   limit?: number;
+}
+
+/**
+ * Query parameters shared by institutional intelligence endpoints
+ */
+export interface InstitutionalAssetQueryParams {
+  asset?: InstitutionalAsset;
+}
+
+/**
+ * Query parameters for ETF flow and options volatility history.
+ */
+export interface InstitutionalRangeQueryParams extends InstitutionalAssetQueryParams {
+  range?: InstitutionalRange;
+}
+
+/**
+ * Query parameters for options chain endpoint.
+ */
+export interface OptionsChainQueryParams extends InstitutionalAssetQueryParams {
+  expiry?: string;
 }
 
 /**
@@ -651,6 +684,90 @@ export class LazuliAPI {
     queryParams?: PriceArbitrageQueryParams
   ): Promise<ApiResponse<PriceArbitrageResponse>> {
     return apiFetch<PriceArbitrageResponse>(`${API_VERSION}/arbitrage/prices`, queryParams, 60000);
+  }
+
+  /**
+   * Get the flagship institutional overview combining ETF flows, options,
+   * perp leverage, and spot trend.
+   */
+  static async getInstitutionalOverview(
+    queryParams?: InstitutionalAssetQueryParams
+  ): Promise<ApiResponse<InstitutionalOverviewResponse>> {
+    return apiFetch<InstitutionalOverviewResponse>(
+      `${API_VERSION}/institutional/overview`,
+      queryParams,
+      60000
+    );
+  }
+
+  /**
+   * Get daily spot ETF flows with fund-level contributions.
+   */
+  static async getEtfFlows(
+    queryParams?: InstitutionalRangeQueryParams
+  ): Promise<ApiResponse<EtfFlowResponse>> {
+    return apiFetch<EtfFlowResponse>(`${API_VERSION}/institutional/etf/flows`, queryParams, 60000);
+  }
+
+  /**
+   * Get ETF fund metadata and cumulative fund leadership.
+   */
+  static async getEtfFunds(
+    queryParams?: InstitutionalAssetQueryParams
+  ): Promise<ApiResponse<EtfFundsResponse>> {
+    return apiFetch<EtfFundsResponse>(`${API_VERSION}/institutional/etf/funds`, queryParams, 60000);
+  }
+
+  /**
+   * Get normalized Deribit option chain data for one asset and expiry.
+   */
+  static async getOptionsChain(
+    queryParams?: OptionsChainQueryParams
+  ): Promise<ApiResponse<OptionsChainResponse>> {
+    return apiFetch<OptionsChainResponse>(
+      `${API_VERSION}/institutional/options/chain`,
+      queryParams,
+      60000
+    );
+  }
+
+  /**
+   * Get available options expiries and aggregate positioning.
+   */
+  static async getOptionsExpiries(
+    queryParams?: InstitutionalAssetQueryParams
+  ): Promise<ApiResponse<OptionsExpiriesResponse>> {
+    return apiFetch<OptionsExpiriesResponse>(
+      `${API_VERSION}/institutional/options/expiries`,
+      queryParams,
+      60000
+    );
+  }
+
+  /**
+   * Get Deribit volatility index history for IV regime charts.
+   */
+  static async getOptionsVolatility(
+    queryParams?: InstitutionalRangeQueryParams
+  ): Promise<ApiResponse<OptionsVolatilityResponse>> {
+    return apiFetch<OptionsVolatilityResponse>(
+      `${API_VERSION}/institutional/options/volatility`,
+      queryParams,
+      60000
+    );
+  }
+
+  /**
+   * Get the transparent institutional confluence signal matrix.
+   */
+  static async getInstitutionalConfluence(
+    queryParams?: InstitutionalAssetQueryParams
+  ): Promise<ApiResponse<InstitutionalConfluenceResponse>> {
+    return apiFetch<InstitutionalConfluenceResponse>(
+      `${API_VERSION}/institutional/confluence`,
+      queryParams,
+      60000
+    );
   }
 }
 

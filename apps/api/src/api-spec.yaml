@@ -903,7 +903,7 @@ paths:
   /admin/health:
     get:
       summary: Deep admin health check
-      description: Requires signed admin request headers. Returns Cloudflare binding status and operational health details.
+      description: Requires signed admin request headers. Returns redacted dependency readiness and operational health details.
       operationId: adminHealthCheck
       tags:
         - Admin

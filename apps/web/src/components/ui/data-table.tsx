@@ -271,9 +271,10 @@ export function DataTable<T>({
                 {virtualRows.map((virtualRow) => {
                   const row = rows[virtualRow.index];
                   if (!row) return null;
+                  const stableRowKey = `${rowKey(row)}:${virtualRow.index}`;
                   return (
                     <tr
-                      key={rowKey(row)}
+                      key={stableRowKey}
                       data-index={virtualRow.index}
                       ref={(node) => virtualizer.measureElement(node)}
                       data-known-size={virtualRow.size}
@@ -323,9 +324,9 @@ export function DataTable<T>({
                 ? Array.from({ length: 6 }).map((_, i) => (
                     <Skeleton key={i} className="h-20 w-full rounded-md" />
                   ))
-                : rows.map((row) => (
+                : rows.map((row, index) => (
                     <div
-                      key={rowKey(row)}
+                      key={`${rowKey(row)}:${index}`}
                       onClick={onRowClick ? () => onRowClick(row) : undefined}
                       className={cn(
                         'rounded-md border border-border bg-surface-1 p-3',
@@ -359,7 +360,7 @@ export function DataTable<T>({
                 <tbody>
                   {rows.map((row, i) => (
                     <tr
-                      key={rowKey(row)}
+                      key={`${rowKey(row)}:${i}`}
                       onClick={onRowClick ? () => onRowClick(row) : undefined}
                       className={cn(onRowClick && 'cursor-pointer hover:bg-surface-2')}
                     >

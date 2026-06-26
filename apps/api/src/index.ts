@@ -22,6 +22,8 @@ import type {
   FundingRateData,
   FundingRateResponse,
   HealthResponse,
+  InstitutionalAsset,
+  InstitutionalRange,
   IndexPerformancePoint,
   Market,
   MarketsResponse,
@@ -73,6 +75,15 @@ import {
 } from './utils/security';
 import { ccxtService } from './services/ccxtService';
 import { calculateSelectedEMAs, calculateSuperEMA } from './services/emaService';
+import {
+  getEtfFlows,
+  getEtfFunds,
+  getInstitutionalConfluence,
+  getInstitutionalOverview,
+  getOptionsChain,
+  getOptionsExpiries,
+  getOptionsVolatility,
+} from './services/institutionalService';
 import { buildPriceArbitrageResponse } from './services/priceArbitrageService';
 import { calculateIndicators } from './services/technicalIndicatorService';
 import {
@@ -108,24 +119,29 @@ app.use('*', async (c, next) => {
 
   await next();
 
-  c.env.API_ANALYTICS?.writeDataPoint({
-    blobs: [c.req.method, c.req.path, c.res.status.toString(), requestId],
-    doubles: [Date.now() - startedAt],
-    indexes: [c.req.path],
-  });
+  const durationMs = Date.now() - startedAt;
+  if (shouldRecordRequestUsage(c.req.path, c.res.status, requestId)) {
+    c.env.API_ANALYTICS?.writeDataPoint({
+      blobs: [c.req.method, routeUsageClass(c.req.path), c.res.status.toString()],
+      doubles: [durationMs],
+      indexes: [routeUsageClass(c.req.path)],
+    });
+  }
 
-  console.log(
-    JSON.stringify({
-      level: 'info',
-      module: 'api',
-      msg: 'request complete',
-      requestId,
-      method: c.req.method,
-      path: c.req.path,
-      status: c.res.status,
-      durationMs: Date.now() - startedAt,
-    })
-  );
+  if (shouldLogRequest(c.req.path, c.res.status)) {
+    console.log(
+      JSON.stringify({
+        level: c.res.status >= 500 ? 'error' : 'info',
+        module: 'api',
+        msg: 'request complete',
+        requestId,
+        method: c.req.method,
+        routeClass: routeUsageClass(c.req.path),
+        status: c.res.status,
+        durationMs,
+      })
+    );
+  }
 });
 
 app.use(
@@ -162,7 +178,7 @@ api.get('/docs', (c) =>
   <head><meta charset="utf-8"><title>Lazuli API</title></head>
   <body>
     <h1>Lazuli API</h1>
-    <p>Cloudflare Workers API. OpenAPI source is tracked at apps/api/src/api-spec.yaml.</p>
+    <p>REST API for live cryptocurrency market data. OpenAPI source is tracked at apps/api/src/api-spec.yaml.</p>
     <ul>
       <li><a href="/api/v1/health">/api/v1/health</a></li>
       <li><a href="/api/v1/exchanges">/api/v1/exchanges</a></li>
@@ -284,27 +300,41 @@ api.get('/ohlcv/multi/:exchange/:symbol', async (c) => {
   const limit = query.limit;
 
   const result: Record<string, OHLCV[]> = {};
-  const entries = await mapWithConcurrency(
-    query.timeframes,
-    3,
-    async (timeframe) =>
-      [
+  const partialFailures: Array<{ timeframe: Timeframe; error: string }> = [];
+  const entries = await mapWithConcurrency(query.timeframes, 3, async (timeframe) => {
+    try {
+      return [
         timeframe,
         (await loadOhlcv(c.env, exchange, symbol, { timeframe, type, limit })).candles,
-      ] as const
-  );
+      ] as const;
+    } catch (error) {
+      if (!isInvalidTimeframeError(error)) {
+        throw error;
+      }
+
+      partialFailures.push({
+        timeframe,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return [timeframe, [] as OHLCV[]] as const;
+    }
+  });
   for (const [timeframe, candles] of entries) {
     result[timeframe] = candles;
   }
 
-  return ok(c, {
-    exchange,
-    symbol,
-    type,
-    timeframes: query.timeframes,
-    candles: result,
-    timestamp: Date.now(),
-  });
+  return ok(
+    c,
+    {
+      exchange,
+      symbol,
+      type,
+      timeframes: query.timeframes,
+      candles: result,
+      timestamp: Date.now(),
+    },
+    partialFailures.length > 0 ? { partialFailures } : undefined
+  );
 });
 
 api.get('/custom-pair/:exchange/:symbol1/:symbol2', async (c) => {
@@ -534,6 +564,75 @@ api.get('/arbitrage/prices', async (c) => {
   return ok(c, response, { source: 'live-cache', eligibleExchanges });
 });
 
+api.get('/institutional/overview', async (c) => {
+  const asset = parseInstitutionalAsset(c.req.query('asset'));
+  const market = await loadInstitutionalMarketInputs(c.env, asset);
+  return ok(
+    c,
+    await getInstitutionalOverview({
+      asset,
+      env: c.env,
+      fundingRates: market.fundingRates,
+      spotTicker: market.spotTicker,
+      sourceExchange: market.sourceExchange,
+    }),
+    { source: 'institutional-adapters' }
+  );
+});
+
+api.get('/institutional/etf/flows', async (c) => {
+  const asset = parseInstitutionalAsset(c.req.query('asset'));
+  const range = parseInstitutionalRange(c.req.query('range'));
+  return ok(c, await getEtfFlows(asset, range, c.env), { source: 'institutional-adapters' });
+});
+
+api.get('/institutional/etf/funds', async (c) => {
+  const asset = parseInstitutionalAsset(c.req.query('asset'));
+  return ok(c, await getEtfFunds(asset, c.env), { source: 'institutional-adapters' });
+});
+
+api.get('/institutional/options/chain', async (c) => {
+  const asset = parseInstitutionalAsset(c.req.query('asset'));
+  const expiry = c.req.query('expiry')?.trim();
+  const { data, meta } = await cachedInstitutionalData(c.env, 'options-chain', asset, {
+    expiry: expiry || undefined,
+    fallback: () => getOptionsChain(asset, expiry || undefined),
+  });
+  return ok(c, data, meta);
+});
+
+api.get('/institutional/options/expiries', async (c) => {
+  const asset = parseInstitutionalAsset(c.req.query('asset'));
+  const { data, meta } = await cachedInstitutionalData(c.env, 'options-expiries', asset, {
+    fallback: () => getOptionsExpiries(asset),
+  });
+  return ok(c, data, meta);
+});
+
+api.get('/institutional/options/volatility', async (c) => {
+  const asset = parseInstitutionalAsset(c.req.query('asset'));
+  const range = parseInstitutionalRange(c.req.query('range'));
+  const { data, meta } = await cachedInstitutionalData(c.env, 'options-volatility', asset, {
+    range,
+    fallback: () => getOptionsVolatility(asset, range),
+  });
+  return ok(c, data, meta);
+});
+
+api.get('/institutional/confluence', async (c) => {
+  const asset = parseInstitutionalAsset(c.req.query('asset'));
+  const market = await loadInstitutionalMarketInputs(c.env, asset);
+  return ok(
+    c,
+    await getInstitutionalConfluence({
+      asset,
+      fundingRates: market.fundingRates,
+      spotTicker: market.spotTicker,
+    }),
+    { source: 'institutional-adapters' }
+  );
+});
+
 api.get('/funding/compare', async (c) => {
   const limit = validateInteger(c.req.query('limit'), 50, 1, 200);
   const allRates = await Promise.all(
@@ -635,7 +734,7 @@ app.onError((error, c) => {
       level: 'error',
       module: 'app',
       msg: 'request failed',
-      path: c.req.path,
+      routeClass: routeUsageClass(c.req.path),
       error: handled.body.error,
       code: handled.body.code,
     })
@@ -718,18 +817,67 @@ async function buildDeepHealth(env: Env): Promise<HealthResponse & Record<string
     database: env.DB ? 'connected' : 'not_configured',
     exchanges: exchanges.map((exchange) => exchange.id),
     timestamp: Date.now(),
-    cloudflare: {
-      d1: !!env.DB,
-      r2: !!env.OHLCV_ARCHIVE,
-      queue: !!env.BACKFILL_QUEUE,
-      workflow: !!env.BACKFILL_WORKFLOW,
-      analytics: !!env.API_ANALYTICS,
-      durableObjects: {
-        marketDataCache: cacheReachable,
-        rateLimiter: !!env.RATE_LIMITER,
-      },
+    dependencies: {
+      liveCache: cacheReachable ? 'ready' : 'unavailable',
+      storage: env.DB && env.OHLCV_ARCHIVE ? 'ready' : 'partial',
+      backgroundJobs: env.BACKFILL_QUEUE && env.BACKFILL_WORKFLOW ? 'ready' : 'partial',
     },
   };
+}
+
+/**
+ * Limits Cloudflare Analytics Engine writes to errors, admin/expensive routes,
+ * and a small deterministic sample of normal public traffic. This keeps useful
+ * operational signals without turning health checks or normal polling into a
+ * high-volume usage trail.
+ */
+function shouldRecordRequestUsage(path: string, status: number, requestId: string): boolean {
+  if (path === '/health' || path === '/api/v1/health' || path === '/api/v1/docs') {
+    return false;
+  }
+  if (status >= 400 || path.includes('/admin/')) {
+    return true;
+  }
+  if (routeUsageClass(path) === 'expensive') {
+    return true;
+  }
+  return stableSample(requestId, 20);
+}
+
+/**
+ * Logs only abnormal requests and sensitive admin activity. Successful market
+ * data polling is intentionally quiet to avoid exposing live usage patterns in
+ * Worker logs and to reduce log ingestion volume.
+ */
+function shouldLogRequest(path: string, status: number): boolean {
+  return status >= 400 || path.includes('/admin/');
+}
+
+/**
+ * Buckets paths before analytics/logging so exact symbols, exchanges, and
+ * endpoint-level usage are not exported as high-cardinality Cloudflare fields.
+ */
+function routeUsageClass(path: string): 'admin' | 'health' | 'expensive' | 'public' {
+  if (path === '/health' || path === '/api/v1/health') return 'health';
+  if (path.includes('/admin/')) return 'admin';
+  if (
+    path.includes('/custom-index') ||
+    path.includes('/superema/') ||
+    path.includes('/ohlcv') ||
+    path.includes('/orderbook/') ||
+    path.includes('/screener/')
+  ) {
+    return 'expensive';
+  }
+  return 'public';
+}
+
+function stableSample(value: string, every: number): boolean {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash % every === 0;
 }
 
 async function cachedMarketData<T>(
@@ -980,6 +1128,17 @@ function isExchangeConnectivityError(error: unknown): boolean {
   );
 }
 
+function isInvalidTimeframeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    (typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === ErrorCode.VALIDATION_INVALID_TIMEFRAME) ||
+    message.includes('Invalid timeframe')
+  );
+}
+
 function filterTickers(
   tickers: Ticker[],
   options: {
@@ -1061,6 +1220,97 @@ function parseMarketType(value: string | undefined, symbol: string): 'spot' | 'p
   if (type) return type;
   if (value && value !== 'spot' && value !== 'perp') throw invalidMarketType(value);
   return symbol.endsWith('.P') ? 'perp' : 'spot';
+}
+
+function parseInstitutionalAsset(value: string | undefined): InstitutionalAsset {
+  const normalized = (value ?? 'BTC').trim().toUpperCase();
+  if (normalized === 'BTC' || normalized === 'ETH') return normalized;
+  throw invalidParameter('asset', 'asset must be BTC or ETH');
+}
+
+function parseInstitutionalRange(value: string | undefined): InstitutionalRange {
+  const normalized = (value ?? '30d').trim().toLowerCase();
+  if (
+    normalized === '30d' ||
+    normalized === '90d' ||
+    normalized === 'ytd' ||
+    normalized === 'all'
+  ) {
+    return normalized;
+  }
+  throw invalidParameter('range', 'range must be 30d, 90d, ytd, or all');
+}
+
+async function loadInstitutionalMarketInputs(
+  env: Env,
+  asset: InstitutionalAsset
+): Promise<{
+  fundingRates: FundingRateData[];
+  spotTicker: Ticker | null;
+  sourceExchange: SupportedExchange;
+}> {
+  const symbol = `${asset}-USDT`;
+  const sourceExchange: SupportedExchange = 'bybit';
+
+  const [spotTickers, fundingSets] = await Promise.all([
+    cachedMarketData<Ticker[]>(env, 'tickers', sourceExchange, 'spot').catch(() => ({
+      data: [] as Ticker[],
+      meta: {},
+    })),
+    Promise.all(
+      publicFundingExchanges.map(async (exchange) => ({
+        exchange,
+        rates: (
+          await cachedMarketData<FundingRateData[]>(env, 'funding', exchange, 'perp').catch(() => ({
+            data: [] as FundingRateData[],
+            meta: {},
+          }))
+        ).data.filter((rate) => rate.baseAsset === asset),
+      }))
+    ),
+  ]);
+
+  return {
+    fundingRates: fundingSets.flatMap((item) => item.rates),
+    spotTicker: spotTickers.data.find((ticker) => ticker.symbol === symbol) ?? null,
+    sourceExchange,
+  };
+}
+
+async function cachedInstitutionalData<T>(
+  env: Env,
+  kind: 'options-chain' | 'options-expiries' | 'options-volatility',
+  asset: InstitutionalAsset,
+  options: {
+    range?: InstitutionalRange;
+    expiry?: string;
+    fallback: () => Promise<T>;
+  }
+): Promise<{ data: T; meta: Record<string, unknown> }> {
+  if (env.MARKET_DATA_CACHE) {
+    const id = env.MARKET_DATA_CACHE.idFromName(`institutional:${kind}:${asset}`);
+    const url = new URL('https://cache/institutional');
+    url.searchParams.set('kind', kind);
+    url.searchParams.set('asset', asset);
+    if (options.range) url.searchParams.set('range', options.range);
+    if (options.expiry) url.searchParams.set('expiry', options.expiry);
+    const response = await env.MARKET_DATA_CACHE.get(id).fetch(url.toString());
+    if (response.ok) {
+      const payload = (await response.json()) as {
+        data: T;
+        meta?: Record<string, unknown>;
+      };
+      return {
+        data: payload.data,
+        meta: { source: 'durable-object', cache: payload.meta },
+      };
+    }
+  }
+
+  return {
+    data: await options.fallback(),
+    meta: { source: 'institutional-adapters' },
+  };
 }
 
 function parsePeriods(value: string | undefined, fallback: readonly number[]): number[] {

@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Menu, X, Search, Command } from 'lucide-react';
 import { LazuliAPI } from '@/lib/api-client';
 import { navigationSections } from '@/lib/navigation';
+import { BrandLockup } from '@/components/shell/BrandLockup';
 
 /**
  * System health status interface
@@ -243,17 +244,7 @@ export function Navigation() {
       >
         {/* Logo Section */}
         <div className="flex h-[72px] items-center border-b border-border px-6">
-          <Link to="/" className="group flex items-center" onClick={closeMobileMenu}>
-            {/* Logo Text */}
-            <div className="flex flex-col">
-              <span className="text-lg font-display font-semibold tracking-tight text-foreground">
-                Lazuli
-              </span>
-              <span className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground">
-                Market Intelligence
-              </span>
-            </div>
-          </Link>
+          <BrandLockup onNavigate={closeMobileMenu} />
         </div>
 
         {/* Command Palette Trigger */}

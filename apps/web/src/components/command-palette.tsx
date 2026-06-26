@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { appRoutes, commandNavigationItems } from '@/lib/navigation';
+import { brand } from '@/lib/brand';
 
 /**
  * Exchange quick switch items
@@ -458,7 +459,7 @@ export function CommandPalette({ className, showTrigger = true }: CommandPalette
                     </span>
                   </div>
                   <span className="font-mono text-[10px] text-muted-foreground/70 hidden sm:inline">
-                    Lazuli Terminal
+                    {brand.name} Terminal
                   </span>
                 </div>
               </Command>

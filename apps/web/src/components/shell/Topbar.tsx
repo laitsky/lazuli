@@ -10,9 +10,9 @@
  * Mobile: hamburger + compact wordmark + price icon. Desktop: full width.
  */
 
-import { Link } from 'react-router-dom';
 import { Menu, Command as CommandIcon, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { BrandLockup } from './BrandLockup';
 import { SymbolSearch } from './SymbolSearch';
 import { TopbarPrices } from './TopbarPrices';
 import { AccentPicker } from './AccentPicker';
@@ -41,24 +41,16 @@ export function Topbar({ onOpenMobileNav, onOpenCommandPalette }: TopbarProps) {
           aria-label="Open navigation"
           className={cn(
             'md:hidden flex h-9 w-9 items-center justify-center rounded-md',
-            'hover:bg-surface-2 transition-colors'
+            'hover:bg-surface-2 transition-colors',
+            'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-0'
           )}
         >
           <Menu className="h-5 w-5" aria-hidden />
         </button>
 
-        <Link
-          to="/"
-          className="group flex items-baseline gap-2 no-tap-highlight"
-          aria-label="Lazuli — go to dashboard"
-        >
-          <span className="font-display text-lg font-semibold tracking-tight text-foreground">
-            Lazuli
-          </span>
-          <span className="hidden sm:inline text-[10px] font-mono uppercase tracking-widest text-muted-foreground group-hover:text-foreground transition-colors">
-            Market Intel
-          </span>
-        </Link>
+        <div className="md:hidden">
+          <BrandLockup compact />
+        </div>
       </div>
 
       {/* Center — symbol search (desktop) */}
@@ -80,7 +72,8 @@ export function Topbar({ onOpenMobileNav, onOpenCommandPalette }: TopbarProps) {
           className={cn(
             'md:hidden flex h-9 w-9 items-center justify-center rounded-md',
             'bg-surface-1 border border-border',
-            'hover:bg-surface-3 transition-colors'
+            'hover:bg-surface-3 transition-colors',
+            'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-0'
           )}
         >
           <Search className="h-4 w-4" aria-hidden />
@@ -95,7 +88,8 @@ export function Topbar({ onOpenMobileNav, onOpenCommandPalette }: TopbarProps) {
             'hidden md:flex items-center gap-1.5 h-9 px-2.5 rounded-md',
             'bg-surface-1 border border-border',
             'hover:bg-surface-3 hover:border-border-strong transition-colors',
-            'text-xs text-muted-foreground'
+            'text-xs text-muted-foreground',
+            'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-0'
           )}
         >
           <kbd className="font-mono text-[10px] flex items-center gap-0.5">

@@ -673,3 +673,263 @@ export interface OrderBookResponse {
   midPrice: number | null; // Mid-market price
   timestamp: number; // Response timestamp
 }
+
+// ============================================================================
+// Institutional Intelligence Types
+// ============================================================================
+
+/**
+ * Institutional assets supported by the v1 suite.
+ * BTC and ETH have the deepest ETF and listed-options data coverage.
+ */
+export type InstitutionalAsset = 'BTC' | 'ETH';
+
+/**
+ * Time ranges used by ETF and volatility history endpoints.
+ */
+export type InstitutionalRange = '30d' | '90d' | 'ytd' | 'all';
+
+/**
+ * Status metadata for each upstream data source. Panels can degrade
+ * independently when one public provider changes format or rate-limits.
+ */
+export interface InstitutionalProviderStatus {
+  provider: string;
+  source: 'live' | 'snapshot' | 'fallback';
+  ok: boolean;
+  updatedAt: number;
+  stale: boolean;
+  message?: string;
+}
+
+/**
+ * Spot ETF product metadata.
+ */
+export interface EtfFund {
+  ticker: string;
+  name: string;
+  issuer: string;
+  asset: InstitutionalAsset;
+  category: 'spot';
+  firstSeen: string | null;
+  cumulativeFlowUsd: number;
+  latestFlowUsd: number | null;
+}
+
+/**
+ * One daily ETF flow observation. Fund-level flows are expressed in USD.
+ */
+export interface EtfDailyFlow {
+  date: string;
+  asset: InstitutionalAsset;
+  totalNetFlowUsd: number;
+  cumulativeNetFlowUsd: number;
+  fundFlows: Record<string, number | null>;
+  leaderTicker: string | null;
+  laggardTicker: string | null;
+  anomaly: boolean;
+}
+
+/**
+ * Consecutive ETF flow streak. Direction is based on aggregate daily net flow.
+ */
+export interface EtfFlowStreak {
+  direction: 'inflow' | 'outflow' | 'flat';
+  days: number;
+  totalUsd: number;
+  averageUsd: number;
+}
+
+/**
+ * ETF flow response for charting and table views.
+ */
+export interface EtfFlowResponse {
+  asset: InstitutionalAsset;
+  range: InstitutionalRange;
+  flows: EtfDailyFlow[];
+  funds: EtfFund[];
+  latest: EtfDailyFlow | null;
+  streak: EtfFlowStreak;
+  totals: {
+    netFlowUsd: number;
+    cumulativeNetFlowUsd: number;
+    averageDailyFlowUsd: number;
+    positiveDays: number;
+    negativeDays: number;
+    anomalyDays: number;
+  };
+  provider: InstitutionalProviderStatus;
+  timestamp: number;
+}
+
+/**
+ * Fund-only ETF response for product comparison tables.
+ */
+export interface EtfFundsResponse {
+  asset: InstitutionalAsset;
+  funds: EtfFund[];
+  provider: InstitutionalProviderStatus;
+  timestamp: number;
+}
+
+/**
+ * Deribit option instrument normalized for the frontend.
+ */
+export interface OptionInstrument {
+  instrumentName: string;
+  asset: InstitutionalAsset;
+  expiry: string;
+  expiryTimestamp: number;
+  strike: number;
+  optionType: 'call' | 'put';
+  bid: number | null;
+  ask: number | null;
+  markPrice: number | null;
+  underlyingPrice: number | null;
+  openInterest: number;
+  volume24h: number;
+  impliedVolatility: number | null;
+  delta: number | null;
+  gamma: number | null;
+  theta: number | null;
+  vega: number | null;
+}
+
+/**
+ * Open-interest concentration by strike for one expiry.
+ */
+export interface OptionStrikeSummary {
+  strike: number;
+  callOpenInterest: number;
+  putOpenInterest: number;
+  totalOpenInterest: number;
+  callVolume24h: number;
+  putVolume24h: number;
+  netCallPutOpenInterest: number;
+}
+
+/**
+ * Per-expiry summary used by the options board and confluence engine.
+ */
+export interface OptionExpirySummary {
+  expiry: string;
+  expiryTimestamp: number;
+  daysToExpiry: number;
+  instrumentCount: number;
+  totalOpenInterest: number;
+  totalVolume24h: number;
+  callOpenInterest: number;
+  putOpenInterest: number;
+  putCallRatio: number;
+  maxPainStrike: number | null;
+  largestCallWall: OptionStrikeSummary | null;
+  largestPutWall: OptionStrikeSummary | null;
+  atmImpliedVolatility: number | null;
+  skew25Delta: number | null;
+}
+
+/**
+ * Implied volatility index candle from Deribit volatility index data.
+ */
+export interface VolatilityCandle {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+/**
+ * Options chain response for one expiry.
+ */
+export interface OptionsChainResponse {
+  asset: InstitutionalAsset;
+  expiry: string | null;
+  expiries: OptionExpirySummary[];
+  chain: OptionInstrument[];
+  strikes: OptionStrikeSummary[];
+  provider: InstitutionalProviderStatus;
+  timestamp: number;
+}
+
+/**
+ * Available options expiries response.
+ */
+export interface OptionsExpiriesResponse {
+  asset: InstitutionalAsset;
+  expiries: OptionExpirySummary[];
+  provider: InstitutionalProviderStatus;
+  timestamp: number;
+}
+
+/**
+ * Volatility history response for IV regime charts.
+ */
+export interface OptionsVolatilityResponse {
+  asset: InstitutionalAsset;
+  range: InstitutionalRange;
+  candles: VolatilityCandle[];
+  current: number | null;
+  rank: number | null;
+  provider: InstitutionalProviderStatus;
+  timestamp: number;
+}
+
+/**
+ * Single transparent signal feeding the institutional regime score.
+ */
+export interface ConfluenceSignal {
+  id: 'etfDemand' | 'optionsSkew' | 'perpLeverage' | 'basisStress' | 'spotTrend' | 'liquidityRisk';
+  label: string;
+  score: number;
+  direction: 'bullish' | 'bearish' | 'neutral' | 'risk';
+  value: string;
+  explanation: string;
+  fresh: boolean;
+}
+
+/**
+ * Composite market-regime readout.
+ */
+export interface InstitutionalConfluenceResponse {
+  asset: InstitutionalAsset;
+  regime: 'spot-led' | 'etf-led' | 'options-led' | 'leverage-led' | 'fragile' | 'mixed';
+  regimeScore: number;
+  confidence: number;
+  summary: string;
+  signals: ConfluenceSignal[];
+  providers: InstitutionalProviderStatus[];
+  timestamp: number;
+}
+
+/**
+ * Flagship overview response powering Flow & Vol Radar.
+ */
+export interface InstitutionalOverviewResponse {
+  asset: InstitutionalAsset;
+  price: {
+    spot: number | null;
+    change24h: number | null;
+    sourceExchange: SupportedExchange;
+  };
+  etf: {
+    latestFlowUsd: number | null;
+    cumulativeFlowUsd: number | null;
+    streak: EtfFlowStreak;
+  };
+  options: {
+    currentIv: number | null;
+    ivRank: number | null;
+    skew25Delta: number | null;
+    nearestExpiry: OptionExpirySummary | null;
+    largestExpiryWall: OptionStrikeSummary | null;
+  };
+  derivatives: {
+    avgFundingRate: number | null;
+    totalOpenInterestUsd: number | null;
+    fundingPressure: 'longs-pay' | 'shorts-pay' | 'neutral';
+  };
+  confluence: InstitutionalConfluenceResponse;
+  providers: InstitutionalProviderStatus[];
+  timestamp: number;
+}

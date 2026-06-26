@@ -25,12 +25,16 @@ const OrderBookPage = lazy(() => import('./pages/orderbook'));
 const AltScreenerPage = lazy(() => import('./pages/alt-screener'));
 const FundingRatesPage = lazy(() => import('./pages/funding-rates'));
 const FundingArbitragePage = lazy(() => import('./pages/funding-arbitrage'));
+const InstitutionalPage = lazy(() => import('./pages/institutional'));
+const EtfFlowsPage = lazy(() => import('./pages/etf-flows'));
+const OptionsPage = lazy(() => import('./pages/options'));
 const MultiTFPage = lazy(() => import('./pages/multitf'));
 const SyntheticPairPage = lazy(() => import('./pages/synthetic-pair'));
 const CustomIndexPage = lazy(() => import('./pages/custom-index'));
 const SuperEMAPage = lazy(() => import('./pages/superema'));
 const MarketWorkspacePage = lazy(() => import('./pages/market-workspace'));
 const PriceArbitragePage = lazy(() => import('./pages/price-arbitrage'));
+const SignalLabPage = lazy(() => import('./pages/signal-lab'));
 
 /** Preserve query string on legacy redirects */
 function LegacyRedirect({ to }: { to: string }) {
@@ -56,6 +60,10 @@ export default function App() {
               <Route path="/multi-timeframe" element={<MultiTFPage />} />
               <Route path="/superema" element={<SuperEMAPage />} />
               <Route path="/price-arbitrage" element={<PriceArbitragePage />} />
+              <Route path="/signal-lab" element={<SignalLabPage />} />
+              <Route path="/institutional" element={<InstitutionalPage />} />
+              <Route path="/etf-flows" element={<EtfFlowsPage />} />
+              <Route path="/options" element={<OptionsPage />} />
               <Route path="/funding" element={<FundingRatesPage />} />
               <Route path="/funding-arbitrage" element={<FundingArbitragePage />} />
               <Route path="/synthetic-pair" element={<SyntheticPairPage />} />

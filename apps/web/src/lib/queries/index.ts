@@ -33,6 +33,9 @@ import {
   type TechnicalIndicatorQueryParams,
   type OrderBookQueryParams,
   type PriceArbitrageQueryParams,
+  type InstitutionalAssetQueryParams,
+  type InstitutionalRangeQueryParams,
+  type OptionsChainQueryParams,
 } from '@/lib/api-client';
 import { STALE_TIMES } from '@/lib/query-client';
 
@@ -105,6 +108,23 @@ export const queryKeys = {
 
   arbitrage: {
     prices: (params: PriceArbitrageQueryParams) => ['arbitrage', 'prices', params] as const,
+  },
+
+  institutional: {
+    overview: (params: InstitutionalAssetQueryParams) =>
+      ['institutional', 'overview', params] as const,
+    etfFlows: (params: InstitutionalRangeQueryParams) =>
+      ['institutional', 'etf', 'flows', params] as const,
+    etfFunds: (params: InstitutionalAssetQueryParams) =>
+      ['institutional', 'etf', 'funds', params] as const,
+    optionsChain: (params: OptionsChainQueryParams) =>
+      ['institutional', 'options', 'chain', params] as const,
+    optionsExpiries: (params: InstitutionalAssetQueryParams) =>
+      ['institutional', 'options', 'expiries', params] as const,
+    optionsVolatility: (params: InstitutionalRangeQueryParams) =>
+      ['institutional', 'options', 'volatility', params] as const,
+    confluence: (params: InstitutionalAssetQueryParams) =>
+      ['institutional', 'confluence', params] as const,
   },
 };
 
@@ -453,6 +473,100 @@ export function usePriceArbitrage(params: PriceArbitrageQueryParams = {}) {
       return { data: res.data, meta: res.meta };
     },
     staleTime: STALE_TIMES.realtime,
+  });
+}
+
+/* ============================================================
+   Institutional intelligence — ETF, options, confluence
+   ============================================================ */
+
+export function useInstitutionalOverview(params: InstitutionalAssetQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.institutional.overview(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getInstitutionalOverview(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed institutional overview');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useEtfFlows(params: InstitutionalRangeQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.institutional.etfFlows(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getEtfFlows(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed ETF flows');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useEtfFunds(params: InstitutionalAssetQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.institutional.etfFunds(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getEtfFunds(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed ETF funds');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+  });
+}
+
+export function useOptionsChain(params: OptionsChainQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.institutional.optionsChain(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getOptionsChain(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed options chain');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useOptionsExpiries(params: InstitutionalAssetQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.institutional.optionsExpiries(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getOptionsExpiries(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed options expiries');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useOptionsVolatility(params: InstitutionalRangeQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.institutional.optionsVolatility(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getOptionsVolatility(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed options volatility');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useInstitutionalConfluence(params: InstitutionalAssetQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.institutional.confluence(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getInstitutionalConfluence(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed confluence');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    placeholderData: keepPreviousData,
   });
 }
 

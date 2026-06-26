@@ -131,6 +131,40 @@ export function useScreenerFilters() {
   return [state, setState] as const;
 }
 
+export const signalModeParser = parseAsStringEnum([
+  'momentum',
+  'contrarian',
+  'breakout',
+]).withDefault('momentum');
+export const signalVolumeParser = parseAsStringEnum([
+  '0',
+  '1000000',
+  '10000000',
+  '50000000',
+]).withDefault('10000000');
+
+export interface SignalLabFilters {
+  exchange: ExchangeId;
+  type: 'spot' | 'perp';
+  quote: string;
+  mode: 'momentum' | 'contrarian' | 'breakout';
+  minVolume: string;
+  search: string;
+}
+
+/** URL-backed filters for the live ticker-derived setup scanner. */
+export function useSignalLabFilters() {
+  const [state, setState] = useQueryStates({
+    exchange: exchangeParser,
+    type: marketTypeParser,
+    quote: quoteParser,
+    mode: signalModeParser,
+    minVolume: signalVolumeParser,
+    search: parseAsString.withDefault(''),
+  });
+  return [state, setState] as const;
+}
+
 /** Generic boolean toggle (e.g. for auto-refresh, log-scale) */
 export function useBooleanParam(key: string, defaultValue = false) {
   return useQueryState(key, parseAsBoolean.withDefault(defaultValue));

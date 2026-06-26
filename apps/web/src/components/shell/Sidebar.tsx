@@ -15,6 +15,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { navigationSections } from '@/lib/navigation';
+import { BrandLockup } from './BrandLockup';
 import { SidebarHealth } from './SidebarHealth';
 
 interface SidebarProps {
@@ -31,8 +32,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
         className={cn(
           'hidden md:flex fixed inset-y-0 left-0 z-30',
           'w-[var(--shell-sidebar-w)] flex-col',
-          'bg-surface-1 border-r border-border',
-          'pt-[var(--shell-topbar-h)]'
+          'bg-surface-1 border-r border-border'
         )}
         aria-label="Primary navigation"
       >
@@ -70,7 +70,8 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
               className={cn(
                 'absolute right-3 top-3 z-10',
                 'flex h-9 w-9 items-center justify-center rounded-md',
-                'hover:bg-surface-3 transition-colors'
+                'hover:bg-surface-3 transition-colors',
+                'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-1'
               )}
             >
               <X className="h-4 w-4" aria-hidden />
@@ -93,6 +94,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
   return (
     <>
+      <div className="flex min-h-[var(--shell-topbar-h)] items-center border-b border-border px-4">
+        <BrandLockup onNavigate={onNavigate} />
+      </div>
       <nav className="flex-1 overflow-y-auto scrollbar-thin py-4 px-3" aria-label="Sections">
         <ul className="space-y-6">
           {navigationSections.map((section) => (

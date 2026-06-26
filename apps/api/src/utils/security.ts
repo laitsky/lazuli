@@ -102,10 +102,6 @@ export async function enforcePublicRateLimit(c: AppContext, next: Next): Promise
 
     if (typeof payload.data?.remaining === 'number') {
       c.header('X-RateLimit-Remaining', String(Math.floor(payload.data.remaining)));
-      logSecurityEvent(c, 'rate_limit_granted', {
-        routeClass: routeLimit.routeClass,
-        remaining: Math.floor(payload.data.remaining),
-      });
     }
   } catch (error) {
     if (shouldFailClosedWhenLimiterUnavailable(routeLimit.routeClass)) {
@@ -284,8 +280,9 @@ function normalizedPathWithQuery(rawUrl: string): string {
 
 function logSecurityEvent(c: AppContext, event: string, details: Record<string, unknown>): void {
   const requestId = c.res.headers.get('X-Request-ID') ?? '';
+  const routeClass = classifyRouteLimit(c.req.path).routeClass;
   c.env.API_ANALYTICS?.writeDataPoint({
-    blobs: [event, c.req.method, c.req.path, requestId],
+    blobs: [event, c.req.method, routeClass],
     doubles: [Date.now()],
     indexes: [event],
   });
@@ -296,7 +293,7 @@ function logSecurityEvent(c: AppContext, event: string, details: Record<string, 
       module: 'security',
       event,
       requestId,
-      path: c.req.path,
+      routeClass,
       ...details,
     })
   );

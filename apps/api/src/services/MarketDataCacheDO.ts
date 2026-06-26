@@ -7,11 +7,19 @@
  */
 
 import { DurableObject } from 'cloudflare:workers';
-import type { OHLCV, OrderBook, Timeframe } from '@lazuli/shared';
+import type {
+  InstitutionalAsset,
+  InstitutionalRange,
+  OHLCV,
+  OrderBook,
+  Timeframe,
+} from '@lazuli/shared';
 import type { Env } from '../types';
 import { ccxtService } from './ccxtService';
+import { getOptionsChain, getOptionsExpiries, getOptionsVolatility } from './institutionalService';
 
-type CacheResource = 'tickers' | 'markets' | 'funding' | 'ohlcv' | 'orderbook';
+type CacheResource = 'tickers' | 'markets' | 'funding' | 'ohlcv' | 'orderbook' | 'institutional';
+type InstitutionalCacheKind = 'options-chain' | 'options-expiries' | 'options-volatility';
 
 interface CachedEnvelope<T> {
   data: T;
@@ -28,6 +36,10 @@ interface ActiveKey {
   symbol?: string;
   timeframe?: Timeframe;
   limit?: number;
+  institutionalKind?: InstitutionalCacheKind;
+  asset?: InstitutionalAsset;
+  range?: InstitutionalRange;
+  expiry?: string;
 }
 
 const TICKER_TTL_MS = 5_000;
@@ -50,6 +62,7 @@ export class MarketDataCacheDO extends DurableObject<Env> {
    * - GET /funding?exchange=binance
    * - GET /ohlcv?exchange=binance&symbol=BTC-USDT&type=spot&timeframe=1h&limit=100
    * - GET /orderbook?exchange=binance&symbol=BTC-USDT&type=spot&limit=50
+   * - GET /institutional?kind=options-chain&asset=BTC&expiry=2026-06-27
    * - GET /health
    */
   async fetch(request: Request): Promise<Response> {
@@ -57,10 +70,10 @@ export class MarketDataCacheDO extends DurableObject<Env> {
     const resource = url.pathname.replace('/', '') as CacheResource | 'health';
 
     if (resource === 'health') {
+      // Internal liveness probe only; do not expose cache cardinality, alarm
+      // schedule, or other usage signals through admin health.
       return Response.json({
         ok: true,
-        activeKeys: ((await this.ctx.storage.get<ActiveKey[]>(ACTIVE_KEYS)) ?? []).length,
-        alarm: await this.ctx.storage.getAlarm(),
         timestamp: Date.now(),
       });
     }
@@ -70,7 +83,8 @@ export class MarketDataCacheDO extends DurableObject<Env> {
       resource !== 'markets' &&
       resource !== 'funding' &&
       resource !== 'ohlcv' &&
-      resource !== 'orderbook'
+      resource !== 'orderbook' &&
+      resource !== 'institutional'
     ) {
       return Response.json({ error: 'Unknown cache resource' }, { status: 404 });
     }
@@ -81,15 +95,33 @@ export class MarketDataCacheDO extends DurableObject<Env> {
     const symbol = url.searchParams.get('symbol') ?? undefined;
     const timeframe = parseTimeframe(url.searchParams.get('timeframe'));
     const limit = clampInteger(url.searchParams.get('limit'), 100, 1, 1000);
+    const institutionalKind = parseInstitutionalKind(url.searchParams.get('kind'));
+    const asset = parseInstitutionalAsset(url.searchParams.get('asset'));
+    const range = parseInstitutionalRange(url.searchParams.get('range'));
+    const expiry = url.searchParams.get('expiry') ?? undefined;
 
-    if (!exchange) {
+    if (resource !== 'institutional' && !exchange) {
       return Response.json({ error: 'Missing exchange' }, { status: 400 });
     }
     if ((resource === 'ohlcv' || resource === 'orderbook') && !symbol) {
       return Response.json({ error: 'Missing symbol' }, { status: 400 });
     }
+    if (resource === 'institutional' && !institutionalKind) {
+      return Response.json({ error: 'Missing institutional kind' }, { status: 400 });
+    }
 
-    const key: ActiveKey = { resource, exchange, type, symbol, timeframe, limit };
+    const key: ActiveKey = {
+      resource,
+      exchange: exchange || 'institutional',
+      type,
+      symbol,
+      timeframe,
+      limit,
+      institutionalKind,
+      asset,
+      range,
+      expiry,
+    };
     if (shouldBackgroundRefresh(resource)) {
       await this.rememberKey(key);
       await this.ensureAlarm();
@@ -144,15 +176,16 @@ export class MarketDataCacheDO extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(Date.now() + TICKER_TTL_MS);
     }
 
-    console.log(
-      JSON.stringify({
-        level: 'info',
-        module: 'MarketDataCacheDO',
-        msg: 'alarm refresh complete',
-        keys: refreshableKeys.length,
-        durationMs: Date.now() - startedAt,
-      })
-    );
+    if (Date.now() - startedAt > TICKER_TTL_MS) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          module: 'MarketDataCacheDO',
+          msg: 'alarm refresh slower than cache interval',
+          durationMs: Date.now() - startedAt,
+        })
+      );
+    }
   }
 
   private async readOrRefresh(key: ActiveKey): Promise<CachedEnvelope<unknown>> {
@@ -215,7 +248,7 @@ export class MarketDataCacheDO extends DurableObject<Env> {
           level: 'warn',
           module: 'MarketDataCacheDO',
           msg: 'cache payload kept in memory because it exceeds durable storage value limit',
-          cacheKey,
+          resource: envelope.source,
           serializedSize,
         })
       );
@@ -250,6 +283,19 @@ export class MarketDataCacheDO extends DurableObject<Env> {
       ) satisfies Promise<OHLCV[]>;
     }
 
+    if (key.resource === 'institutional') {
+      if (key.institutionalKind === 'options-chain') {
+        return getOptionsChain(key.asset ?? 'BTC', key.expiry);
+      }
+      if (key.institutionalKind === 'options-expiries') {
+        return getOptionsExpiries(key.asset ?? 'BTC');
+      }
+      if (key.institutionalKind === 'options-volatility') {
+        return getOptionsVolatility(key.asset ?? 'BTC', key.range ?? '90d');
+      }
+      throw new Error('Unknown institutional cache kind');
+    }
+
     return ccxtService.fetchOrderBook(
       key.exchange,
       key.symbol!,
@@ -282,6 +328,10 @@ export class MarketDataCacheDO extends DurableObject<Env> {
       key.symbol ?? 'all',
       key.timeframe ?? 'na',
       key.limit ?? 'na',
+      key.institutionalKind ?? 'na',
+      key.asset ?? 'na',
+      key.range ?? 'na',
+      key.expiry ?? 'na',
     ].join(':');
   }
 
@@ -298,8 +348,27 @@ export class MarketDataCacheDO extends DurableObject<Env> {
     if (resource === 'orderbook') {
       return ORDERBOOK_TTL_MS;
     }
+    if (resource === 'institutional') {
+      return 60_000;
+    }
     return TICKER_TTL_MS;
   }
+}
+
+function parseInstitutionalKind(value: string | null): InstitutionalCacheKind | undefined {
+  if (value === 'options-chain' || value === 'options-expiries' || value === 'options-volatility') {
+    return value;
+  }
+  return undefined;
+}
+
+function parseInstitutionalAsset(value: string | null): InstitutionalAsset {
+  return value === 'ETH' ? 'ETH' : 'BTC';
+}
+
+function parseInstitutionalRange(value: string | null): InstitutionalRange {
+  if (value === '30d' || value === 'ytd' || value === 'all') return value;
+  return '90d';
 }
 
 function parseTimeframe(value: string | null): Timeframe | undefined {
