@@ -34,7 +34,7 @@
     "@lazuli/eslint-config": "*",
     "@lazuli/typescript-config": "*",
     "eslint": "^9.39.4",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "wrangler": "^4.103.0"
   },
   "dependencies": {
