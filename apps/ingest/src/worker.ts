@@ -1,8 +1,8 @@
 import { Container, getContainer } from '@cloudflare/containers';
 import { faultInjectionAllowed, parseFaultDuration, parseProviderFaultPath } from './control';
 
-const CONTAINER_NAME = 'market-ingest-primary';
 const CONTAINER_PORT = 8080;
+const SUPPORTED_PROVIDERS = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'] as const;
 
 interface Env {
   INGEST_CONTAINER: DurableObjectNamespace<IngestContainer>;
@@ -28,7 +28,19 @@ function isAuthorized(request: Request, env: Env): boolean {
   return request.headers.get('authorization') === `Bearer ${env.CONTROL_API_TOKEN}`;
 }
 
-function startOptions(env: Env) {
+function configuredProviders(env: Env): string[] {
+  return [
+    ...new Set(env.INGEST_PROVIDERS.split(',').map((value) => value.trim().toLowerCase())),
+  ].filter((provider) =>
+    SUPPORTED_PROVIDERS.includes(provider as (typeof SUPPORTED_PROVIDERS)[number])
+  );
+}
+
+function containerName(provider: string): string {
+  return `market-ingest-${provider}`;
+}
+
+function startOptions(env: Env, provider: string) {
   return {
     ports: [CONTAINER_PORT],
     startOptions: {
@@ -36,7 +48,7 @@ function startOptions(env: Env) {
       envVars: {
         ENVIRONMENT: env.ENVIRONMENT,
         API_BASE_URL: env.API_BASE_URL,
-        INGEST_PROVIDERS: env.INGEST_PROVIDERS,
+        INGEST_PROVIDERS: provider,
         INGEST_SYMBOLS: env.INGEST_SYMBOLS,
         UPBIT_QUOTE: env.UPBIT_QUOTE,
         ...(env.CONTROL_API_TOKEN ? { CONTROL_API_TOKEN: env.CONTROL_API_TOKEN } : {}),
@@ -72,10 +84,70 @@ export class IngestContainer extends Container {
   }
 }
 
-async function ensureStarted(env: Env): Promise<DurableObjectStub<IngestContainer>> {
-  const container = getContainer(env.INGEST_CONTAINER, CONTAINER_NAME);
-  await container.startAndWaitForPorts(startOptions(env));
+async function ensureStarted(
+  env: Env,
+  provider: string
+): Promise<DurableObjectStub<IngestContainer>> {
+  const container = getContainer(env.INGEST_CONTAINER, containerName(provider));
+  await container.startAndWaitForPorts(startOptions(env, provider));
   return container;
+}
+
+async function aggregateHealth(env: Env): Promise<Response> {
+  const providers = configuredProviders(env);
+  const results = await Promise.allSettled(
+    providers.map(async (provider) => {
+      const container = await ensureStarted(env, provider);
+      const response = await container.fetch(new Request('http://container/health'));
+      const data = (await response.json()) as Record<string, unknown>;
+      if (!response.ok) throw new Error(`${provider} health returned ${response.status}`);
+      return data;
+    })
+  );
+  const healthy = results.filter(
+    (result): result is PromiseFulfilledResult<Record<string, unknown>> =>
+      result.status === 'fulfilled'
+  );
+  const batching = healthy.reduce(
+    (total, result) => {
+      const value = record(result.value.batching);
+      total.queued += numberValue(value.queued);
+      total.dropped += numberValue(value.dropped);
+      total.batchesSent += numberValue(value.batchesSent);
+      total.batchesFailed += numberValue(value.batchesFailed);
+      total.lastSuccessAt =
+        Math.max(total.lastSuccessAt ?? 0, numberValue(value.lastSuccessAt)) || null;
+      if (typeof value.lastError === 'string') total.lastError = value.lastError;
+      return total;
+    },
+    {
+      queued: 0,
+      dropped: 0,
+      batchesSent: 0,
+      batchesFailed: 0,
+      lastSuccessAt: null as number | null,
+      lastError: null as string | null,
+    }
+  );
+  const providerHealth = healthy.flatMap((result) =>
+    Array.isArray(result.value.providers) ? result.value.providers : []
+  );
+  const failures = results.flatMap((result, index) =>
+    result.status === 'rejected'
+      ? [{ provider: providers[index], error: safeError(result.reason) }]
+      : []
+  );
+  return json(
+    {
+      status: failures.length === 0 ? 'ready' : healthy.length > 0 ? 'degraded' : 'unavailable',
+      environment: env.ENVIRONMENT,
+      shards: providers.length,
+      providers: providerHealth,
+      batching,
+      failures,
+    },
+    failures.length === 0 ? 200 : 503
+  );
 }
 
 export default {
@@ -100,8 +172,7 @@ export default {
         );
       }
       try {
-        const container = await ensureStarted(env);
-        return await container.fetch(new Request('http://container/health'));
+        return await aggregateHealth(env);
       } catch (error) {
         return json(
           { status: 'unavailable', error: error instanceof Error ? error.message : 'unavailable' },
@@ -117,12 +188,7 @@ export default {
       }
 
       try {
-        const container = await ensureStarted(env);
-        const health = await container.fetch(new Request('http://container/health'));
-        return new Response(health.body, {
-          status: health.status,
-          headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
-        });
+        return await aggregateHealth(env);
       } catch (error) {
         return json(
           { error: error instanceof Error ? error.message : 'container failed to start' },
@@ -139,7 +205,7 @@ export default {
       }
       try {
         const durationSeconds = parseFaultDuration(url.searchParams.get('durationSeconds'));
-        const container = await ensureStarted(env);
+        const container = await ensureStarted(env, provider);
         return await container.fetch(
           new Request(
             `http://container/control/providers/${provider}/disconnect?durationSeconds=${durationSeconds}`,
@@ -162,10 +228,15 @@ export default {
       if (!faultInjectionAllowed(env.ENVIRONMENT)) {
         return json({ error: 'fault injection is disabled in production' }, 404);
       }
-      const container = getContainer(env.INGEST_CONTAINER, CONTAINER_NAME);
-      await container.stop('SIGTERM');
-      await container.startAndWaitForPorts(startOptions(env));
-      return json({ status: 'restarted', timestamp: Date.now() });
+      const providers = configuredProviders(env);
+      await Promise.all(
+        providers.map(async (provider) => {
+          const container = getContainer(env.INGEST_CONTAINER, containerName(provider));
+          await container.stop('SIGTERM');
+          await container.startAndWaitForPorts(startOptions(env, provider));
+        })
+      );
+      return json({ status: 'restarted', shards: providers.length, timestamp: Date.now() });
     }
 
     return json({ error: 'not found' }, 404);
@@ -176,6 +247,20 @@ export default {
       console.error('skipping ingest keepalive: signing secret is not configured');
       return;
     }
-    await ensureStarted(env);
+    await Promise.all(configuredProviders(env).map((provider) => ensureStarted(env, provider)));
   },
 } satisfies ExportedHandler<Env>;
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function safeError(error: unknown): string {
+  return (error instanceof Error ? error.message : String(error)).slice(0, 200);
+}
