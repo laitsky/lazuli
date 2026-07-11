@@ -6,7 +6,10 @@
     "plan_checker": true,
     "verifier": true,
     "auto_advance": true,
-    "skip_discuss": false
+    "skip_discuss": true,
+    "code_review": true,
+    "ui_phase": true,
+    "ui_review": true
   },
   "granularity": "coarse"
 }

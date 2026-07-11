@@ -113,6 +113,7 @@ export interface PreferenceActions {
   setDefaultExchange: (exchange: string) => void;
   setRefreshInterval: (interval: RefreshInterval) => void;
   toggleWatchlist: (key: string) => void;
+  replaceWatchlist: (items: string[]) => void;
   isWatched: (key: string) => boolean;
   addRecent: (key: string) => void;
   clearRecents: () => void;
@@ -132,6 +133,14 @@ const actions: PreferenceActions = {
       : [key, ...currentPrefs.watchlist].slice(0, WATCHLIST_MAX);
     persist({ ...currentPrefs, watchlist: next });
   },
+  replaceWatchlist: (items) =>
+    persist({
+      ...currentPrefs,
+      watchlist: Array.from(new Set(items.map((item) => item.trim()).filter(Boolean))).slice(
+        0,
+        WATCHLIST_MAX
+      ),
+    }),
   isWatched: (key) => currentPrefs.watchlist.includes(key),
   addRecent: (key) => {
     const next = [key, ...currentPrefs.recents.filter((r) => r !== key)].slice(0, RECENTS_MAX);

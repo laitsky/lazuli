@@ -13,7 +13,12 @@
 import { Link } from 'react-router-dom';
 import { useMemo } from 'react';
 import { Star, Share2, BookOpen, Activity, ChevronRight, Flame, Waves } from 'lucide-react';
-import type { LiquidationRadarResponse, OrderFlowResponse } from '@lazuli/shared';
+import {
+  buildRealtimeTopic,
+  type LiquidationRadarResponse,
+  type OrderFlowResponse,
+  type SupportedExchange,
+} from '@lazuli/shared';
 import { CandlestickChartWithIndicators } from '@/components/candlestick-chart-with-indicators';
 import { PageHeader } from '@/components/ui/page-header';
 import { Panel, PanelHeader, PanelTitle } from '@/components/ui/panel';
@@ -48,6 +53,7 @@ import { usePreferences, watchlistKey } from '@/lib/preferences';
 import { formatPrice } from '@/lib/format';
 import { formatVolume } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { useRealtimeRefresh } from '@/lib/realtime';
 import { RESOURCE_POLICY } from '@/lib/resource-policy';
 import { toast } from 'sonner';
 
@@ -108,6 +114,24 @@ export default function MarketWorkspacePage() {
     symbol,
     { timeframe, type, limit: 160 },
     { enabled: cvdLayer, refreshMs: 30_000 }
+  );
+
+  useRealtimeRefresh(
+    buildRealtimeTopic('orderbook', exchange as SupportedExchange, symbol, type),
+    () => void orderBook.refetch(),
+    500
+  );
+  useRealtimeRefresh(
+    type === 'perp' && liquidationLayer
+      ? buildRealtimeTopic('liquidations', exchange as SupportedExchange, symbol, type)
+      : null,
+    () => void liquidations.refetch(),
+    250
+  );
+  useRealtimeRefresh(
+    cvdLayer ? buildRealtimeTopic('trades', exchange as SupportedExchange, symbol, type) : null,
+    () => void orderFlow.refetch(),
+    1_000
   );
 
   const selectedTicker = ticker.data?.data ?? null;
@@ -307,6 +331,11 @@ export default function MarketWorkspacePage() {
                   availableSMA={indicatorConfig?.sma}
                   availableEMA={indicatorConfig?.ema}
                   availableRSI={indicatorConfig?.rsi}
+                  liquidationLevels={liquidationLayer ? (liquidations.data?.data.levels ?? []) : []}
+                  liquidationPrints={
+                    liquidationLayer ? (liquidations.data?.data.nativePrints ?? []) : []
+                  }
+                  cvdPoints={cvdLayer ? (orderFlow.data?.data.points ?? []) : []}
                 />
               ) : (
                 <EmptyState

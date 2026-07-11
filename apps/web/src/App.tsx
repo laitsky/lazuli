@@ -39,6 +39,7 @@ const AlphaFeedPage = lazy(() => import('./pages/alpha-feed'));
 const MarketSymbolPage = lazy(() => import('./pages/market-symbol'));
 const ExchangeDetailPage = lazy(() => import('./pages/exchange-detail'));
 const SignalDetailPage = lazy(() => import('./pages/signal-detail'));
+const AccountPage = lazy(() => import('./pages/account'));
 
 /** Preserve query string on legacy redirects */
 function LegacyRedirect({ to }: { to: string }) {
@@ -76,6 +77,7 @@ export default function App() {
               <Route path="/funding-arbitrage" element={<FundingArbitragePage />} />
               <Route path="/synthetic-pair" element={<SyntheticPairPage />} />
               <Route path="/custom-index" element={<CustomIndexPage />} />
+              <Route path="/account" element={<AccountPage />} />
 
               {/* Legacy aliases — 301 to new flat URLs */}
               {Object.entries(legacyRouteAliases).map(([legacyPath, newPath]) => (

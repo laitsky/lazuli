@@ -1,8 +1,18 @@
 import { describe, expect, test } from 'bun:test';
-import type { FundingRateData, Ticker } from '@lazuli/shared';
+import type {
+  FundingRateData,
+  InstitutionalProviderStatus,
+  MacroHistoryResponse,
+  OptionInstrument,
+  Ticker,
+} from '@lazuli/shared';
 import {
+  buildOptionsSurface,
   buildFlowStreak,
   getInstitutionalConfluence,
+  parseAlternativeFearGreed,
+  parseCoinGeckoGlobal,
+  parseDefiLlamaStablecoinHistory,
   parseVolatilityCandles,
   parseDeribitOptionName,
   parseFarsideTable,
@@ -63,6 +73,86 @@ describe('institutional service', () => {
     expect(candles).toHaveLength(2);
     expect(candles[0]?.close).toBe(52);
     expect(candles[1]?.timestamp).toBe(1_787_510_400_000);
+  });
+
+  test('builds an observed-only IV surface with missing and illiquid masks', () => {
+    const now = Date.UTC(2026, 5, 1);
+    const expiryTimestamp = now + 30 * 24 * 60 * 60 * 1000;
+    const chain = [
+      option('BTC-1JUL26-100000-C', 'call', 100_000, 52, 0.26, 20, expiryTimestamp),
+      option('BTC-1JUL26-100000-P', 'put', 100_000, 55, -0.24, 15, expiryTimestamp),
+      option('BTC-1JUL26-110000-C', 'call', 110_000, 57, 0.25, 0, expiryTimestamp),
+    ];
+
+    const surface = buildOptionsSurface('BTC', chain, provider('live', false), now);
+
+    expect(surface.points).toHaveLength(2);
+    expect(surface.points[0]?.qualityMask).toEqual({ call: 'observed', put: 'observed' });
+    expect(surface.points[1]?.qualityMask).toEqual({ call: 'illiquid', put: 'missing' });
+    expect(surface.termStructure[0]?.atmImpliedVolatility).toBe(53.5);
+    expect(surface.termStructure[0]?.skew25Delta).toBe(3);
+    expect(surface.quality).toEqual({
+      observedSides: 2,
+      illiquidSides: 1,
+      missingSides: 1,
+      coveragePercent: 50,
+      methodology: 'observed-only',
+    });
+  });
+
+  test('normalizes all three macro provider payloads and rejects malformed observations', () => {
+    expect(
+      parseCoinGeckoGlobal({
+        data: { market_cap_percentage: { btc: 58.25 }, updated_at: 1_788_000_000 },
+      })
+    ).toEqual([{ observedAt: 1_788_000_000_000, value: 58.25 }]);
+    expect(
+      parseDefiLlamaStablecoinHistory([
+        { date: '1788000000', totalCirculating: { peggedUSD: 250_000_000_000 } },
+        { date: 'bad', totalCirculating: { peggedUSD: 1 } },
+      ])
+    ).toEqual([{ observedAt: 1_788_000_000_000, value: 250_000_000_000 }]);
+    expect(
+      parseAlternativeFearGreed({
+        data: [
+          { value: '72', timestamp: '1788000000' },
+          { value: '101', timestamp: '1788086400' },
+        ],
+      })
+    ).toEqual([{ observedAt: 1_788_000_000_000, value: 72 }]);
+  });
+
+  test('adds independent macro signals to confluence without replacing legacy signals', async () => {
+    const response = await getInstitutionalConfluence({
+      asset: 'BTC',
+      etf: emptyEtf(),
+      options: emptyOptions(),
+      volatility: emptyVolatility(),
+      macro: macroHistory(),
+    });
+
+    expect(response.signals.map((signal) => signal.id)).toEqual([
+      'etfDemand',
+      'optionsSkew',
+      'perpLeverage',
+      'basisStress',
+      'spotTrend',
+      'liquidityRisk',
+      'btcDominance',
+      'stablecoinLiquidity',
+      'fearGreed',
+    ]);
+    expect(response.signals.find((signal) => signal.id === 'btcDominance')?.direction).toBe(
+      'bullish'
+    );
+    expect(response.signals.find((signal) => signal.id === 'stablecoinLiquidity')?.direction).toBe(
+      'bullish'
+    );
+    expect(response.providers.slice(-3).map((item) => item.provider)).toEqual([
+      'CoinGecko',
+      'DefiLlama',
+      'Alternative.me',
+    ]);
   });
 
   test('scores ETF-led confluence when flows are strong and leverage is calm', async () => {
@@ -271,5 +361,121 @@ function ticker(change: number): Ticker {
     change24h: 2400,
     percentage24h: change,
     timestamp: Date.now(),
+  };
+}
+
+function option(
+  instrumentName: string,
+  optionType: 'call' | 'put',
+  strike: number,
+  impliedVolatility: number,
+  delta: number,
+  openInterest: number,
+  expiryTimestamp: number
+): OptionInstrument {
+  return {
+    instrumentName,
+    asset: 'BTC',
+    expiry: '2026-07-01',
+    expiryTimestamp,
+    strike,
+    optionType,
+    bid: null,
+    ask: null,
+    markPrice: 0.05,
+    underlyingPrice: 100_000,
+    openInterest,
+    volume24h: openInterest * 100,
+    impliedVolatility,
+    delta,
+    gamma: null,
+    theta: null,
+    vega: null,
+  };
+}
+
+function emptyEtf() {
+  return {
+    asset: 'BTC' as const,
+    range: '30d' as const,
+    flows: [],
+    funds: [],
+    latest: null,
+    streak: { direction: 'flat' as const, days: 0, totalUsd: 0, averageUsd: 0 },
+    totals: {
+      netFlowUsd: 0,
+      cumulativeNetFlowUsd: 0,
+      averageDailyFlowUsd: 0,
+      positiveDays: 0,
+      negativeDays: 0,
+      anomalyDays: 0,
+    },
+    provider: provider('live', false),
+    timestamp: Date.now(),
+  };
+}
+
+function emptyOptions() {
+  return {
+    asset: 'BTC' as const,
+    expiries: [],
+    provider: provider('live', false),
+    timestamp: Date.now(),
+  };
+}
+
+function emptyVolatility() {
+  return {
+    asset: 'BTC' as const,
+    range: '90d' as const,
+    candles: [],
+    current: null,
+    rank: null,
+    provider: provider('live', false),
+    timestamp: Date.now(),
+  };
+}
+
+function macroHistory(): MacroHistoryResponse {
+  const now = Date.UTC(2026, 6, 1);
+  const macroProvider = (name: string): InstitutionalProviderStatus => ({
+    provider: name,
+    source: 'live',
+    ok: true,
+    updatedAt: now,
+    stale: false,
+  });
+  const btcDominance = {
+    metric: 'btcDominance' as const,
+    unit: 'percent' as const,
+    points: [
+      { observedAt: now - 8 * 86_400_000, value: 55 },
+      { observedAt: now, value: 57 },
+    ],
+    latest: { observedAt: now, value: 57 },
+    provider: macroProvider('CoinGecko'),
+  };
+  const stablecoinSupplyUsd = {
+    metric: 'stablecoinSupplyUsd' as const,
+    unit: 'usd' as const,
+    points: [
+      { observedAt: now - 31 * 86_400_000, value: 200_000_000_000 },
+      { observedAt: now, value: 210_000_000_000 },
+    ],
+    latest: { observedAt: now, value: 210_000_000_000 },
+    provider: macroProvider('DefiLlama'),
+  };
+  const fearGreedIndex = {
+    metric: 'fearGreedIndex' as const,
+    unit: 'index' as const,
+    points: [{ observedAt: now, value: 70 }],
+    latest: { observedAt: now, value: 70 },
+    provider: macroProvider('Alternative.me'),
+  };
+  return {
+    range: '90d',
+    series: { btcDominance, stablecoinSupplyUsd, fearGreedIndex },
+    providers: [btcDominance.provider, stablecoinSupplyUsd.provider, fearGreedIndex.provider],
+    timestamp: now,
   };
 }

@@ -7,14 +7,20 @@
 
 import { Link, useSearchParams } from 'react-router-dom';
 import { Activity, ArrowRight, Building2, Gauge, Landmark, Layers3, Waves } from 'lucide-react';
-import type { InstitutionalAsset } from '@lazuli/shared';
+import type { InstitutionalAsset, MacroHistorySeries } from '@lazuli/shared';
 import { PageHeader } from '@/components/ui/page-header';
 import { Panel, PanelDescription, PanelHeader, PanelTitle } from '@/components/ui/panel';
 import { Metric } from '@/components/ui/metric';
 import { PriceText } from '@/components/ui/price-text';
 import { Button } from '@/components/ui/button';
 import { Tag } from '@/components/ui/tag';
-import { useEtfFlows, useInstitutionalOverview, useOptionsChain } from '@/lib/queries';
+import { Sparkline } from '@/components/ui/sparkline';
+import {
+  useEtfFlows,
+  useInstitutionalOverview,
+  useMacroHistory,
+  useOptionsChain,
+} from '@/lib/queries';
 import {
   AssetSwitch,
   ErrorPanel,
@@ -34,6 +40,7 @@ export default function InstitutionalPage() {
   const overview = useInstitutionalOverview({ asset });
   const flows = useEtfFlows({ asset, range: '30d' });
   const chain = useOptionsChain({ asset });
+  const macro = useMacroHistory({ range: '90d' });
 
   const data = overview.data?.data;
   const flowData = flows.data?.data;
@@ -155,6 +162,13 @@ export default function InstitutionalPage() {
             score={data.confluence.regimeScore}
             confidence={data.confluence.confidence}
             signals={data.confluence.signals}
+          />
+
+          <MacroHistoryPanel
+            loading={macro.isLoading}
+            error={macro.error?.message ?? null}
+            series={macro.data?.data.series ?? null}
+            onRetry={() => macro.refetch()}
           />
 
           <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
@@ -294,6 +308,121 @@ export default function InstitutionalPage() {
         </div>
       </Panel>
     </div>
+  );
+}
+
+function MacroHistoryPanel({
+  loading,
+  error,
+  series,
+  onRetry,
+}: {
+  loading: boolean;
+  error: string | null;
+  series: {
+    btcDominance: MacroHistorySeries;
+    stablecoinSupplyUsd: MacroHistorySeries;
+    fearGreedIndex: MacroHistorySeries;
+  } | null;
+  onRetry: () => void;
+}) {
+  return (
+    <section aria-labelledby="macro-history-title" className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2
+            id="macro-history-title"
+            className="font-display text-lg font-semibold text-foreground"
+          >
+            Macro Liquidity Regime
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Independent public providers. A stale source lowers confidence without suppressing the
+            other signals.
+          </p>
+        </div>
+        <Tag>90d history</Tag>
+      </div>
+
+      {error ? (
+        <Panel className="border-destructive/30 bg-destructive/5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-destructive">Couldn't load macro history</p>
+              <p className="mt-1 text-xs text-muted-foreground">{error}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={onRetry}>
+              Retry
+            </Button>
+          </div>
+        </Panel>
+      ) : loading || !series ? (
+        <div className="grid gap-3 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="h-40 skeleton-shimmer rounded-lg" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-3">
+          <MacroSeriesCard label="BTC Dominance" series={series.btcDominance} />
+          <MacroSeriesCard label="Stablecoin Supply" series={series.stablecoinSupplyUsd} />
+          <MacroSeriesCard label="Fear & Greed" series={series.fearGreedIndex} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MacroSeriesCard({ label, series }: { label: string; series: MacroHistorySeries }) {
+  const latest = series.latest?.value ?? null;
+  const first = series.points[0]?.value ?? null;
+  const change = latest !== null && first !== null ? latest - first : null;
+  const value =
+    latest === null
+      ? '—'
+      : series.unit === 'usd'
+        ? formatUsd(latest)
+        : `${latest.toFixed(series.unit === 'index' ? 0 : 1)}${series.unit === 'percent' ? '%' : ''}`;
+
+  return (
+    <Panel>
+      <div className="flex items-start justify-between gap-3">
+        <Metric label={label} value={value} size="md" />
+        <Tag variant={!series.provider.ok || series.provider.stale ? 'warning' : 'up'}>
+          {!series.provider.ok ? 'unavailable' : series.provider.stale ? 'stale' : 'fresh'}
+        </Tag>
+      </div>
+      {series.points.length > 1 ? (
+        <Sparkline
+          data={series.points.map((point) => ({
+            timestamp: point.observedAt,
+            value: point.value,
+          }))}
+          width={320}
+          height={48}
+          fill
+          className="mt-4 h-12 w-full"
+        />
+      ) : (
+        <div className="mt-4 flex h-12 items-center justify-center rounded-md border border-border bg-surface-2 text-xs text-muted-foreground">
+          History unavailable
+        </div>
+      )}
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3 text-xs">
+        <span className="text-muted-foreground">{series.provider.provider}</span>
+        <span
+          className={
+            change === null
+              ? 'font-mono text-muted-foreground'
+              : change >= 0
+                ? 'font-mono text-success'
+                : 'font-mono text-destructive'
+          }
+        >
+          {change === null ? '—' : `${change >= 0 ? '+' : ''}${change.toFixed(1)} / 90d`}
+        </span>
+      </div>
+    </Panel>
   );
 }
 

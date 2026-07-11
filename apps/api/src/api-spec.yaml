@@ -9,7 +9,7 @@ info:
     - **OHLCV Data**: Candlestick data for technical analysis
     - **Custom Pairs**: Create synthetic trading pairs by dividing two tickers
     - **Multi-Exchange Support**: Unified API for Binance, Bybit, OKX, Hyperliquid, and Upbit
-    - **Optional Database**: Historical data storage for advanced features
+    - **Durable History**: Historical archives and saved control-plane state on Cloudflare storage
     - **Public API Keys**: Optional builder keys via `X-API-Key` or `Authorization: Bearer lz_live_...` for metered higher rate limits
 
     ## Exchange Capabilities
@@ -22,7 +22,7 @@ info:
     | Upbit | ✓ | ✗ | Spot only (KRW pairs) |
 
     ## Data Priority
-    All endpoints fetch **live data directly from exchanges** by default. Database endpoints (/data/*) are optional for historical tracking.
+    Live market endpoints fetch exchange data directly and degrade transparently when an upstream provider is unavailable.
 
   version: 1.0.0
   contact:
@@ -49,10 +49,22 @@ tags:
     description: Candlestick (OHLCV) data for technical analysis
   - name: Custom Pairs
     description: Synthetic trading pairs created by dividing two tickers
-  - name: Data Storage
-    description: Optional database operations for historical data
   - name: Documentation
-    description: Interactive API documentation
+    description: API documentation and machine-readable contracts
+  - name: Realtime
+    description: Public WebSocket topics, private-topic authorization, and snapshot recovery
+  - name: Market Data
+    description: Live and derived cryptocurrency market data
+  - name: Market Intelligence
+    description: Order flow, liquidation intelligence, and backtesting
+  - name: Screening
+    description: Market screening and volume trend discovery
+  - name: Institutional
+    description: ETF, options, and macro-confluence intelligence
+  - name: Funding
+    description: Funding rates, basis, carry, and cross-exchange comparisons
+  - name: Metrics
+    description: Privacy-minimized product telemetry and signed operational reporting
   - name: Admin
     description: Signed operator-only endpoints for health and backfill operations
   - name: Auth
@@ -63,6 +75,77 @@ tags:
     description: Public Alpha Feed, API keys, and shareable snapshots
 
 paths:
+  /ws:
+    servers:
+      - url: /
+        description: Root Worker WebSocket endpoint
+    get:
+      summary: Get /ws
+      tags:
+        - Realtime
+      responses:
+        '101':
+          description: WebSocket protocol upgrade
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /realtime/token:
+    post:
+      summary: Create or execute /realtime/token
+      tags:
+        - Realtime
+      security:
+        - UserBearerSession: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topics:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200':
+          description: Short-lived topic authorization token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /realtime/snapshot:
+    get:
+      summary: Get /realtime/snapshot
+      tags:
+        - Realtime
+      responses:
+        '200':
+          description: Sequence recovery snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /docs:
+    get:
+      summary: API documentation
+      description: Serves the API documentation landing page with a link to the runtime OpenAPI JSON contract.
+      operationId: serveDocs
+      tags:
+        - Documentation
+      responses:
+        '200':
+          description: Successfully served documentation page
+          content:
+            text/html:
+              schema:
+                type: string
+
   /health:
     get:
       summary: Health check
@@ -140,7 +223,9 @@ paths:
                   - type: object
                     properties:
                       data:
-                        $ref: '#/components/schemas/AuthMagicLinkResponse'
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/ExchangeInfo'
               example:
                 success: true
                 data:
@@ -172,6 +257,40 @@ paths:
                 error: null
                 timestamp: 1704067200000
         '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /metrics/events:
+    post:
+      summary: Record a privacy-minimized product metric
+      tags:
+        - Metrics
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [metric]
+              properties:
+                metric:
+                  type: string
+                value:
+                  type: number
+                  minimum: 0
+                  maximum: 1000000
+                  default: 1
+                dimensions:
+                  type: object
+                  additionalProperties:
+                    type: string
+      responses:
+        '200':
+          description: Metric accepted
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
           $ref: '#/components/responses/InternalServerError'
 
   /tickers/{exchange}:
@@ -341,61 +460,6 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/MarketsData'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /ohlcv/timeframes/{exchange}:
-    get:
-      summary: Get supported timeframes
-      description: Returns list of supported timeframes for OHLCV data on a specific exchange
-      operationId: getSupportedTimeframes
-      tags:
-        - OHLCV
-      parameters:
-        - $ref: '#/components/parameters/ExchangeParam'
-        - name: type
-          in: query
-          description: Market type
-          schema:
-            type: string
-            enum: [spot, perp]
-            default: spot
-      responses:
-        '200':
-          description: Successfully retrieved supported timeframes
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiSuccessResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required:
-                          - exchange
-                          - marketType
-                          - supportedTimeframes
-                          - allExchangeTimeframes
-                        properties:
-                          exchange:
-                            type: string
-                            enum: [binance, bybit, okx, hyperliquid, upbit]
-                          marketType:
-                            type: string
-                            enum: [spot, perp]
-                          supportedTimeframes:
-                            type: array
-                            items:
-                              $ref: '#/components/schemas/Timeframe'
-                            description: Filtered standard timeframes
-                          allExchangeTimeframes:
-                            type: array
-                            items:
-                              type: string
-                            description: All timeframes supported by the exchange
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -580,373 +644,702 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
-  /data/store/{exchange}:
+  /custom-index:
     post:
-      summary: Store live ticker data
-      description: |
-        Stores current ticker data for all symbols on an exchange in the database.
-        **Requires database configuration.**
-      operationId: storeLiveTickers
+      summary: Create or execute /custom-index
       tags:
-        - Data Storage
-      parameters:
-        - $ref: '#/components/parameters/ExchangeParam'
+        - Market Data
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, exchange, timeframe, assets]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                exchange: { type: string, enum: [binance, bybit, okx, hyperliquid, upbit] }
+                timeframe: { type: string, enum: [1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w] }
+                limit: { type: integer, minimum: 1, maximum: 1000 }
+                assets:
+                  type: array
+                  minItems: 1
+                  maxItems: 25
+                  items:
+                    type: object
+                    required: [symbol, weight]
+                    properties:
+                      symbol: { type: string }
+                      weight: { type: number, exclusiveMinimum: 0 }
       responses:
         '200':
-          description: Successfully stored ticker data
+          description: Successful response
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiSuccessResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required:
-                          - exchange
-                          - tickersStored
-                          - totalTickers
-                          - timestamp
-                        properties:
-                          exchange:
-                            type: string
-                          tickersStored:
-                            type: integer
-                            description: Number of tickers successfully stored
-                          totalTickers:
-                            type: integer
-                            description: Total number of tickers processed
-                          timestamp:
-                            type: integer
-                            format: int64
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
           $ref: '#/components/responses/InternalServerError'
 
-  /data/history/{symbol}:
+  /superema/{exchange}/{symbol}:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
     get:
-      summary: Get historical ticker data
-      description: |
-        Retrieves historical ticker data for a symbol from database.
-        **Requires database configuration.**
-      operationId: getHistoricalTickers
+      summary: Get /superema/exchange/symbol
       tags:
-        - Data Storage
+        - Market Data
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /indicators/{exchange}/{symbol}:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get /indicators/exchange/symbol
+      tags:
+        - Market Data
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /orderflow/{exchange}/{symbol}:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get /orderflow/exchange/symbol
+      tags:
+        - Market Intelligence
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /screener/{exchange}/stats:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get /screener/exchange/stats
+      tags:
+        - Screening
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /screener/{exchange}:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get /screener/exchange
+      tags:
+        - Screening
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /trending/{exchange}:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get /trending/exchange
+      tags:
+        - Screening
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /screener/{exchange}/ohlcv:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Create or execute /screener/exchange/ohlcv
+      tags:
+        - Screening
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [symbols]
+              properties:
+                symbols:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items: { type: string }
+                period: { type: string, enum: [1h, 4h, 24h, 7d, 30d] }
+                items:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /arbitrage/prices:
+    get:
+      summary: Get /arbitrage/prices
+      tags:
+        - Market Data
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /institutional/overview:
+    get:
+      summary: Get /institutional/overview
+      tags:
+        - Institutional
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /institutional/etf/flows:
+    get:
+      summary: Get /institutional/etf/flows
+      tags:
+        - Institutional
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /institutional/etf/funds:
+    get:
+      summary: Get /institutional/etf/funds
+      tags:
+        - Institutional
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /institutional/options/chain:
+    get:
+      summary: Get /institutional/options/chain
+      tags:
+        - Institutional
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /institutional/options/expiries:
+    get:
+      summary: Get /institutional/options/expiries
+      tags:
+        - Institutional
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /institutional/options/volatility:
+    get:
+      summary: Get /institutional/options/volatility
+      tags:
+        - Institutional
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /institutional/options/surface:
+    get:
+      summary: Get observed options IV surface and ATM term structure
+      description: Returns observed strike/maturity IV only, with explicit missing and illiquid quality masks. No values are fabricated by interpolation.
+      tags:
+        - Institutional
       parameters:
-        - name: symbol
-          in: path
-          required: true
-          description: Trading pair symbol
+        - name: asset
+          in: query
           schema:
             type: string
-        - name: limit
+            enum: [BTC, ETH]
+      responses:
+        '200':
+          description: Observed IV matrix, term structure, skew, walls, and coverage
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /institutional/macro/history:
+    get:
+      summary: Get free-source macro history
+      description: Returns BTC dominance, stablecoin supply, and Fear & Greed history with independently reported provider freshness and degradation.
+      tags:
+        - Institutional
+      parameters:
+        - name: range
           in: query
-          description: Maximum number of records to return
+          schema:
+            type: string
+            enum: [7d, 30d, 90d, 1y]
+      responses:
+        '200':
+          description: Normalized macro series and provider status
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /institutional/confluence:
+    get:
+      summary: Get /institutional/confluence
+      tags:
+        - Institutional
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /funding/radar:
+    get:
+      summary: Get /funding/radar
+      tags:
+        - Funding
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /funding/arbitrage:
+    get:
+      summary: Get /funding/arbitrage
+      tags:
+        - Funding
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /funding/basis/history:
+    get:
+      summary: Get hourly funding-basis and execution-cost yield history
+      description: Returns persisted, idempotent hourly rollups generated from live cross-exchange funding quotes.
+      tags:
+        - Funding
+      parameters:
+        - name: asset
+          in: query
+          schema:
+            type: string
+            default: BTC
+        - name: since
+          in: query
           schema:
             type: integer
-            minimum: 1
-            maximum: 1000
-            default: 100
-        - name: exchange
+            format: int64
+        - name: until
           in: query
-          description: Filter by specific exchange
-          schema:
-            type: string
-            enum: [binance, bybit, okx, hyperliquid, upbit]
-      responses:
-        '200':
-          description: Successfully retrieved historical data
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiSuccessResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required:
-                          - symbol
-                          - exchange
-                          - count
-                          - limit
-                          - data
-                        properties:
-                          symbol:
-                            type: string
-                          exchange:
-                            type: string
-                          count:
-                            type: integer
-                          limit:
-                            type: integer
-                          data:
-                            type: array
-                            items:
-                              $ref: '#/components/schemas/Ticker'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /data/latest/{exchange}/{symbol}:
-    get:
-      summary: Get latest stored ticker
-      description: |
-        Retrieves the most recent stored ticker data for a symbol from database.
-        **Requires database configuration.**
-      operationId: getLatestStoredTicker
-      tags:
-        - Data Storage
-      parameters:
-        - $ref: '#/components/parameters/ExchangeParam'
-        - name: symbol
-          in: path
-          required: true
-          description: Trading pair symbol
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Successfully retrieved latest ticker
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiSuccessResponse'
-                  - type: object
-                    properties:
-                      data:
-                        $ref: '#/components/schemas/Ticker'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /data/markets/{exchange}:
-    post:
-      summary: Store market data
-      description: |
-        Stores market information for an exchange in the database.
-        **Requires database configuration.**
-      operationId: storeMarkets
-      tags:
-        - Data Storage
-      parameters:
-        - $ref: '#/components/parameters/ExchangeParam'
-      responses:
-        '200':
-          description: Successfully stored market data
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiSuccessResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required:
-                          - exchange
-                          - marketsStored
-                          - totalMarkets
-                          - timestamp
-                        properties:
-                          exchange:
-                            type: string
-                          marketsStored:
-                            type: integer
-                          totalMarkets:
-                            type: integer
-                          timestamp:
-                            type: integer
-                            format: int64
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /data/cleanup:
-    delete:
-      summary: Clean up old ticker data
-      description: |
-        Removes old ticker data from database based on retention policy.
-        **Requires database configuration.**
-      operationId: cleanupOldData
-      tags:
-        - Data Storage
-      parameters:
-        - name: days
-          in: query
-          description: Number of days to retain data
           schema:
             type: integer
-            minimum: 1
-            maximum: 365
-            default: 30
+            format: int64
       responses:
         '200':
-          description: Successfully cleaned up old data
+          description: Hourly basis, gross yield, execution cost, and net yield points
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiSuccessResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required:
-                          - deletedRecords
-                          - daysKept
-                          - timestamp
-                        properties:
-                          deletedRecords:
-                            type: integer
-                            description: Number of records deleted
-                          daysKept:
-                            type: integer
-                            description: Records older than this many days were deleted
-                          timestamp:
-                            type: integer
-                            format: int64
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
           $ref: '#/components/responses/InternalServerError'
 
-  /docs:
+  /funding/compare:
     get:
-      summary: API documentation
-      description: Serves interactive API documentation using Stoplight Elements
-      operationId: serveDocs
+      summary: Get /funding/compare
       tags:
-        - Documentation
+        - Funding
       responses:
         '200':
-          description: Successfully served documentation page
-          content:
-            text/html:
-              schema:
-                type: string
-
-  /docs/spec:
-    get:
-      summary: OpenAPI specification
-      description: Returns the OpenAPI 3.0 specification file in YAML format
-      operationId: serveApiSpec
-      tags:
-        - Documentation
-      responses:
-        '200':
-          description: Successfully served OpenAPI spec
-          content:
-            application/yaml:
-              schema:
-                type: string
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-
-  /docs/info:
-    get:
-      summary: Documentation metadata
-      description: Returns metadata about the API documentation
-      operationId: getDocsInfo
-      tags:
-        - Documentation
-      responses:
-        '200':
-          description: Successfully retrieved docs info
+          description: Successful response
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiSuccessResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-                        required:
-                          - title
-                          - description
-                          - version
-                          - endpoints
-                          - features
-                          - exchanges_supported
-                          - api_categories
-                        properties:
-                          title:
-                            type: string
-                          description:
-                            type: string
-                          version:
-                            type: string
-                          endpoints:
-                            type: object
-                            properties:
-                              docs:
-                                type: string
-                              spec:
-                                type: string
-                              info:
-                                type: string
-                          features:
-                            type: array
-                            items:
-                              type: string
-                          exchanges_supported:
-                            type: array
-                            items:
-                              type: string
-                              enum: [binance, bybit, okx, hyperliquid, upbit]
-                          api_categories:
-                            type: array
-                            items:
-                              type: string
-        '500':
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
           $ref: '#/components/responses/InternalServerError'
 
-  /admin/health:
+  /funding/{exchange}:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
     get:
-      summary: Deep admin health check
-      description: Requires signed admin request headers. Returns redacted dependency readiness and operational health details.
-      operationId: adminHealthCheck
+      summary: Get /funding/exchange
       tags:
-        - Admin
+        - Funding
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /orderbook/{exchange}/{symbol}:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get /orderbook/exchange/symbol
+      tags:
+        - Market Intelligence
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /liquidations/{exchange}/{symbol}:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get /liquidations/exchange/symbol
+      tags:
+        - Market Intelligence
+      responses:
+        '200':
+          description: Modeled bands and separately provenance-labeled native prints
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LiquidationRadarApiResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /backtest/{exchange}/{symbol}:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Create or execute /backtest/exchange/symbol
+      tags:
+        - Market Intelligence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [strategy]
+              properties:
+                timeframe: { type: string, enum: [1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w] }
+                type: { type: string, enum: [spot, perp] }
+                limit: { type: integer, minimum: 1, maximum: 5000 }
+                strategy: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /backtests/jobs:
+    post:
+      summary: Queue a deterministic full-archive backtest
+      description: Creates an authenticated, idempotent job which streams bounded R2 archive partitions asynchronously.
+      tags:
+        - Market Intelligence
       security:
-        - AdminSignedRequest: []
+        - UserBearerSession: []
       parameters:
-        - $ref: '#/components/parameters/AdminKeyIdHeader'
-        - $ref: '#/components/parameters/AdminTimestampHeader'
-        - $ref: '#/components/parameters/AdminNonceHeader'
-        - $ref: '#/components/parameters/AdminSignatureHeader'
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [exchange, symbol, marketType, timeframe, startTime, endTime, strategy]
+              properties:
+                exchange:
+                  type: string
+                  enum: [binance, bybit, okx, hyperliquid, upbit]
+                symbol:
+                  type: string
+                marketType:
+                  type: string
+                  enum: [spot, perp]
+                timeframe:
+                  type: string
+                startTime:
+                  type: integer
+                  format: int64
+                endTime:
+                  type: integer
+                  format: int64
+                strategy:
+                  type: object
+                strategyId:
+                  type: string
+                savedBacktestId:
+                  type: string
+                idempotencyKey:
+                  type: string
       responses:
         '200':
-          description: Deep health status
+          description: Existing idempotent job
           content:
             application/json:
               schema:
-                allOf:
-                  - $ref: '#/components/schemas/ApiSuccessResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: object
-        '401':
-          description: Missing or invalid signed admin request
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        '202':
+          description: Queued backtest job
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiErrorResponse'
-        '429':
-          $ref: '#/components/responses/RateLimited'
-        '500':
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /backtests/jobs/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get asynchronous backtest status and progress
+      tags:
+        - Market Intelligence
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: User-owned backtest job
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /backtests/jobs/{id}/cancel:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Request cancellation of an asynchronous backtest
+      tags:
+        - Market Intelligence
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Updated cancellation state
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /backtests/jobs/{id}/result:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Stream a completed full-history backtest result
+      tags:
+        - Market Intelligence
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Full deterministic backtest result JSON
+          content:
+            application/json: {}
+        '409':
+          description: Job has not completed
+        default:
           $ref: '#/components/responses/InternalServerError'
 
   /auth/magic-link:
@@ -998,6 +1391,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AuthSessionApiResponse'
+    get:
+      summary: Get /auth/magic-link/verify
+      tags:
+        - Auth
+      responses:
+        '200':
+          description: Cookie-browser or bearer-client session response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionApiResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
 
   /auth/passkeys/registration/options:
     post:
@@ -1112,6 +1518,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserAccountApiResponse'
+
+  /auth/logout:
+    post:
+      summary: Create or execute /auth/logout
+      tags:
+        - Auth
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
 
   /me/passkeys:
     get:
@@ -1282,76 +1705,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/DeletionApiResponse'
 
-  /me/alerts:
-    get:
-      summary: List user price alerts
-      tags:
-        - Saved State
-      security:
-        - UserBearerSession: []
-      responses:
-        '200':
-          description: Price alerts
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PriceAlertListApiResponse'
-    post:
-      summary: Create a user price alert
-      tags:
-        - Saved State
-      security:
-        - UserBearerSession: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PriceAlertCreateRequest'
-      responses:
-        '200':
-          description: Created price alert
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PriceAlertApiResponse'
-
-  /me/alerts/{id}:
-    delete:
-      summary: Delete a user price alert
-      tags:
-        - Saved State
-      security:
-        - UserBearerSession: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        '200':
-          description: Deletion status
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeletionApiResponse'
-
-  /me/alerts/evaluate:
-    post:
-      summary: Evaluate active user alerts against live prices
-      tags:
-        - Saved State
-      security:
-        - UserBearerSession: []
-      responses:
-        '200':
-          description: Evaluation summary and triggered event IDs
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AlertEvaluationApiResponse'
-
   /me/backtests:
     get:
       summary: List saved backtests
@@ -1372,6 +1725,20 @@ paths:
         - Saved State
       security:
         - UserBearerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, exchange, symbol, timeframe, strategy]
+              properties:
+                name: { type: string }
+                exchange: { type: string, enum: [binance, bybit, okx, hyperliquid, upbit] }
+                symbol: { type: string }
+                timeframe: { type: string, enum: [1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w] }
+                strategy: { type: object, additionalProperties: true }
+                result: { type: object, nullable: true, additionalProperties: true }
       responses:
         '200':
           description: Saved backtest
@@ -1511,6 +1878,230 @@ paths:
               schema:
                 $ref: '#/components/schemas/DeletionApiResponse'
 
+  /me/alerts:
+    get:
+      summary: List user price alerts
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Price alerts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceAlertListApiResponse'
+    post:
+      summary: Create a user price alert
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PriceAlertCreateRequest'
+      responses:
+        '200':
+          description: Created price alert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceAlertApiResponse'
+
+  /me/alerts/{id}:
+    delete:
+      summary: Delete a user price alert
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deletion status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionApiResponse'
+
+  /me/alerts/evaluate:
+    post:
+      summary: Evaluate active user alerts against live prices
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Evaluation summary and triggered event IDs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertEvaluationApiResponse'
+
+  /me/notification-channels:
+    get:
+      summary: List encrypted user-owned notification channels
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Notification channel metadata with masked endpoints
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+    post:
+      summary: Create an encrypted notification channel
+      description: Endpoints and optional webhook signing secrets are encrypted with AES-GCM and are never returned.
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, label, endpoint]
+              properties:
+                kind:
+                  type: string
+                  enum: [email, discord, telegram, webhook]
+                label:
+                  type: string
+                  maxLength: 80
+                endpoint:
+                  type: string
+                  maxLength: 2048
+                secret:
+                  type: string
+                  maxLength: 512
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Created channel metadata with a masked endpoint
+
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+  /me/notification-channels/{id}:
+    patch:
+      summary: Update and re-encrypt a notification channel
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum: [email, discord, telegram, webhook]
+                label:
+                  type: string
+                endpoint:
+                  type: string
+                secret:
+                  type: string
+                  nullable: true
+                enabled:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated channel metadata
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+    delete:
+      summary: Disable a notification channel while preserving delivery audit history
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion status
+
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+  /me/alert-deliveries:
+    get:
+      summary: List user-visible alert delivery attempt status
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 250
+            default: 100
+      responses:
+        '200':
+          description: Delivery attempts with retry and dead-letter status
+
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+  /me/alert-deliveries/{id}/retry:
+    post:
+      summary: Recover a failed or dead-lettered delivery attempt
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Retry acceptance status
+
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
   /me/api-keys:
     get:
       summary: List public API keys
@@ -1532,6 +2123,19 @@ paths:
         - Growth
       security:
         - UserBearerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 120 }
+                scopes:
+                  type: array
+                  uniqueItems: true
+                  items: { type: string, enum: [read:market-data, read:history] }
       responses:
         '200':
           description: API key metadata plus one-time secret
@@ -1610,30 +2214,425 @@ paths:
                 $ref: '#/components/schemas/AlphaFeedItemApiResponse'
 
   /snapshots/market/{exchange}/{symbol}.svg:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
     get:
-      summary: Shareable market snapshot SVG
+      summary: Get /snapshots/market/exchange/symbol.svg
       tags:
         - Growth
-      parameters:
-        - $ref: '#/components/parameters/ExchangeParam'
-        - name: symbol
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: type
-          in: query
-          schema:
-            type: string
-            enum: [spot, perp]
       responses:
         '200':
-          description: SVG image for social previews and sharing
+          description: Successful response
           content:
             image/svg+xml:
               schema:
-                type: string
+              type: string
+              format: binary
+        default:
+          $ref: '#/components/responses/InternalServerError'
 
+  /snapshots/market/{exchange}/{symbol}/og.png:
+    parameters:
+      - name: exchange
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: symbol
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Render a cached 1200x630 market Open Graph PNG
+      tags:
+        - Growth
+      responses:
+        '200':
+          description: Dynamic market card rendered with the embedded local font
+          content:
+            image/png: {}
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /snapshots/signal/{id}/og.png:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Render a cached 1200x630 Alpha Feed signal PNG
+      tags:
+        - Growth
+      responses:
+        '200':
+          description: Dynamic public signal card rendered with the embedded local font
+          content:
+            image/png: {}
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/release-controls:
+    get:
+      summary: Read rollout controls and immutable audit history
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      parameters:
+        - name: flag
+          in: query
+          schema:
+            type: string
+            enum:
+              [
+                realtime,
+                accounts,
+                alerts,
+                delivery_channels,
+                cron_reconciliation,
+                async_backtests,
+                admin_operations,
+              ]
+        - name: auditLimit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 250
+            default: 100
+      responses:
+        '200':
+          description: Current rollout controls and append-only audit events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/release-controls/{flag}:
+    parameters:
+      - name: flag
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+            [
+              realtime,
+              accounts,
+              alerts,
+              delivery_channels,
+              cron_reconciliation,
+              async_backtests,
+              admin_operations,
+            ]
+    put:
+      summary: Atomically update a rollout control
+      description: Requires the current revision and appends an immutable audit event.
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [state, expectedRevision, reason]
+              properties:
+                state:
+                  type: string
+                  enum: [off, internal, '5', '25', '100']
+                expectedRevision:
+                  type: integer
+                  minimum: 0
+                reason:
+                  type: string
+                  minLength: 1
+                  maxLength: 500
+                subjectAllowlist:
+                  type: array
+                  maxItems: 500
+                  items: { type: string }
+                providerAllowlist:
+                  type: array
+                  maxItems: 500
+                  items: { type: string }
+                topicAllowlist:
+                  type: array
+                  maxItems: 500
+                  items: { type: string }
+      responses:
+        '200':
+          description: Updated rollout control
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        '409':
+          description: The expected revision is stale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/fault-injections:
+    get:
+      summary: List active staging fault injections
+      description: Signed, staging-only operational endpoint. Production returns not found.
+      operationId: listStagingFaultInjections
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      responses:
+        '200':
+          description: Current bounded fault-injection state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      summary: Enable or disable a bounded staging fault
+      description: Requires a signed admin request and a change ID; rejected outside local or staging.
+      operationId: updateStagingFaultInjection
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target, enabled, changeId]
+              properties:
+                target:
+                  type: string
+                  enum: [provider, d1, r2, queue, delivery]
+                enabled: { type: boolean }
+                durationSeconds: { type: integer, minimum: 5, maximum: 900, default: 60 }
+                changeId: { type: string, minLength: 3, maxLength: 120 }
+                config: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated fault state and expiry
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/notification-channels/re-encrypt:
+    post:
+      summary: Re-encrypt one bounded notification-channel page
+      description: Uses the staged next encryption key and returns a cursor until the rotation is complete.
+      operationId: reencryptNotificationChannels
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit: { type: integer, minimum: 1, maximum: 100, default: 50 }
+                cursor: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Bounded rotation progress and target key ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/backfills:
+    post:
+      summary: Create or execute /admin/backfills
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                exchanges:
+                  type: array
+                  items: { type: string, enum: [binance, bybit, okx, hyperliquid, upbit] }
+                symbols:
+                  type: array
+                  items: { type: string }
+                types:
+                  type: array
+                  items: { type: string, enum: [spot, perp] }
+                timeframes:
+                  type: array
+                  items: { type: string, enum: [1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w] }
+                startTime: { type: integer, format: int64 }
+                endTime: { type: integer, format: int64 }
+                maxSymbolsPerExchange: { type: integer, minimum: 1, maximum: 50 }
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/health:
+    get:
+      summary: Deep admin health check
+      description: Requires signed admin request headers. Returns redacted dependency readiness and operational health details.
+      operationId: adminHealthCheck
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      parameters:
+        - $ref: '#/components/parameters/AdminKeyIdHeader'
+        - $ref: '#/components/parameters/AdminTimestampHeader'
+        - $ref: '#/components/parameters/AdminNonceHeader'
+        - $ref: '#/components/parameters/AdminSignatureHeader'
+      responses:
+        '200':
+          description: Deep health status
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+        '401':
+          description: Missing or invalid signed admin request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/metrics:
+    get:
+      summary: Read daily product metrics
+      tags:
+        - Admin
+        - Metrics
+      security:
+        - AdminSignedRequest: []
+      parameters:
+        - name: days
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 365
+            default: 90
+      responses:
+        '200':
+          description: Daily KPI values, targets, trends, and completeness
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/backfills/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Get /admin/backfills/id
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/backfills/{id}/retry:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      summary: Create or execute /admin/backfills/id/retry
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /openapi.json:
+    get:
+      summary: Get /openapi.json
+      tags:
+        - Documentation
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+              $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
 components:
   securitySchemes:
     AdminSignedRequest:
@@ -1873,6 +2872,7 @@ components:
 
     AuthSessionResponse:
       type: object
+      additionalProperties: false
       required: [user, sessionToken, expiresAt]
       properties:
         user:
@@ -1882,6 +2882,68 @@ components:
         expiresAt:
           type: integer
           format: int64
+
+    AuthBrowserSessionResponse:
+      type: object
+      additionalProperties: false
+      required: [user, expiresAt]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserAccount'
+        expiresAt:
+          type: integer
+          format: int64
+
+    LiquidationRadarApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [exchange, symbol, type, levels, nativePrints, nativeCoverage, timestamp]
+              properties:
+                exchange: { type: string, enum: [binance, bybit, okx, hyperliquid] }
+                symbol: { type: string }
+                type: { type: string, enum: [perp] }
+                markPrice: { type: number, nullable: true }
+                openInterestUsd: { type: number, nullable: true }
+                levels:
+                  type: array
+                  items: { type: object, additionalProperties: true }
+                nativePrints:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      [eventId, sequence, exchangeTimestamp, side, price, quantity, provenance]
+                    properties:
+                      eventId: { type: string }
+                      sequence: { type: integer }
+                      exchangeTimestamp: { type: integer, format: int64 }
+                      ingestedAt: { type: integer, format: int64 }
+                      publishedAt: { type: integer, format: int64 }
+                      side: { type: string, enum: [long, short] }
+                      price: { type: number }
+                      quantity: { type: number }
+                      notionalUsd: { type: number, nullable: true }
+                      provenance: { type: object, additionalProperties: true }
+                nativeCoverage:
+                  type: object
+                  required: [status, count, latestExchangeTimestamp, sequence]
+                  properties:
+                    status: { type: string, enum: [live, empty, unavailable] }
+                    count: { type: integer }
+                    latestExchangeTimestamp: { type: integer, format: int64, nullable: true }
+                    sequence: { type: integer, nullable: true }
+                heatmap:
+                  type: array
+                  items: { type: object, additionalProperties: true }
+                cascades:
+                  type: array
+                  items: { type: object, additionalProperties: true }
+                assumptions: { type: object, additionalProperties: true }
+                timestamp: { type: integer, format: int64 }
 
     DeletionResponse:
       type: object
@@ -2189,7 +3251,9 @@ components:
         - type: object
           properties:
             data:
-              $ref: '#/components/schemas/AuthSessionResponse'
+              oneOf:
+                - $ref: '#/components/schemas/AuthBrowserSessionResponse'
+                - $ref: '#/components/schemas/AuthSessionResponse'
 
     UserAccountApiResponse:
       allOf:

@@ -4,6 +4,7 @@ import { errorResponse } from './response';
 import type { Env } from '../types';
 import { verifyApiKey } from '../services/growthRetentionService';
 import type { ApiKeyRecord } from '@lazuli/shared';
+import { createSecretRing, verifyRotatingHmac, type SecretRing } from './rotatingSecrets';
 
 const ADMIN_SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const ADMIN_NONCE_TTL_MS = 10 * 60 * 1000;
@@ -162,9 +163,18 @@ function presentedApiKey(c: AppContext): string | null {
 }
 
 export async function requireAdminRequest(c: AppContext): Promise<void> {
+  const rotationEnv = c.env as Env & {
+    ADMIN_API_KEY_NEXT?: string;
+    ADMIN_API_KEY_ID_NEXT?: string;
+    ADMIN_SIGNING_SECRET_NEXT?: string;
+  };
   if (!c.env.ENVIRONMENT || c.env.ENVIRONMENT === 'local') {
     const apiKey = c.req.header('X-Admin-API-Key');
-    if (!c.env.ADMIN_API_KEY || !constantTimeEqual(apiKey ?? '', c.env.ADMIN_API_KEY)) {
+    if (
+      !c.env.ADMIN_API_KEY ||
+      (!constantTimeEqual(apiKey ?? '', c.env.ADMIN_API_KEY) &&
+        !constantTimeEqual(apiKey ?? '', rotationEnv.ADMIN_API_KEY_NEXT ?? ''))
+    ) {
       logSecurityEvent(c, 'admin_auth_failed', { reason: 'local_api_key_mismatch' });
       throw unauthorized('Admin API key is required');
     }
@@ -189,16 +199,18 @@ export async function requireAdminRequest(c: AppContext): Promise<void> {
     throw unauthorized('Signed admin request headers are required');
   }
 
-  if (!constantTimeEqual(keyId, c.env.ADMIN_API_KEY_ID)) {
-    logSecurityEvent(c, 'admin_auth_failed', { reason: 'key_id_mismatch' });
-    throw unauthorized('Invalid admin request signature');
-  }
+  const ring = createSecretRing({
+    currentKeyId: c.env.ADMIN_API_KEY_ID,
+    currentSecret: c.env.ADMIN_SIGNING_SECRET,
+    nextKeyId: rotationEnv.ADMIN_API_KEY_ID_NEXT,
+    nextSecret: rotationEnv.ADMIN_SIGNING_SECRET_NEXT,
+    label: 'Admin signing',
+  });
 
   const body =
     c.req.method === 'GET' || c.req.method === 'HEAD' ? '' : await c.req.raw.clone().text();
-  const verification = await verifyAdminSignature({
-    expectedKeyId: c.env.ADMIN_API_KEY_ID,
-    signingSecret: c.env.ADMIN_SIGNING_SECRET,
+  const verification = await verifyAdminSignatureWithRotation({
+    ring,
     keyId,
     signature,
     nowMs: Date.now(),
@@ -279,6 +291,48 @@ export async function verifyAdminSignature(input: {
   }
 
   return { ok: true };
+}
+
+export async function verifyAdminSignatureWithRotation(input: {
+  ring: SecretRing;
+  keyId: string;
+  signature: string;
+  nowMs: number;
+  request: AdminSignatureParts;
+}): Promise<{ ok: true; keyId: string } | { ok: false; reason: string; message: string }> {
+  const timestampMs = Number(input.request.timestamp);
+  if (
+    !Number.isFinite(timestampMs) ||
+    Math.abs(input.nowMs - timestampMs) > ADMIN_SIGNATURE_TTL_MS
+  ) {
+    return {
+      ok: false,
+      reason: 'timestamp_outside_window',
+      message: 'Admin request timestamp is outside the allowed window',
+    };
+  }
+  if (!/^[A-Za-z0-9._:-]{16,128}$/.test(input.request.nonce)) {
+    return { ok: false, reason: 'invalid_nonce', message: 'Admin request nonce is invalid' };
+  }
+
+  const verification = await verifyRotatingHmac({
+    ring: input.ring,
+    payload: await buildAdminCanonicalRequest(input.request),
+    signature: input.signature,
+    signaturePrefix: '',
+    keyId: input.keyId,
+  });
+  if (!verification.ok || !verification.keyId) {
+    const knownKeyId = [input.ring.current, input.ring.next].some(
+      (version) => version?.keyId === input.keyId
+    );
+    return {
+      ok: false,
+      reason: knownKeyId ? 'signature_mismatch' : 'key_id_mismatch',
+      message: 'Invalid admin request signature',
+    };
+  }
+  return { ok: true, keyId: verification.keyId };
 }
 
 export async function rememberAdminNonce(
@@ -451,6 +505,15 @@ function clientFingerprint(c: AppContext): string {
 }
 
 function defaultCacheControl(path: string): string {
+  if (path.includes('/snapshots/')) {
+    return 'public, max-age=300, s-maxage=300, stale-while-revalidate=3600';
+  }
+  if (path.includes('/alpha-feed')) {
+    return 'public, max-age=30, s-maxage=60, stale-while-revalidate=300';
+  }
+  if (path.endsWith('/openapi.json')) {
+    return 'public, max-age=3600, stale-while-revalidate=86400';
+  }
   if (path.includes('/tickers') || path.includes('/funding') || path.includes('/orderbook')) {
     return 'public, max-age=3, stale-while-revalidate=10';
   }

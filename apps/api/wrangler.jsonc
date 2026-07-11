@@ -20,7 +20,7 @@
   },
 
   "triggers": {
-    "crons": [],
+    "crons": ["*/5 * * * *"],
   },
 
   "vars": {
@@ -28,6 +28,13 @@
     "APP_BASE_URL": "http://localhost:8788",
     "PUBLIC_API_BASE_URL": "http://localhost:8787",
     "CORS_ORIGIN": "http://localhost:3001,http://localhost:8788",
+    "INGEST_SIGNING_SECRET_ID": "ingest-local-v1",
+    "METRICS_INGEST_SECRET_ID": "metrics-local-v1",
+    "REALTIME_TOKEN_SECRET_ID": "realtime-local-v1",
+    "NOTIFICATION_ENCRYPTION_KEY_ID": "notifications-local-v1",
+    "ALERT_WEBHOOK_SIGNING_SECRET_ID": "alert-webhook-local-v1",
+    "MAGIC_LINK_EMAIL_FROM": "signin@lazuli.now",
+    "ALERT_EMAIL_FROM": "alerts@lazuli.now",
     "ACCOUNT_FEATURES_ENABLED": "true",
     "ALERT_EVALUATION_ENABLED": "true",
     "ADMIN_ROUTES_ENABLED": "true",
@@ -55,6 +62,10 @@
         "binding": "BACKFILL_QUEUE",
         "queue": "lazuli-backfill-local",
       },
+      {
+        "binding": "ALERT_DELIVERY_QUEUE",
+        "queue": "lazuli-alert-delivery-local",
+      },
     ],
     "consumers": [
       {
@@ -63,6 +74,13 @@
         "max_batch_timeout": 5,
         "max_retries": 5,
         "dead_letter_queue": "lazuli-backfill-dlq-local",
+      },
+      {
+        "queue": "lazuli-alert-delivery-local",
+        "max_batch_size": 10,
+        "max_batch_timeout": 2,
+        "max_retries": 5,
+        "dead_letter_queue": "lazuli-alert-delivery-dlq-local",
       },
     ],
   },
@@ -155,7 +173,7 @@
         },
       },
       "triggers": {
-        "crons": [],
+        "crons": ["*/5 * * * *"],
       },
       "vars": {
         "ENVIRONMENT": "staging",
@@ -163,10 +181,27 @@
         "PUBLIC_API_BASE_URL": "https://api-staging.lazuli.now",
         "CORS_ORIGIN": "https://staging.lazuli.now",
         "ADMIN_API_KEY_ID": "lazuli-admin-staging",
+        "INGEST_SIGNING_SECRET_ID": "ingest-staging-v1",
+        "METRICS_INGEST_SECRET_ID": "metrics-staging-v1",
+        "REALTIME_TOKEN_SECRET_ID": "realtime-staging-v1",
+        "NOTIFICATION_ENCRYPTION_KEY_ID": "notifications-staging-v1",
+        "ALERT_WEBHOOK_SIGNING_SECRET_ID": "alert-webhook-staging-v1",
+        "MAGIC_LINK_EMAIL_FROM": "signin@lazuli.now",
+        "ALERT_EMAIL_FROM": "alerts@lazuli.now",
         "ACCOUNT_FEATURES_ENABLED": "false",
         "ALERT_EVALUATION_ENABLED": "false",
         "ADMIN_ROUTES_ENABLED": "false",
       },
+      "send_email": [
+        {
+          "name": "MAGIC_LINK_EMAIL",
+          "allowed_sender_addresses": ["signin@lazuli.now"],
+        },
+        {
+          "name": "ALERT_EMAIL",
+          "allowed_sender_addresses": ["alerts@lazuli.now"],
+        },
+      ],
       "routes": [
         {
           "pattern": "api-staging.lazuli.now/*",
@@ -193,6 +228,10 @@
             "binding": "BACKFILL_QUEUE",
             "queue": "lazuli-backfill-staging",
           },
+          {
+            "binding": "ALERT_DELIVERY_QUEUE",
+            "queue": "lazuli-alert-delivery-staging",
+          },
         ],
         "consumers": [
           {
@@ -201,6 +240,13 @@
             "max_batch_timeout": 5,
             "max_retries": 5,
             "dead_letter_queue": "lazuli-backfill-dlq-staging",
+          },
+          {
+            "queue": "lazuli-alert-delivery-staging",
+            "max_batch_size": 10,
+            "max_batch_timeout": 2,
+            "max_retries": 5,
+            "dead_letter_queue": "lazuli-alert-delivery-dlq-staging",
           },
         ],
       },
@@ -281,7 +327,7 @@
         },
       },
       "triggers": {
-        "crons": [],
+        "crons": ["*/5 * * * *"],
       },
       "vars": {
         "ENVIRONMENT": "production",
@@ -289,10 +335,27 @@
         "PUBLIC_API_BASE_URL": "https://api.lazuli.now",
         "CORS_ORIGIN": "https://lazuli.now,https://www.lazuli.now",
         "ADMIN_API_KEY_ID": "lazuli-admin-production",
+        "INGEST_SIGNING_SECRET_ID": "ingest-production-v1",
+        "METRICS_INGEST_SECRET_ID": "metrics-production-v1",
+        "REALTIME_TOKEN_SECRET_ID": "realtime-production-v1",
+        "NOTIFICATION_ENCRYPTION_KEY_ID": "notifications-production-v1",
+        "ALERT_WEBHOOK_SIGNING_SECRET_ID": "alert-webhook-production-v1",
+        "MAGIC_LINK_EMAIL_FROM": "signin@lazuli.now",
+        "ALERT_EMAIL_FROM": "alerts@lazuli.now",
         "ACCOUNT_FEATURES_ENABLED": "false",
         "ALERT_EVALUATION_ENABLED": "false",
         "ADMIN_ROUTES_ENABLED": "false",
       },
+      "send_email": [
+        {
+          "name": "MAGIC_LINK_EMAIL",
+          "allowed_sender_addresses": ["signin@lazuli.now"],
+        },
+        {
+          "name": "ALERT_EMAIL",
+          "allowed_sender_addresses": ["alerts@lazuli.now"],
+        },
+      ],
       "routes": [
         {
           "pattern": "api.lazuli.now/*",
@@ -319,6 +382,10 @@
             "binding": "BACKFILL_QUEUE",
             "queue": "lazuli-backfill-prod",
           },
+          {
+            "binding": "ALERT_DELIVERY_QUEUE",
+            "queue": "lazuli-alert-delivery-prod",
+          },
         ],
         "consumers": [
           {
@@ -327,6 +394,13 @@
             "max_batch_timeout": 5,
             "max_retries": 5,
             "dead_letter_queue": "lazuli-backfill-dlq-prod",
+          },
+          {
+            "queue": "lazuli-alert-delivery-prod",
+            "max_batch_size": 10,
+            "max_batch_timeout": 2,
+            "max_retries": 5,
+            "dead_letter_queue": "lazuli-alert-delivery-dlq-prod",
           },
         ],
       },

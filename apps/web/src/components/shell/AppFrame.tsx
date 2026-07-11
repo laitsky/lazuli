@@ -24,6 +24,22 @@ export function AppFrame({ children }: AppFrameProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   useApplyPreferences();
 
+  useEffect(() => {
+    const now = new Date();
+    const weekKey = `${now.getUTCFullYear()}-${Math.ceil(
+      (Number(now) - Number(new Date(Date.UTC(now.getUTCFullYear(), 0, 1)))) / 604_800_000
+    )}`;
+    const storageKey = 'lazuli.metrics.active-week';
+    if (window.localStorage.getItem(storageKey) === weekKey) return;
+    window.localStorage.setItem(storageKey, weekKey);
+    void fetch('/api/v1/metrics/events', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ metric: 'weekly_active_sessions', value: 1 }),
+    }).catch(() => undefined);
+  }, []);
+
   // Body scroll lock when mobile nav is open
   useEffect(() => {
     if (mobileNavOpen) {

@@ -19,6 +19,7 @@ import { NuqsAdapter } from 'nuqs/adapters/react-router/v7';
 import { Toaster } from 'sonner';
 import App from './App';
 import { createQueryClient } from './lib/query-client';
+import { AuthProvider } from './lib/auth';
 import './styles/globals.css';
 
 const queryClient = createQueryClient();
@@ -27,23 +28,25 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <NuqsAdapter>
-          <App />
-          <Toaster
-            position="bottom-right"
-            theme="dark"
-            closeButton
-            toastOptions={{
-              style: {
-                background: 'hsl(222 35% 13%)',
-                border: '1px solid hsl(222 18% 18%)',
-                color: 'hsl(210 40% 96%)',
-                fontFamily: "'Outfit', sans-serif",
-                fontSize: '13px',
-              },
-            }}
-          />
-        </NuqsAdapter>
+        <AuthProvider>
+          <NuqsAdapter>
+            <App />
+            <Toaster
+              position="bottom-right"
+              theme="dark"
+              closeButton
+              toastOptions={{
+                style: {
+                  background: 'hsl(222 35% 13%)',
+                  border: '1px solid hsl(222 18% 18%)',
+                  color: 'hsl(210 40% 96%)',
+                  fontFamily: "'Outfit', sans-serif",
+                  fontSize: '13px',
+                },
+              }}
+            />
+          </NuqsAdapter>
+        </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
   </StrictMode>

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   createPasskeyRegistrationOptions,
   deliverAlertNotification,
+  evaluateAlertTrigger,
   listDuePriceAlerts,
   verifyApiKey,
 } from './growthRetentionService';
@@ -9,6 +10,45 @@ import type { Env } from '../types';
 import type { PriceAlertRecord } from '@lazuli/shared';
 
 describe('growth retention service', () => {
+  test('claims a one-shot alert atomically before creating a delivery event', async () => {
+    const statements: string[] = [];
+    let claimAvailable = true;
+    let successfulClaims = 0;
+    const env = {
+      DB: {
+        prepare(statement: string) {
+          statements.push(statement);
+          return {
+            bind() {
+              return {
+                async run() {
+                  return { meta: { changes: 1 } };
+                },
+              };
+            },
+          };
+        },
+        async batch() {
+          const claimed = claimAvailable;
+          claimAvailable = false;
+          if (claimed) successfulClaims += 1;
+          return [{ meta: { changes: claimed ? 1 : 0 } }, { meta: { changes: claimed ? 1 : 0 } }];
+        },
+      },
+    } as unknown as Env;
+    const alert = alertRecord({ active: true, triggeredAt: null });
+
+    const first = await evaluateAlertTrigger(env, { alert, currentPrice: 101 });
+    const second = await evaluateAlertTrigger(env, { alert, currentPrice: 102 });
+
+    expect(first.triggered).toBe(true);
+    expect(second).toEqual({ triggered: false, eventId: null });
+    expect(successfulClaims).toBe(1);
+    expect(
+      statements.some((statement) => statement.includes('INSERT OR IGNORE INTO alert_events'))
+    ).toBe(true);
+  });
+
   test('creates WebAuthn registration options and stores a short-lived challenge', async () => {
     const statements: string[] = [];
     const boundValues: unknown[][] = [];
@@ -299,6 +339,9 @@ describe('growth retention service', () => {
           (requestInits[3]?.headers as Record<string, string>)['X-Lazuli-Signature'] ?? ''
         ).startsWith('sha256=')
       ).toBe(true);
+      expect((requestInits[3]?.headers as Record<string, string>)['X-Lazuli-Key-Id']).toBe(
+        'current'
+      );
 
       const emailBody = JSON.parse(String(requestInits[0]?.body)) as {
         to?: unknown;

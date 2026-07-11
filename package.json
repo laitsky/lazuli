@@ -9,6 +9,7 @@
     "packages/config/*"
   ],
   "scripts": {
+    "generate:openapi": "bun scripts/generate-openapi-module.ts",
     "dev": "turbo run dev",
     "dev:api": "turbo run dev --filter=@lazuli/api",
     "dev:web": "turbo run dev --filter=@lazuli/web",
@@ -22,6 +23,11 @@
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint -- --fix",
     "type-check": "turbo run type-check",
+    "strategy:validate": "bun run scripts/validate-strategy-ledger.ts",
+    "ops:synthetic": "bun run scripts/ops/synthetic-realtime.ts",
+    "ops:chaos": "bun run scripts/ops/chaos-drill.ts",
+    "ops:evidence:validate": "bun run scripts/ops/validate-release-evidence.ts",
+    "ops:evidence:export": "bun run scripts/ops/export-release-state.ts",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "clean": "turbo run clean && rm -rf node_modules .turbo",

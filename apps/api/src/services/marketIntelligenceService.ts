@@ -92,6 +92,13 @@ export function buildLiquidationRadar(input: {
     markPrice,
     openInterestUsd,
     levels,
+    nativePrints: [],
+    nativeCoverage: {
+      status: 'unavailable',
+      count: 0,
+      latestExchangeTimestamp: null,
+      sequence: null,
+    },
     heatmap,
     cascades,
     assumptions: {
@@ -166,10 +173,87 @@ export function buildOrderFlowResponse(input: {
   };
 }
 
+/** Build exchange-native CVD and footprint points from aggressor-side trades. */
+export function buildNativeOrderFlowResponse(input: {
+  exchange: SupportedExchange;
+  symbol: string;
+  type: 'spot' | 'perp';
+  timeframe: Timeframe;
+  trades: Array<{
+    timestamp: number;
+    price: number;
+    quantity: number;
+    side: 'buy' | 'sell';
+  }>;
+}): OrderFlowResponse {
+  let cumulativeDelta = 0;
+  const points = input.trades
+    .filter(
+      (trade) =>
+        Number.isFinite(trade.timestamp) &&
+        Number.isFinite(trade.price) &&
+        Number.isFinite(trade.quantity) &&
+        trade.price > 0 &&
+        trade.quantity >= 0
+    )
+    .sort((left, right) => left.timestamp - right.timestamp)
+    .map<OrderFlowPoint>((trade) => {
+      const buyVolume = trade.side === 'buy' ? trade.quantity : 0;
+      const sellVolume = trade.side === 'sell' ? trade.quantity : 0;
+      const delta = buyVolume - sellVolume;
+      cumulativeDelta += delta;
+      return {
+        timestamp: trade.timestamp,
+        price: trade.price,
+        buyVolume,
+        sellVolume,
+        delta,
+        cumulativeDelta,
+        footprintImbalance: trade.quantity > 0 ? delta / trade.quantity : 0,
+      };
+    });
+  const totalVolume = points.reduce((sum, point) => sum + point.buyVolume + point.sellVolume, 0);
+  const deltaPercentOfVolume = totalVolume > 0 ? (cumulativeDelta / totalVolume) * 100 : 0;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const priceChange = first && last ? ((last.price - first.price) / first.price) * 100 : 0;
+  return {
+    exchange: input.exchange,
+    symbol: input.symbol,
+    type: input.type,
+    timeframe: input.timeframe,
+    points,
+    summary: {
+      cumulativeDelta,
+      deltaPercentOfVolume,
+      absorption:
+        Math.abs(deltaPercentOfVolume) < 2 ? 'balanced' : deltaPercentOfVolume > 0 ? 'ask' : 'bid',
+      divergence:
+        priceChange > 0.5 && cumulativeDelta < 0
+          ? 'bearish'
+          : priceChange < -0.5 && cumulativeDelta > 0
+            ? 'bullish'
+            : 'none',
+    },
+    timestamp: Date.now(),
+  };
+}
+
 /**
  * Rank perpetual contracts by funding pressure, OI-weighted carry, and volume.
  */
-export function buildFundingRadar(rates: FundingRateData[], limit: number): FundingRadarResponse {
+export interface FundingRadarOiChanges {
+  change5mPercent: number | null;
+  change1hPercent: number | null;
+  change24hPercent: number | null;
+  observedAt: number;
+}
+
+export function buildFundingRadar(
+  rates: FundingRateData[],
+  limit: number,
+  oiChanges: ReadonlyMap<string, FundingRadarOiChanges> = new Map()
+): FundingRadarResponse {
   const totalOpenInterestUsd = rates.reduce((sum, rate) => sum + (rate.openInterest ?? 0), 0);
   const positiveCarryUsd = rates.reduce(
     (sum, rate) => sum + Math.max(0, (rate.openInterest ?? 0) * rate.fundingRate * 3),
@@ -183,12 +267,18 @@ export function buildFundingRadar(rates: FundingRateData[], limit: number): Fund
   const items = rates
     .map<FundingRadarItem>((rate) => {
       const openInterestUsd = rate.openInterest;
-      const oiShare =
-        openInterestUsd && totalOpenInterestUsd > 0 ? openInterestUsd / totalOpenInterestUsd : 0;
+      const changes = oiChanges.get(`${rate.exchange}:${rate.symbol}`) ?? null;
       const fundingPressure = Math.min(1, Math.abs(rate.fundingRatePercent) / 0.08);
       const volumePressure = Math.min(1, Math.log10(Math.max(rate.volume24h ?? 1, 1)) / 10);
+      const oiChangePressure = changes
+        ? Math.max(
+            Math.min(1, Math.abs(changes.change5mPercent ?? 0) / 3),
+            Math.min(1, Math.abs(changes.change1hPercent ?? 0) / 10),
+            Math.min(1, Math.abs(changes.change24hPercent ?? 0) / 25)
+          )
+        : 0;
       const spikeScore = Math.round(
-        (fundingPressure * 0.55 + oiShare * 0.15 + volumePressure * 0.2) * 100
+        (fundingPressure * 0.45 + oiChangePressure * 0.35 + volumePressure * 0.2) * 100
       );
 
       return {
@@ -207,6 +297,10 @@ export function buildFundingRadar(rates: FundingRateData[], limit: number): Fund
               ? 'shorts-pay'
               : 'neutral',
         spikeScore,
+        change5mPercent: changes?.change5mPercent ?? null,
+        change1hPercent: changes?.change1hPercent ?? null,
+        change24hPercent: changes?.change24hPercent ?? null,
+        oiHistoryObservedAt: changes?.observedAt ?? null,
       };
     })
     .sort((a, b) => b.spikeScore - a.spikeScore)

@@ -158,6 +158,10 @@ export const queryKeys = {
       ['institutional', 'options', 'expiries', params] as const,
     optionsVolatility: (params: InstitutionalRangeQueryParams) =>
       ['institutional', 'options', 'volatility', params] as const,
+    optionsSurface: (params: InstitutionalAssetQueryParams) =>
+      ['institutional', 'options', 'surface', params] as const,
+    macroHistory: (params: InstitutionalRangeQueryParams) =>
+      ['institutional', 'macro', 'history', params] as const,
     confluence: (params: InstitutionalAssetQueryParams) =>
       ['institutional', 'confluence', params] as const,
   },
@@ -723,6 +727,32 @@ export function useOptionsVolatility(params: InstitutionalRangeQueryParams = {})
     queryFn: async () => {
       const res = await LazuliAPI.getOptionsVolatility(params);
       if (!res.success || !res.data) throw new Error(res.error ?? 'Failed options volatility');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useOptionsSurface(params: InstitutionalAssetQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.institutional.optionsSurface(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getOptionsSurface(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed options surface');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useMacroHistory(params: InstitutionalRangeQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.institutional.macroHistory(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getMacroHistory(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed macro history');
       return { data: res.data, meta: res.meta };
     },
     staleTime: STALE_TIMES.analytics,

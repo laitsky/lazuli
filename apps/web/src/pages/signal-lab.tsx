@@ -6,19 +6,32 @@
  * contribute to the final rank so traders can quickly reject weak ideas.
  */
 
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Activity,
   ArrowRight,
   BadgeAlert,
+  Copy,
   Crosshair,
   Flame,
   Gauge,
+  History,
+  LockKeyhole,
+  Play,
+  RotateCcw,
+  Save,
   SearchX,
   ShieldAlert,
+  Square,
 } from 'lucide-react';
-import type { Ticker } from '@lazuli/shared';
+import type {
+  AsyncBacktestJob,
+  SignalLabStrategy,
+  SupportedExchange,
+  Ticker,
+} from '@lazuli/shared';
+import { toast } from 'sonner';
 import { PageHeader } from '@/components/ui/page-header';
 import { Panel } from '@/components/ui/panel';
 import { SegmentedControl } from '@/components/ui/segmented-control';
@@ -26,6 +39,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Metric } from '@/components/ui/metric';
 import { Tag } from '@/components/ui/tag';
 import {
@@ -36,6 +50,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useExchanges, useTickers } from '@/lib/queries';
+import { LazuliAPI, type SignalStrategyInput } from '@/lib/api-client';
+import { useAuth } from '@/lib/auth';
+import {
+  buildBacktestIdempotencyKey,
+  createDefaultStrategy,
+  formatDateInput,
+  parseUtcDateRange,
+} from '@/lib/signal-strategy';
 import { useSignalLabFilters } from '@/lib/url-state';
 import { formatCompactPrice, formatPrice } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -179,7 +201,12 @@ function buildSetup(ticker: Ticker, mode: SignalMode, maxLogVolume: number): Sig
 }
 
 export default function SignalLabPage() {
+  const auth = useAuth();
   const [filters, setFilters] = useSignalLabFilters();
+  const [savedStrategies, setSavedStrategies] = useState<SignalLabStrategy[]>([]);
+  const [savedLoading, setSavedLoading] = useState(false);
+  const [savedError, setSavedError] = useState<string | null>(null);
+  const [savingSymbol, setSavingSymbol] = useState<string | null>(null);
   const minVolume = Number(filters.minVolume);
   const quoteParam = filters.quote === 'ALL' ? undefined : filters.quote;
   const { data: exchangesData } = useExchanges();
@@ -237,6 +264,43 @@ export default function SignalLabPage() {
     };
   }, [rawTickers.length, setups]);
 
+  const loadSavedStrategies = useCallback(async () => {
+    if (auth.status !== 'authenticated') {
+      setSavedStrategies([]);
+      setSavedError(null);
+      return;
+    }
+    setSavedLoading(true);
+    const response = await LazuliAPI.listSignalStrategies();
+    setSavedLoading(false);
+    if (!response.success || !response.data) {
+      setSavedError(response.error || 'Could not load saved strategies.');
+      return;
+    }
+    setSavedError(null);
+    setSavedStrategies(response.data);
+  }, [auth.status]);
+
+  useEffect(() => {
+    void loadSavedStrategies();
+  }, [loadSavedStrategies]);
+
+  const saveSetup = useCallback(
+    async (setup: SignalSetup) => {
+      if (auth.status !== 'authenticated') return;
+      setSavingSymbol(setup.ticker.symbol);
+      const response = await LazuliAPI.createSignalStrategy(strategyInputFromSetup(setup));
+      setSavingSymbol(null);
+      if (!response.success || !response.data) {
+        toast.error(response.error || 'Could not save this strategy.');
+        return;
+      }
+      toast.success(`${setup.asset} strategy saved with an automatic quick test.`);
+      await loadSavedStrategies();
+    },
+    [auth.status, loadSavedStrategies]
+  );
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -244,6 +308,18 @@ export default function SignalLabPage() {
         title="Signal Lab"
         description="Live ticker snapshots converted into ranked momentum, contrarian, and breakout setups. Scores are triage, not trade instructions."
         freshnessMeta={tickers.data?.meta ?? null}
+        actions={
+          auth.status === 'authenticated' ? (
+            <Tag variant="accent">
+              <LockKeyhole className="h-3 w-3" aria-hidden />
+              Private library
+            </Tag>
+          ) : (
+            <Button asChild variant="outline" className="min-h-10">
+              <Link to="/account">Sign in to save</Link>
+            </Button>
+          )
+        }
       />
 
       <div className="grid gap-3 md:grid-cols-4">
@@ -367,6 +443,15 @@ export default function SignalLabPage() {
         </div>
       </Panel>
 
+      <SavedStrategyLibrary
+        authStatus={auth.status}
+        strategies={savedStrategies}
+        loading={savedLoading}
+        error={savedError}
+        onRetry={loadSavedStrategies}
+        onChanged={loadSavedStrategies}
+      />
+
       {tickers.isLoading ? (
         <div className="grid gap-3 lg:grid-cols-2">
           {Array.from({ length: 8 }).map((_, index) => (
@@ -398,7 +483,13 @@ export default function SignalLabPage() {
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
           {setups.map((setup) => (
-            <SignalCard key={`${setup.ticker.exchange}:${setup.ticker.symbol}`} setup={setup} />
+            <SignalCard
+              key={`${setup.ticker.exchange}:${setup.ticker.symbol}`}
+              setup={setup}
+              canSave={auth.status === 'authenticated'}
+              saving={savingSymbol === setup.ticker.symbol}
+              onSave={() => saveSetup(setup)}
+            />
           ))}
         </div>
       )}
@@ -406,7 +497,17 @@ export default function SignalLabPage() {
   );
 }
 
-function SignalCard({ setup }: { setup: SignalSetup }) {
+function SignalCard({
+  setup,
+  canSave,
+  saving,
+  onSave,
+}: {
+  setup: SignalSetup;
+  canSave: boolean;
+  saving: boolean;
+  onSave: () => void;
+}) {
   const workspaceHref = `/workspace?exchange=${setup.ticker.exchange}&symbol=${encodeURIComponent(
     setup.ticker.symbol
   )}&type=${setup.ticker.type}&timeframe=1h`;
@@ -462,14 +563,506 @@ function SignalCard({ setup }: { setup: SignalSetup }) {
           <Tag>{Math.round(setup.rangePosition * 100)}% range</Tag>
           <Tag>{formatCompactPrice(setup.ticker.quoteVolume24h ?? 0)} vol</Tag>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to={workspaceHref}>
-            Open workspace
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          {canSave && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="min-h-10"
+              disabled={saving}
+              aria-busy={saving}
+              onClick={onSave}
+            >
+              <Save className="h-3.5 w-3.5" aria-hidden />
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          )}
+          <Button asChild variant="outline" size="sm" className="min-h-10">
+            <Link to={workspaceHref}>
+              Open workspace
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </Link>
+          </Button>
+        </div>
       </div>
     </Panel>
+  );
+}
+
+function strategyInputFromSetup(setup: SignalSetup): SignalStrategyInput {
+  return {
+    name: `${setup.asset} ${setup.mode}`,
+    exchange: setup.ticker.exchange as SupportedExchange,
+    symbol: setup.ticker.symbol,
+    marketType: setup.ticker.type,
+    timeframe: '1h',
+    strategy: createDefaultStrategy(setup.asset, setup.mode),
+    autoBacktest: true,
+  };
+}
+
+function strategyInputFromSaved(
+  strategy: SignalLabStrategy,
+  overrides: { name?: string } = {}
+): SignalStrategyInput {
+  return {
+    name: overrides.name ?? strategy.name,
+    exchange: strategy.exchange,
+    symbol: strategy.symbol,
+    marketType: strategy.marketType,
+    timeframe: strategy.timeframe,
+    strategy: { ...strategy.strategy, name: overrides.name ?? strategy.strategy.name },
+    autoBacktest: true,
+  };
+}
+
+function SavedStrategyLibrary({
+  authStatus,
+  strategies,
+  loading,
+  error,
+  onRetry,
+  onChanged,
+}: {
+  authStatus: 'loading' | 'authenticated' | 'guest';
+  strategies: SignalLabStrategy[];
+  loading: boolean;
+  error: string | null;
+  onRetry: () => Promise<void>;
+  onChanged: () => Promise<void>;
+}) {
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [fullHistoryId, setFullHistoryId] = useState<string | null>(null);
+
+  const runAction = async (
+    actionId: string,
+    action: () => Promise<{ success: boolean; error: string | null }>,
+    successMessage: string
+  ) => {
+    setBusyAction(actionId);
+    setActionError(null);
+    const response = await action();
+    setBusyAction(null);
+    if (!response.success) {
+      setActionError(response.error || 'The strategy action failed.');
+      return;
+    }
+    toast.success(successMessage);
+    await onChanged();
+  };
+
+  return (
+    <section aria-labelledby="saved-strategies-heading" className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2
+            id="saved-strategies-heading"
+            className="font-display text-lg font-semibold text-foreground"
+          >
+            Strategy Library
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Private by default. Every change creates an immutable version with its own result.
+          </p>
+        </div>
+        {authStatus === 'authenticated' && <Tag>{strategies.length} versions</Tag>}
+      </div>
+
+      {authStatus === 'loading' ? (
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Skeleton className="h-44" />
+          <Skeleton className="h-44" />
+        </div>
+      ) : authStatus === 'guest' ? (
+        <Panel>
+          <EmptyState
+            icon={LockKeyhole}
+            title="Sign in to keep strategies private"
+            description="Save scanner setups, preserve every version, and run full-history jobs across sessions."
+            action={
+              <Button asChild variant="outline" className="min-h-10">
+                <Link to="/account">Open account</Link>
+              </Button>
+            }
+          />
+        </Panel>
+      ) : loading ? (
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Skeleton className="h-48" />
+          <Skeleton className="h-48" />
+        </div>
+      ) : error ? (
+        <Panel className="border-destructive/30 bg-destructive/5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-medium text-destructive">
+                Could not load strategy versions
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">{error}</p>
+            </div>
+            <Button variant="outline" size="sm" className="min-h-10" onClick={() => void onRetry()}>
+              Retry
+            </Button>
+          </div>
+        </Panel>
+      ) : strategies.length === 0 ? (
+        <Panel>
+          <EmptyState
+            icon={History}
+            title="No saved strategies"
+            description="Save a ranked setup below. Lazuli will run a quick backtest automatically."
+          />
+        </Panel>
+      ) : (
+        <div className="space-y-3">
+          {actionError && (
+            <div
+              role="alert"
+              className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive"
+            >
+              {actionError}
+            </div>
+          )}
+          <div className="grid gap-3 xl:grid-cols-2">
+            {strategies.map((strategy) => {
+              const isBusy = busyAction?.endsWith(strategy.id) ?? false;
+              return (
+                <Panel key={strategy.id} className="space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="truncate font-display text-base font-semibold text-foreground">
+                          {strategy.name}
+                        </h3>
+                        <Tag variant="accent">v{strategy.version}</Tag>
+                        <Tag>
+                          <LockKeyhole className="h-3 w-3" aria-hidden /> private
+                        </Tag>
+                      </div>
+                      <p className="mt-1 font-mono text-xs text-muted-foreground">
+                        {strategy.exchange} · {strategy.symbol} · {strategy.timeframe} ·{' '}
+                        {strategy.strategy.mode}
+                      </p>
+                    </div>
+                    <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+                      {new Date(strategy.createdAt).toLocaleDateString()}
+                    </span>
+                  </div>
+
+                  <StrategyResultSummary strategy={strategy} />
+
+                  <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-10"
+                      disabled={isBusy}
+                      aria-busy={busyAction === `test:${strategy.id}`}
+                      onClick={() =>
+                        void runAction(
+                          `test:${strategy.id}`,
+                          () =>
+                            LazuliAPI.runSignalStrategyBacktest(
+                              strategy.id,
+                              strategyInputFromSaved(strategy)
+                            ),
+                          `Quick test refreshed for ${strategy.name}.`
+                        )
+                      }
+                    >
+                      <Play aria-hidden /> Quick test
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-10"
+                      disabled={isBusy}
+                      aria-busy={busyAction === `clone:${strategy.id}`}
+                      onClick={() =>
+                        void runAction(
+                          `clone:${strategy.id}`,
+                          () =>
+                            LazuliAPI.createSignalStrategy(
+                              strategyInputFromSaved(strategy, { name: `${strategy.name} copy` })
+                            ),
+                          `${strategy.name} cloned as a private strategy.`
+                        )
+                      }
+                    >
+                      <Copy aria-hidden /> Clone
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="min-h-10"
+                      disabled={isBusy}
+                      aria-busy={busyAction === `restore:${strategy.id}`}
+                      onClick={() =>
+                        void runAction(
+                          `restore:${strategy.id}`,
+                          () =>
+                            LazuliAPI.createSignalStrategyVersion(
+                              strategy.id,
+                              strategyInputFromSaved(strategy)
+                            ),
+                          `${strategy.name} restored as a new immutable version.`
+                        )
+                      }
+                    >
+                      <RotateCcw aria-hidden /> Restore as new
+                    </Button>
+                    <Button
+                      variant={fullHistoryId === strategy.id ? 'accent' : 'outline'}
+                      size="sm"
+                      className="min-h-10"
+                      onClick={() =>
+                        setFullHistoryId((current) =>
+                          current === strategy.id ? null : strategy.id
+                        )
+                      }
+                      aria-expanded={fullHistoryId === strategy.id}
+                    >
+                      <History aria-hidden /> Full history
+                    </Button>
+                  </div>
+
+                  {fullHistoryId === strategy.id && <FullHistoryRunner strategy={strategy} />}
+                </Panel>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function StrategyResultSummary({ strategy }: { strategy: SignalLabStrategy }) {
+  const metrics = strategy.latestBacktest?.metrics;
+  if (!metrics) {
+    return (
+      <div className="rounded-md border border-border bg-surface-2 p-3 text-xs text-muted-foreground">
+        No quick-test result. Run the strategy once to establish a baseline.
+      </div>
+    );
+  }
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <MiniMetric
+        label="Return"
+        value={`${metrics.totalReturnPercent >= 0 ? '+' : ''}${metrics.totalReturnPercent.toFixed(2)}%`}
+        tone={metrics.totalReturnPercent >= 0 ? 'up' : 'down'}
+      />
+      <MiniMetric label="Sharpe" value={metrics.sharpe.toFixed(2)} />
+      <MiniMetric
+        label="Drawdown"
+        value={`${metrics.maxDrawdownPercent.toFixed(2)}%`}
+        tone="down"
+      />
+      <MiniMetric label="Trades" value={metrics.tradeCount.toString()} />
+    </div>
+  );
+}
+
+function FullHistoryRunner({ strategy }: { strategy: SignalLabStrategy }) {
+  const now = new Date();
+  const oneYearAgo = new Date(now.getTime() - 365 * 86_400_000);
+  const [startDate, setStartDate] = useState(formatDateInput(oneYearAgo));
+  const [endDate, setEndDate] = useState(formatDateInput(now));
+  const [job, setJob] = useState<AsyncBacktestJob | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const active = job?.status === 'queued' || job?.status === 'running';
+  const progressPercent = job ? Math.round(Math.max(0, Math.min(1, job.progress)) * 100) : 0;
+  useEffect(() => {
+    if (!job || !active) return;
+    const timer = window.setInterval(async () => {
+      const response = await LazuliAPI.getAsyncBacktestJob(job.id);
+      if (!response.success || !response.data) {
+        setError(response.error || 'Could not refresh the backtest job.');
+        return;
+      }
+      setJob(response.data);
+    }, 2_000);
+    return () => window.clearInterval(timer);
+  }, [active, job?.id]);
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    let range: { startTime: number; endTime: number };
+    try {
+      range = parseUtcDateRange(startDate, endDate);
+    } catch (rangeError) {
+      setError(rangeError instanceof Error ? rangeError.message : 'Select a valid date range.');
+      return;
+    }
+    const { startTime, endTime } = range;
+    setSubmitting(true);
+    setError(null);
+    const idempotencyKey = buildBacktestIdempotencyKey(strategy.id, startTime, endTime);
+    const response = await LazuliAPI.createAsyncBacktestJob(
+      {
+        exchange: strategy.exchange,
+        symbol: strategy.symbol,
+        marketType: strategy.marketType,
+        timeframe: strategy.timeframe,
+        startTime,
+        endTime,
+        strategy: strategy.strategy,
+        strategyId: strategy.id,
+      },
+      idempotencyKey
+    );
+    setSubmitting(false);
+    if (!response.success || !response.data) {
+      setError(response.error || 'Could not queue the full-history backtest.');
+      return;
+    }
+    setJob(response.data);
+    toast.success('Full-history backtest queued.');
+  };
+
+  const cancel = async () => {
+    if (!job) return;
+    setSubmitting(true);
+    const response = await LazuliAPI.cancelAsyncBacktestJob(job.id);
+    setSubmitting(false);
+    if (!response.success || !response.data) {
+      setError(response.error || 'Could not cancel the backtest.');
+      return;
+    }
+    setJob(response.data);
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-border bg-surface-2 p-3">
+      <form onSubmit={submit} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <label
+          className="space-y-1.5 text-xs text-muted-foreground"
+          htmlFor={`start-${strategy.id}`}
+        >
+          Start date
+          <Input
+            id={`start-${strategy.id}`}
+            type="date"
+            value={startDate}
+            max={endDate}
+            disabled={active}
+            onChange={(event) => setStartDate(event.target.value)}
+          />
+        </label>
+        <label className="space-y-1.5 text-xs text-muted-foreground" htmlFor={`end-${strategy.id}`}>
+          End date
+          <Input
+            id={`end-${strategy.id}`}
+            type="date"
+            value={endDate}
+            min={startDate}
+            max={formatDateInput(now)}
+            disabled={active}
+            onChange={(event) => setEndDate(event.target.value)}
+          />
+        </label>
+        <Button type="submit" disabled={submitting || active} aria-busy={submitting}>
+          <Play aria-hidden /> {submitting ? 'Queueing…' : 'Run archive'}
+        </Button>
+      </form>
+      <p className="text-[11px] text-muted-foreground">
+        Streams compressed R2 history. Fees are fixed at {strategy.strategy.feeBps} bps for this
+        immutable version.
+      </p>
+
+      {error && (
+        <div
+          role="alert"
+          className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive"
+        >
+          {error}
+        </div>
+      )}
+
+      {job && (
+        <div className="space-y-3 border-t border-border pt-3" aria-live="polite">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Tag
+                variant={
+                  job.status === 'complete'
+                    ? 'up'
+                    : job.status === 'failed'
+                      ? 'down'
+                      : job.status === 'cancelled'
+                        ? 'warning'
+                        : 'accent'
+                }
+              >
+                {job.status}
+              </Tag>
+              <span className="font-mono text-xs text-muted-foreground">
+                {job.processedRows.toLocaleString()} rows
+              </span>
+            </div>
+            {active && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-10"
+                onClick={() => void cancel()}
+                disabled={submitting}
+              >
+                <Square aria-hidden /> Cancel
+              </Button>
+            )}
+          </div>
+          <div>
+            <div className="mb-1 flex justify-between text-[11px] text-muted-foreground">
+              <span>Archive progress</span>
+              <span className="font-mono">{progressPercent}%</span>
+            </div>
+            <div
+              className="h-2 overflow-hidden rounded bg-surface-3"
+              role="progressbar"
+              aria-label="Full-history backtest progress"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progressPercent}
+            >
+              <div
+                className="h-full bg-accent transition-[width] duration-300 motion-reduce:transition-none"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+          {job.result && (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <MiniMetric
+                label="Return"
+                value={`${job.result.metrics.totalReturnPercent >= 0 ? '+' : ''}${job.result.metrics.totalReturnPercent.toFixed(2)}%`}
+                tone={job.result.metrics.totalReturnPercent >= 0 ? 'up' : 'down'}
+              />
+              <MiniMetric label="Sharpe" value={job.result.metrics.sharpe.toFixed(2)} />
+              <MiniMetric label="Candles" value={job.result.candleCount.toLocaleString()} />
+              <MiniMetric label="Trades" value={job.result.tradeCount.toLocaleString()} />
+            </div>
+          )}
+          {job.status === 'complete' && (
+            <Button asChild variant="link" size="sm">
+              <a
+                href={`/api/v1/backtests/jobs/${encodeURIComponent(job.id)}/result`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open deterministic result JSON
+                <ArrowRight aria-hidden />
+              </a>
+            </Button>
+          )}
+          {job.error && <p className="text-xs text-destructive">{job.error}</p>}
+        </div>
+      )}
+    </div>
   );
 }
 
