@@ -117,7 +117,22 @@ describe('growth retention service', () => {
     const statements: string[] = [];
     let claimAvailable = true;
     let successfulClaims = 0;
+    const realtimeRequests: Array<{ url: string; init?: RequestInit }> = [];
     const env = {
+      ADMIN_API_KEY: 'test-admin-key',
+      REALTIME_HUB: {
+        idFromName(topic: string) {
+          return topic;
+        },
+        get() {
+          return {
+            async fetch(url: string, init?: RequestInit) {
+              realtimeRequests.push({ url, init });
+              return Response.json({ ok: true, sequences: [1], delivered: 1 });
+            },
+          };
+        },
+      },
       DB: {
         prepare(statement: string) {
           statements.push(statement);
@@ -147,6 +162,16 @@ describe('growth retention service', () => {
     expect(first.triggered).toBe(true);
     expect(second).toEqual({ triggered: false, eventId: null });
     expect(successfulClaims).toBe(1);
+    expect(realtimeRequests).toHaveLength(1);
+    expect(realtimeRequests[0]?.url.includes('/publish-batch?topic=alerts%3Aprice%3Ausr_1')).toBe(
+      true
+    );
+    const realtimeBody = JSON.parse(String(realtimeRequests[0]?.init?.body)) as {
+      batchId?: unknown;
+      events?: Array<{ eventId?: unknown }>;
+    };
+    expect(typeof realtimeBody.batchId).toBe('string');
+    expect(realtimeBody.events?.[0]?.eventId).toBe(first.eventId);
     expect(
       statements.some((statement) => statement.includes('INSERT OR IGNORE INTO alert_events'))
     ).toBe(true);

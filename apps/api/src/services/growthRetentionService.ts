@@ -1541,8 +1541,9 @@ async function deliverMagicLink(
 
 async function publishRealtime(env: Env, topic: string, payload: unknown): Promise<boolean> {
   if (!env.REALTIME_HUB || !env.ADMIN_API_KEY) return false;
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false;
   const id = env.REALTIME_HUB.idFromName(topic);
-  const url = new URL('https://realtime/publish');
+  const url = new URL('https://realtime/publish-batch');
   url.searchParams.set('topic', topic);
   const response = await env.REALTIME_HUB.get(id).fetch(url.toString(), {
     method: 'POST',
@@ -1550,7 +1551,7 @@ async function publishRealtime(env: Env, topic: string, payload: unknown): Promi
       'Content-Type': 'application/json',
       'X-Admin-API-Key': env.ADMIN_API_KEY,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ batchId: crypto.randomUUID(), events: [payload] }),
   });
   return response.ok;
 }
