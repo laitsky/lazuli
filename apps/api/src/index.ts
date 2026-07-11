@@ -4292,7 +4292,11 @@ async function runScheduledAlertEvaluation(
 }
 
 async function runReleaseControlledScheduledWork(env: Env, scheduledTime: number): Promise<void> {
-  if (await releaseControlEnabled(env, 'cron_reconciliation')) {
+  if (
+    await releaseControlEnabled(env, 'cron_reconciliation', {
+      subject: { kind: 'internal', id: 'scheduled-worker' },
+    })
+  ) {
     await runScheduledAlertEvaluation(env, scheduledTime);
   }
   await reconcilePendingAlertDeliveries(env);

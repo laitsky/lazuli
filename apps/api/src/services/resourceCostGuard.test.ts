@@ -46,4 +46,9 @@ describe('Cloudflare cost regression guards', () => {
     expect(migration.includes('idx_price_alerts_due')).toBe(true);
     expect(migration.includes('idx_api_keys_prefix_active')).toBe(true);
   });
+
+  test('scheduled reconciliation uses an explicit internal rollout identity', async () => {
+    const index = await Bun.file(`${apiDirectory}/src/index.ts`).text();
+    expect(index.includes("subject: { kind: 'internal', id: 'scheduled-worker' }")).toBe(true);
+  });
 });
