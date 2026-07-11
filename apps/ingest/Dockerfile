@@ -1,4 +1,4 @@
-FROM oven/bun:1.2.19-alpine
+FROM oven/bun:1.3.14-alpine
 WORKDIR /app/apps/ingest
 ENV NODE_ENV=production \
     PORT=8080
