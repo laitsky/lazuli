@@ -1,5 +1,6 @@
 import type { AlertDeliveryQueueMessage, Env } from '../types';
 import { sendAlertEmail } from './emailDeliveryService';
+import { evaluateReleaseControl, getReleaseControl } from './releaseControlService';
 import { createSecretRing, signWithCurrentSecret } from '../utils/rotatingSecrets';
 
 const ENCRYPTION_VERSION = 2;
@@ -113,6 +114,7 @@ interface AttemptRow {
 }
 
 export class RetryableAlertDeliveryError extends Error {}
+export class NotificationDeliveryDisabledError extends Error {}
 class DefinitePreDispatchError extends Error {}
 
 export async function listNotificationChannels(
@@ -188,6 +190,7 @@ export async function createNotificationChannel(
   userId: string,
   input: NotificationChannelInput
 ): Promise<NotificationChannelRecord> {
+  await assertDeliveryChannelsEnabled(env, userId);
   const id = `nch_${crypto.randomUUID()}`;
   const normalized = normalizeChannelInput(input);
   await assertAccountEmailChannel(env, userId, normalized.kind, normalized.endpoint);
@@ -226,6 +229,7 @@ export async function updateNotificationChannel(
   channelId: string,
   patch: Partial<NotificationChannelInput>
 ): Promise<NotificationChannelRecord | null> {
+  await assertDeliveryChannelsEnabled(env, userId);
   const current = await getOwnedChannel(env, userId, channelId);
   if (!current) return null;
   const currentEndpoint = await decryptNotificationValue(
@@ -417,6 +421,7 @@ export async function enqueueAlertDeliveries(
   requestedChannelIds: string[] = []
 ): Promise<number> {
   if (!env.ALERT_DELIVERY_QUEUE) return 0;
+  if (!(await deliveryChannelsEnabledForUser(env, userId))) return 0;
   const uniqueIds = Array.from(new Set(requestedChannelIds.filter(validId))).slice(0, 20);
   if (uniqueIds.length === 0) return 0;
   const query = `SELECT * FROM notification_channels
@@ -458,6 +463,12 @@ export async function normalizeAlertDeliveryReferences(
         (value): value is string => typeof value === 'string' && validId(value)
       )
     : [];
+  const requestedNames = sanitizeDeliveryChannelNames(delivery.channels);
+  const requestsExternalDelivery =
+    existingIds.length > 0 ||
+    requestedNames.some((name) => name !== 'realtime') ||
+    ['email', 'discord', 'telegram', 'webhook'].some((key) => delivery[key] !== undefined);
+  if (requestsExternalDelivery) await assertDeliveryChannelsEnabled(env, userId);
   if (
     existingIds.length > 0 ||
     Object.keys(delivery).every((key) =>
@@ -550,7 +561,7 @@ export function notificationChannelIds(delivery: Record<string, unknown> | null)
 
 export async function reconcilePendingAlertDeliveries(env: Env, limit = 100): Promise<number> {
   const queue = env.ALERT_DELIVERY_QUEUE;
-  if (!queue) return 0;
+  if (!queue || !(await deliveryChannelsRolloutActive(env))) return 0;
   await env.DB.batch([
     env.DB.prepare(
       `UPDATE notification_delivery_attempts
@@ -576,14 +587,22 @@ export async function reconcilePendingAlertDeliveries(env: Env, limit = 100): Pr
     ),
   ]);
   const { results } = await env.DB.prepare(
-    `SELECT id FROM notification_delivery_attempts
-     WHERE status IN ('queued', 'retry') AND COALESCE(next_attempt_at, 0) <= unixepoch()
-     ORDER BY queued_at ASC LIMIT ?`
+    `SELECT a.id, c.user_id FROM notification_delivery_attempts a
+     JOIN notification_channels c ON c.id = a.channel_id AND c.enabled = 1
+     WHERE a.status IN ('queued', 'retry') AND COALESCE(a.next_attempt_at, 0) <= unixepoch()
+     ORDER BY a.queued_at ASC LIMIT ?`
   )
     .bind(Math.max(1, Math.min(250, Math.floor(limit))))
-    .all<{ id: string }>();
-  await Promise.all(results.map(({ id }) => queue.send({ kind: 'alert-delivery', attemptId: id })));
-  return results.length;
+    .all<{ id: string; user_id: string }>();
+  const enabled = (
+    await Promise.all(
+      results.map(async (row) =>
+        (await deliveryChannelsEnabledForUser(env, row.user_id)) ? row : null
+      )
+    )
+  ).filter((row): row is { id: string; user_id: string } => row !== null);
+  await Promise.all(enabled.map(({ id }) => queue.send({ kind: 'alert-delivery', attemptId: id })));
+  return enabled.length;
 }
 
 export async function processAlertDeliveryMessage(
@@ -599,6 +618,7 @@ export async function processAlertDeliveryMessage(
   ) {
     return;
   }
+  if (!(await deliveryChannelsEnabledForUser(env, row.user_id))) return;
   if (row.next_attempt_at && row.next_attempt_at > Math.floor(Date.now() / 1000)) {
     throw new RetryableAlertDeliveryError('Delivery retry is not due yet');
   }
@@ -673,6 +693,34 @@ export async function processAlertDeliveryMessage(
       messageText
     );
     throw new RetryableAlertDeliveryError(messageText);
+  }
+}
+
+export async function deliveryChannelsEnabledForUser(env: Env, userId: string): Promise<boolean> {
+  if (env.ENVIRONMENT === 'local' || env.ENVIRONMENT === undefined) return true;
+  try {
+    const control = await getReleaseControl(env, 'delivery_channels');
+    if (!control) return false;
+    return evaluateReleaseControl(control, { subject: { kind: 'user', id: userId } });
+  } catch {
+    return false;
+  }
+}
+
+async function deliveryChannelsRolloutActive(env: Env): Promise<boolean> {
+  if (env.ENVIRONMENT === 'local' || env.ENVIRONMENT === undefined) return true;
+  try {
+    return (await getReleaseControl(env, 'delivery_channels'))?.state !== 'off';
+  } catch {
+    return false;
+  }
+}
+
+async function assertDeliveryChannelsEnabled(env: Env, userId: string): Promise<void> {
+  if (!(await deliveryChannelsEnabledForUser(env, userId))) {
+    throw new NotificationDeliveryDisabledError(
+      'Notification delivery channels are temporarily disabled'
+    );
   }
 }
 

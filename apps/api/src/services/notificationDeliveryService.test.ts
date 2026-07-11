@@ -7,6 +7,7 @@ import {
   decryptNotificationValue,
   encryptNotificationValue,
   isSafePublicHttpsUrl,
+  normalizeAlertDeliveryReferences,
   processAlertDeliveryMessage,
   reencryptNotificationChannels,
   replayIndeterminateNotificationDelivery,
@@ -373,4 +374,93 @@ describe('notification delivery service', () => {
     expect(queued).toBe(1);
     expect(statements.some(({ sql }) => sql.includes('INSERT INTO audit_events'))).toBe(true);
   });
+
+  test('rejects external channel creation while the delivery rollout is off', async () => {
+    const env = {
+      ENVIRONMENT: 'staging',
+      DB: releaseControlDatabase('off'),
+    } as unknown as Env;
+    await expect(
+      normalizeAlertDeliveryReferences(env, 'usr_1', {
+        channels: ['realtime', 'webhook'],
+        webhook: { url: 'https://hooks.example.com/alert' },
+      })
+    ).rejects.toThrow('temporarily disabled');
+  });
+
+  test('does not claim or dispatch queued work after delivery rollback', async () => {
+    let claims = 0;
+    let sends = 0;
+    const env = {
+      ENVIRONMENT: 'staging',
+      ALERT_EMAIL: {
+        async send() {
+          sends += 1;
+        },
+      },
+      DB: {
+        prepare(sql: string) {
+          return {
+            bind() {
+              return {
+                async first() {
+                  if (sql.includes('SELECT a.*')) {
+                    return {
+                      id: 'nda_rollback',
+                      status: 'queued',
+                      user_id: 'usr_1',
+                      next_attempt_at: null,
+                    };
+                  }
+                  if (sql.includes('FROM release_controls')) return releaseControlRow('off');
+                  return null;
+                },
+                async run() {
+                  if (sql.includes("SET status = 'processing'")) claims += 1;
+                  return { meta: { changes: 1 } };
+                },
+              };
+            },
+          };
+        },
+      },
+    } as unknown as Env;
+    await processAlertDeliveryMessage(env, {
+      kind: 'alert-delivery',
+      attemptId: 'nda_rollback',
+    });
+    expect(claims).toBe(0);
+    expect(sends).toBe(0);
+  });
 });
+
+function releaseControlDatabase(state: 'off' | '100') {
+  return {
+    prepare(sql: string) {
+      return {
+        bind() {
+          return {
+            async first() {
+              return sql.includes('FROM release_controls') ? releaseControlRow(state) : null;
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+function releaseControlRow(state: 'off' | '100') {
+  return {
+    flag: 'delivery_channels',
+    state,
+    subject_allowlist_json: '[]',
+    provider_allowlist_json: '[]',
+    topic_allowlist_json: '[]',
+    revision: 1,
+    updated_by: 'test',
+    update_reason: 'test rollout',
+    created_at: 1,
+    updated_at: 1,
+  };
+}

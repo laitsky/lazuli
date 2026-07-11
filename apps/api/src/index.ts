@@ -153,6 +153,7 @@ import {
   listNotificationChannels,
   listNotificationDeliveryAttempts,
   markDeliveryDeadLetter,
+  NotificationDeliveryDisabledError,
   processAlertDeliveryMessage,
   reconcilePendingAlertDeliveries,
   reencryptNotificationChannels,
@@ -1657,11 +1658,19 @@ api.get('/me/alerts', async (c) => {
 
 api.post('/me/alerts', async (c) => {
   const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
-  const created = await createPriceAlert(
-    c.env,
-    user.id,
-    parsePriceAlertInput(await readJsonRecord(c.req.raw))
-  );
+  let created;
+  try {
+    created = await createPriceAlert(
+      c.env,
+      user.id,
+      parsePriceAlertInput(await readJsonRecord(c.req.raw))
+    );
+  } catch (error) {
+    if (error instanceof NotificationDeliveryDisabledError) {
+      return featureDisabled(c, error.message);
+    }
+    throw error;
+  }
   c.executionCtx.waitUntil(recordProductMetric(c.env, 'alert_subscribers', 1));
   return ok(c, created);
 });
@@ -4286,9 +4295,7 @@ async function runReleaseControlledScheduledWork(env: Env, scheduledTime: number
   if (await releaseControlEnabled(env, 'cron_reconciliation')) {
     await runScheduledAlertEvaluation(env, scheduledTime);
   }
-  if (await releaseControlEnabled(env, 'delivery_channels')) {
-    await reconcilePendingAlertDeliveries(env);
-  }
+  await reconcilePendingAlertDeliveries(env);
 }
 
 async function evaluateActiveAlerts(
