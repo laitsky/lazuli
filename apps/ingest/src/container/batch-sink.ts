@@ -3,6 +3,7 @@ import type { RealtimeEvent } from '@lazuli/shared';
 import type { BatchHealth, IngestConfig, ProviderHealth } from './types.ts';
 
 const encoder = new TextEncoder();
+const MAX_BATCH_EVENT_BYTES = 450_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -71,7 +72,8 @@ export class BatchSink {
     this.#flushing = true;
     try {
       while (this.#queue.length > 0) {
-        const events = this.#queue.splice(0, this.config.batchSize);
+        const events = this.takeBatch();
+        if (events.length === 0) break;
         this.#health.queued = this.#queue.length;
         const accepted = await this.sendWithRetry(events);
         if (!accepted) {
@@ -86,6 +88,25 @@ export class BatchSink {
       this.#health.queued = this.#queue.length;
       this.#flushing = false;
     }
+  }
+
+  private takeBatch(): RealtimeEvent[] {
+    const events: RealtimeEvent[] = [];
+    let bytes = 0;
+    while (events.length < this.config.batchSize && this.#queue.length > 0) {
+      const next = this.#queue[0];
+      if (!next) break;
+      const eventBytes = encoder.encode(JSON.stringify(next)).byteLength + 1;
+      if (events.length > 0 && bytes + eventBytes > MAX_BATCH_EVENT_BYTES) break;
+      this.#queue.shift();
+      if (eventBytes > MAX_BATCH_EVENT_BYTES) {
+        this.#health.dropped += 1;
+        continue;
+      }
+      events.push(next);
+      bytes += eventBytes;
+    }
+    return events;
   }
 
   private async sendWithRetry(events: RealtimeEvent[]): Promise<boolean> {

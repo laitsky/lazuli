@@ -81,7 +81,7 @@ export function loadConfig(env: Record<string, string | undefined>): IngestConfi
     symbols,
     upbitQuote: (env.UPBIT_QUOTE ?? 'KRW').toUpperCase(),
     port: positiveInt(env.PORT, 8080, 65_535),
-    batchSize: positiveInt(env.INGEST_BATCH_SIZE, 50, 100),
+    batchSize: positiveInt(env.INGEST_BATCH_SIZE, 500, 500),
     batchIntervalMs: positiveInt(env.INGEST_BATCH_INTERVAL_MS, 200, 5_000),
     maxBufferedEvents: positiveInt(env.INGEST_MAX_BUFFERED_EVENTS, 10_000, 100_000),
     controlApiToken: env.CONTROL_API_TOKEN ?? null,

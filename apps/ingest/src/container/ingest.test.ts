@@ -20,7 +20,7 @@ describe('ingest configuration', () => {
     expect(config.providers).toEqual(['binance', 'bybit']);
     expect(config.symbols[0]).toBe('BTC/USDT');
     expect(config.symbols).toHaveLength(50);
-    expect(config.batchSize).toBe(100);
+    expect(config.batchSize).toBe(500);
     expect(config.maxBufferedEvents).toBe(10_000);
     expect(config.signingKeyId).toBe('ingest-test-v2');
   });

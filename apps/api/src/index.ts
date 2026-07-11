@@ -519,18 +519,26 @@ app.post('/internal/realtime/batch', async (c) => {
     }
     return { normalized, topic };
   });
+  // Exchange batches contain many events for the same provider/topic. Evaluate
+  // each rollout resource once so a 500-event burst cannot fan out hundreds of
+  // identical D1 control reads.
+  const rolloutByResource = new Map<string, Promise<boolean>>();
   const rolloutDecisions = await Promise.all(
-    normalizedEvents.map(({ normalized, topic }) =>
-      releaseControlEnabled(c.env, 'realtime', {
-        resource: {
-          provider:
-            isRecord(normalized.provenance) && typeof normalized.provenance.provider === 'string'
-              ? normalized.provenance.provider
-              : undefined,
-          topic,
-        },
-      })
-    )
+    normalizedEvents.map(({ normalized, topic }) => {
+      const provider =
+        isRecord(normalized.provenance) && typeof normalized.provenance.provider === 'string'
+          ? normalized.provenance.provider
+          : undefined;
+      const resourceKey = `${provider ?? ''}:${topic}`;
+      let decision = rolloutByResource.get(resourceKey);
+      if (!decision) {
+        decision = releaseControlEnabled(c.env, 'realtime', {
+          resource: { provider, topic },
+        });
+        rolloutByResource.set(resourceKey, decision);
+      }
+      return decision;
+    })
   );
   const enabledEvents = normalizedEvents.filter((_, index) => rolloutDecisions[index]);
   const claim = await claimRealtimeIngestBatch(c.env, batchId);
