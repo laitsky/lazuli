@@ -121,8 +121,8 @@ export interface UserAccount {
 }
 
 /**
- * Magic-link request response. Production deployments omit `magicLink` after
- * handing the link to the configured delivery webhook.
+ * Magic-link request response. Only explicit local development exposes
+ * `magicLink`; staging and production always deliver it out of band.
  */
 export interface AuthMagicLinkResponse {
   email: string;

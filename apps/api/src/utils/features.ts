@@ -25,7 +25,6 @@ export interface ReleaseControlContext {
   signedAnonymousSubject?: string | null;
   subject?: ReleaseSubject | null;
   resource?: ReleaseResource | null;
-  internal?: boolean;
 }
 
 const RELEASE_CONTROL_CACHE_TTL_MS = 1_000;
@@ -88,7 +87,6 @@ export async function resolveReleaseSubject(
   env: Env,
   context: ReleaseControlContext
 ): Promise<ReleaseSubject | null> {
-  if (context.internal) return { kind: 'internal', id: 'signed-service' };
   if (context.subject) return context.subject;
 
   const authorization = context.authorization?.trim() ?? '';

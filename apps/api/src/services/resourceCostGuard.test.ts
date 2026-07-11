@@ -8,15 +8,15 @@ const servicesDirectory = (import.meta as ImportMeta & { dir: string }).dir;
 const apiDirectory = `${servicesDirectory}/../..`;
 
 describe('Cloudflare cost regression guards', () => {
-  test('Durable Object sources cannot use persistence or scheduled callbacks', async () => {
-    const sources = await Promise.all(
-      ['MarketDataCacheDO.ts', 'RealtimeHubDO.ts'].map((file) =>
-        Bun.file(`${servicesDirectory}/${file}`).text()
-      )
-    );
+  test('Durable Objects avoid scheduled callbacks and bound realtime persistence', async () => {
+    const marketCache = await Bun.file(`${servicesDirectory}/MarketDataCacheDO.ts`).text();
+    const realtimeHub = await Bun.file(`${servicesDirectory}/RealtimeHubDO.ts`).text();
 
-    for (const source of sources) {
-      expect(/\.storage\b/.test(source)).toBe(false);
+    expect(/\.storage\b/.test(marketCache)).toBe(false);
+    expect(realtimeHub.includes('MAX_DEDUPE_EVENTS')).toBe(true);
+    expect(realtimeHub.includes('MAX_SNAPSHOT_EVENTS')).toBe(true);
+    expect(realtimeHub.includes('MAX_CHECKPOINT_BYTES')).toBe(true);
+    for (const source of [marketCache, realtimeHub]) {
       expect(/\b(?:alarm|getAlarm|setAlarm|deleteAlarm)\s*\(/.test(source)).toBe(false);
     }
     expect(await Bun.file(`${servicesDirectory}/RateLimiterDO.ts`).exists()).toBe(false);

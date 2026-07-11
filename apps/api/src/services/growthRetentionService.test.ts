@@ -1,15 +1,82 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  createMagicLink,
   createPasskeyRegistrationOptions,
   deliverAlertNotification,
   evaluateAlertTrigger,
   listDuePriceAlerts,
   verifyApiKey,
+  verifyMagicLink,
 } from './growthRetentionService';
 import type { Env } from '../types';
 import type { PriceAlertRecord } from '@lazuli/shared';
 
 describe('growth retention service', () => {
+  test('never exposes a magic-link credential in staging', async () => {
+    const env = {
+      ENVIRONMENT: 'staging',
+      APP_BASE_URL: 'https://staging.lazuli.now',
+      DB: {
+        prepare() {
+          return { bind: () => ({ run: async () => ({ meta: { changes: 1 } }) }) };
+        },
+      },
+    } as unknown as Env;
+
+    const result = await createMagicLink(env, 'user@example.com');
+    expect(result.magicLink).toBe(null);
+    expect(result.delivered).toBe(false);
+  });
+
+  test('atomically consumes a magic link before creating one session', async () => {
+    let claimAvailable = true;
+    let sessionsCreated = 0;
+    const statements: string[] = [];
+    const env = {
+      DB: {
+        prepare(statement: string) {
+          statements.push(statement);
+          return {
+            bind() {
+              return {
+                async first() {
+                  if (statement.includes('UPDATE auth_magic_links')) {
+                    if (!claimAvailable) return null;
+                    claimAvailable = false;
+                    return { email: 'user@example.com' };
+                  }
+                  if (statement.includes('SELECT * FROM users WHERE email')) {
+                    return {
+                      id: 'usr_1',
+                      email: 'user@example.com',
+                      display_name: null,
+                      created_at: 1_700_000_000,
+                      last_login_at: null,
+                    };
+                  }
+                  return null;
+                },
+                async run() {
+                  if (statement.includes('INSERT INTO user_sessions')) sessionsCreated += 1;
+                  return { meta: { changes: 1 } };
+                },
+              };
+            },
+          };
+        },
+      },
+    } as unknown as Env;
+
+    const session = await verifyMagicLink(env, 'ml_valid-token');
+    expect(session.user.id).toBe('usr_1');
+    await expect(verifyMagicLink(env, 'ml_valid-token')).rejects.toThrow(
+      'Magic link is invalid or expired'
+    );
+    expect(sessionsCreated).toBe(1);
+    expect(statements[0]?.includes('UPDATE auth_magic_links')).toBe(true);
+    expect(statements[0]?.includes('RETURNING email')).toBe(true);
+  });
+
   test('claims a one-shot alert atomically before creating a delivery event', async () => {
     const statements: string[] = [];
     let claimAvailable = true;

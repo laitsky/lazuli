@@ -2869,6 +2869,7 @@ components:
         magicLink:
           type: string
           nullable: true
+          description: Present only in explicit local development; always null in staging and production.
 
     AuthSessionResponse:
       type: object

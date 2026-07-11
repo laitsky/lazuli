@@ -4336,6 +4336,8 @@ export const OPENAPI_DOCUMENT = {
           magicLink: {
             type: 'string',
             nullable: true,
+            description:
+              'Present only in explicit local development; always null in staging and production.',
           },
         },
       },

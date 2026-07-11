@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from '../types';
+import { BoundedRealtimeEventIndex } from './realtimeDedupe';
 
 interface SocketAttachment {
   topic: string;
@@ -9,7 +10,10 @@ interface SocketAttachment {
 
 const MAX_TOPIC_LENGTH = 120;
 const MAX_SNAPSHOT_EVENTS = 256;
+const MAX_DEDUPE_EVENTS = 2048;
 const MAX_BUFFERED_BYTES = 1_048_576;
+const MAX_CHECKPOINT_BYTES = 1_500_000;
+const CHECKPOINT_KEY = 'realtime-checkpoint-v1';
 
 interface RealtimeEnvelope {
   type: 'event';
@@ -21,11 +25,31 @@ interface RealtimeEnvelope {
   publishedAt: number;
 }
 
+interface RealtimeCheckpoint {
+  sequence: number;
+  recent: RealtimeEnvelope[];
+  eventSequences: Array<[string, number]>;
+}
+
 export class RealtimeHubV2DO extends DurableObject<Env> {
   private sequence = 0;
   private readonly recent: RealtimeEnvelope[] = [];
+  private readonly eventSequences = new BoundedRealtimeEventIndex(MAX_DEDUPE_EVENTS);
+  private readonly ready: Promise<void>;
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    this.ready = ctx.blockConcurrencyWhile(async () => {
+      const checkpoint = await ctx.storage.get<RealtimeCheckpoint>(CHECKPOINT_KEY);
+      if (!checkpoint) return;
+      this.sequence = checkpoint.sequence;
+      this.recent.push(...checkpoint.recent.slice(-MAX_SNAPSHOT_EVENTS));
+      this.eventSequences.restore(checkpoint.eventSequences);
+    });
+  }
 
   async fetch(request: Request): Promise<Response> {
+    await this.ready;
     const url = new URL(request.url);
 
     if (url.pathname === '/health') {
@@ -73,16 +97,11 @@ export class RealtimeHubV2DO extends DurableObject<Env> {
       if (payload === null) {
         return Response.json({ error: 'Invalid JSON payload' }, { status: 400 });
       }
-
-      const envelope = this.append(topic, payload);
-      const delivered = this.broadcast(envelope);
-      return Response.json({
-        ok: true,
-        topic,
-        sequence: envelope.sequence,
-        delivered,
-        timestamp: envelope.publishedAt,
-      });
+      const eventId = realtimeEventId(payload);
+      if (!eventId) {
+        return Response.json({ error: 'A valid eventId is required' }, { status: 400 });
+      }
+      return this.ctx.blockConcurrencyWhile(() => this.publish(topic, eventId, payload));
     }
 
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
@@ -189,6 +208,57 @@ export class RealtimeHubV2DO extends DurableObject<Env> {
     }
     return delivered;
   }
+
+  private async publish(topic: string, eventId: string, payload: unknown): Promise<Response> {
+    const existingSequence = this.eventSequences.get(eventId);
+    if (existingSequence !== undefined) {
+      return Response.json({
+        ok: true,
+        duplicate: true,
+        topic,
+        sequence: existingSequence,
+        delivered: 0,
+        timestamp: Date.now(),
+      });
+    }
+
+    const envelope = this.append(topic, payload);
+    const delivered = this.broadcast(envelope);
+    this.rememberEvent(eventId, envelope.sequence);
+    await this.persistCheckpoint();
+    return Response.json({
+      ok: true,
+      topic,
+      sequence: envelope.sequence,
+      delivered,
+      timestamp: envelope.publishedAt,
+    });
+  }
+
+  private rememberEvent(eventId: string, sequence: number): void {
+    this.eventSequences.remember(eventId, sequence);
+  }
+
+  private async persistCheckpoint(): Promise<void> {
+    const eventSequences = this.eventSequences.entries();
+    let recent = this.recent.slice(-MAX_SNAPSHOT_EVENTS);
+    let checkpoint: RealtimeCheckpoint = { sequence: this.sequence, recent, eventSequences };
+    while (recent.length > 0 && checkpointBytes(checkpoint) > MAX_CHECKPOINT_BYTES) {
+      recent = recent.slice(Math.ceil(recent.length / 2));
+      checkpoint = { sequence: this.sequence, recent, eventSequences };
+    }
+    await this.ctx.storage.put(CHECKPOINT_KEY, checkpoint);
+  }
+}
+
+function checkpointBytes(value: RealtimeCheckpoint): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
+
+function realtimeEventId(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const eventId = (value as Record<string, unknown>).eventId;
+  return typeof eventId === 'string' && /^[A-Za-z0-9._:-]{8,160}$/.test(eventId) ? eventId : null;
 }
 
 function parseSequence(value: string | null): number | null {

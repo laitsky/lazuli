@@ -20,9 +20,12 @@ Inspect attempt state, attempt number, timestamps, redacted status, and Queue me
 ## Replay
 
 1. Export the affected message/idempotency keys and expected count.
-2. Requeue through the signed operator tool; never edit delivered rows to queued.
+2. Requeue through the signed operator tool; never edit delivered rows to queued. For an
+   indeterminate Email, Discord, or Telegram attempt, warn that manual replay can duplicate a
+   provider-accepted message and require explicit operator confirmation.
 3. Consumer conditionally claims only non-delivered attempts and records every retry.
-4. Verify exactly one delivered attempt per event/channel key and user-visible status.
+4. Verify one terminal attempt per event/channel key and user-visible status; webhook receivers
+   must prove idempotency-key deduplication before replay.
 5. Drain in bounded batches while watching dispatch latency, Queue age, and provider quota.
 
 Close after DLQ age is zero, all items are triaged, duplicate counter is zero, and a sample end-to-end delivery is verified. Preserve a sanitized replay report.

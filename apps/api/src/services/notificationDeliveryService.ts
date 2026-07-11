@@ -327,6 +327,7 @@ export async function retryNotificationDelivery(
      SET status = 'queued', attempt_number = 0, response_status = NULL, last_error = NULL,
          next_attempt_at = NULL, queued_at = unixepoch(), updated_at = unixepoch()
      WHERE id = ? AND status IN ('failed', 'dead_letter')
+       AND COALESCE(last_error, '') NOT LIKE 'Indeterminate provider acceptance;%'
        AND EXISTS (
          SELECT 1 FROM alert_events e
          JOIN notification_channels c ON c.id = notification_delivery_attempts.channel_id
@@ -482,11 +483,30 @@ export function notificationChannelIds(delivery: Record<string, unknown> | null)
 export async function reconcilePendingAlertDeliveries(env: Env, limit = 100): Promise<number> {
   const queue = env.ALERT_DELIVERY_QUEUE;
   if (!queue) return 0;
-  await env.DB.prepare(
-    `UPDATE notification_delivery_attempts
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE notification_delivery_attempts
+       SET status = 'dead_letter', next_attempt_at = NULL,
+           last_error = 'Indeterminate provider acceptance; automatic replay suppressed',
+           updated_at = unixepoch()
+       WHERE status = 'processing' AND next_attempt_at IS NOT NULL
+         AND next_attempt_at <= unixepoch()
+         AND EXISTS (
+           SELECT 1 FROM notification_channels c
+           WHERE c.id = notification_delivery_attempts.channel_id AND c.kind != 'webhook'
+         )`
+    ),
+    env.DB.prepare(
+      `UPDATE notification_delivery_attempts
      SET status = 'retry', updated_at = unixepoch()
-     WHERE status = 'processing' AND next_attempt_at IS NOT NULL AND next_attempt_at <= unixepoch()`
-  ).run();
+       WHERE status = 'processing' AND next_attempt_at IS NOT NULL
+         AND next_attempt_at <= unixepoch()
+         AND EXISTS (
+           SELECT 1 FROM notification_channels c
+           WHERE c.id = notification_delivery_attempts.channel_id AND c.kind = 'webhook'
+         )`
+    ),
+  ]);
   const { results } = await env.DB.prepare(
     `SELECT id FROM notification_delivery_attempts
      WHERE status IN ('queued', 'retry') AND COALESCE(next_attempt_at, 0) <= unixepoch()
@@ -541,8 +561,11 @@ export async function processAlertDeliveryMessage(
       ]);
       return;
     }
-    const terminal =
-      result.status >= 400 && result.status < 500 && result.status !== 408 && result.status !== 429;
+    // Only signed user webhooks have an enforceable receiver-side
+    // Idempotency-Key contract. Email, Discord, and Telegram are at-most-once
+    // after dispatch begins because their providers cannot dedupe a replay.
+    const retryable = canAutomaticallyRetryDelivery(row.channel_kind, result.status);
+    const terminal = !retryable;
     await recordDeliveryFailure(
       env,
       row,
@@ -556,6 +579,10 @@ export async function processAlertDeliveryMessage(
   } catch (error) {
     if (error instanceof RetryableAlertDeliveryError) throw error;
     const messageText = redactDeliveryError(error);
+    if (row.channel_kind !== 'webhook') {
+      await markIndeterminateDelivery(env, row, messageText);
+      return;
+    }
     await recordDeliveryFailure(
       env,
       row,
@@ -567,6 +594,21 @@ export async function processAlertDeliveryMessage(
     );
     throw new RetryableAlertDeliveryError(messageText);
   }
+}
+
+async function markIndeterminateDelivery(env: Env, row: AttemptRow, error: string): Promise<void> {
+  const safeError = `Indeterminate provider acceptance; automatic replay suppressed: ${redactDeliveryError(error)}`;
+  await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE notification_delivery_attempts
+       SET status = 'dead_letter', next_attempt_at = NULL, last_error = ?, updated_at = unixepoch()
+       WHERE id = ?`
+    ).bind(safeError, row.id),
+    env.DB.prepare(`UPDATE notification_channels SET last_error = ? WHERE id = ?`).bind(
+      safeError,
+      row.channel_id
+    ),
+  ]);
 }
 
 export async function markDeliveryDeadLetter(env: Env, attemptId: string): Promise<void> {
@@ -586,6 +628,13 @@ export function alertDeliveryRetryDelaySeconds(attempt: number): number {
     RETRY_MAX_SECONDS,
     Math.ceil(RETRY_BASE_SECONDS * 2 ** exponent * (1 + deterministicJitter))
   );
+}
+
+export function canAutomaticallyRetryDelivery(
+  kind: NotificationChannelKind,
+  status: number
+): boolean {
+  return kind === 'webhook' && (status >= 500 || status === 408 || status === 429);
 }
 
 export function alertDeliveryIdempotencyKey(alertEventId: string, channelId: string): string {

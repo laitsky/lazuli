@@ -3,9 +3,11 @@ import type { Env } from '../types';
 import {
   alertDeliveryIdempotencyKey,
   alertDeliveryRetryDelaySeconds,
+  canAutomaticallyRetryDelivery,
   decryptNotificationValue,
   encryptNotificationValue,
   isSafePublicHttpsUrl,
+  processAlertDeliveryMessage,
   reencryptNotificationChannels,
 } from './notificationDeliveryService';
 
@@ -162,5 +164,92 @@ describe('notification delivery service', () => {
     expect(Number(delays[2]) > Number(delays[1])).toBe(true);
     expect(Number(delays[3]) > Number(delays[2])).toBe(true);
     expect(delays[6]).toBe(900);
+  });
+
+  test('retries only receiver-idempotent webhooks after provider responses', () => {
+    expect(canAutomaticallyRetryDelivery('webhook', 500)).toBe(true);
+    expect(canAutomaticallyRetryDelivery('webhook', 429)).toBe(true);
+    expect(canAutomaticallyRetryDelivery('webhook', 400)).toBe(false);
+    expect(canAutomaticallyRetryDelivery('email', 500)).toBe(false);
+    expect(canAutomaticallyRetryDelivery('discord', 500)).toBe(false);
+    expect(canAutomaticallyRetryDelivery('telegram', 500)).toBe(false);
+  });
+
+  test('does not resend an indeterminate non-idempotent provider attempt', async () => {
+    const userId = 'usr_1';
+    const channelId = 'nch_1';
+    const key = 'test-only-notification-encryption-key-that-is-long-enough';
+    const endpoint = await encryptNotificationValue(
+      { NOTIFICATION_ENCRYPTION_KEY: key },
+      'user@example.com',
+      `lazuli:notification:v1:${userId}:${channelId}:endpoint`
+    );
+    let status = 'queued';
+    let sends = 0;
+    const env = {
+      NOTIFICATION_ENCRYPTION_KEY: key,
+      ALERT_EMAIL: {
+        async send() {
+          sends += 1;
+          throw new Error('connection closed after provider acceptance');
+        },
+      },
+      DB: {
+        prepare(sql: string) {
+          return {
+            sql,
+            bind() {
+              return {
+                sql,
+                async first() {
+                  if (!sql.includes('SELECT a.*')) return null;
+                  return {
+                    id: 'nda_1',
+                    alert_event_id: 'ae_1',
+                    channel_id: channelId,
+                    idempotency_key: 'alert:ae_1:channel:nch_1:v1',
+                    status,
+                    attempt_number: 0,
+                    provider: null,
+                    response_status: null,
+                    last_error: null,
+                    queued_at: 1,
+                    attempted_at: null,
+                    delivered_at: null,
+                    next_attempt_at: null,
+                    channel_kind: 'email',
+                    channel_label: 'Account email',
+                    endpoint_ciphertext: endpoint,
+                    secret_ciphertext: null,
+                    config_json: '{}',
+                    payload_json: '{}',
+                    symbol: 'BTC-USDT',
+                    exchange: 'bybit',
+                    trigger_price: 100,
+                    target_price: 100,
+                    condition: 'above',
+                    user_id: userId,
+                  };
+                },
+                async run() {
+                  return { meta: { changes: status === 'queued' ? 1 : 0 } };
+                },
+              };
+            },
+          };
+        },
+        async batch(statements: Array<{ sql?: string }>) {
+          if (statements.some((statement) => statement.sql?.includes("status = 'dead_letter'"))) {
+            status = 'dead_letter';
+          }
+          return statements.map(() => ({ meta: { changes: 1 } }));
+        },
+      },
+    } as unknown as Env;
+
+    await processAlertDeliveryMessage(env, { kind: 'alert-delivery', attemptId: 'nda_1' });
+    await processAlertDeliveryMessage(env, { kind: 'alert-delivery', attemptId: 'nda_1' });
+    expect(status).toBe('dead_letter');
+    expect(sends).toBe(1);
   });
 });

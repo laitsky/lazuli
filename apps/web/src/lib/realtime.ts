@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { BoundedEventIds } from './event-dedupe';
 
 export type RealtimeStatus = 'connecting' | 'open' | 'degraded' | 'closed';
 
@@ -17,6 +18,7 @@ interface TopicSubscription {
 }
 
 const subscriptions = new Map<string, TopicSubscription>();
+const MAX_SEEN_EVENT_IDS = 4096;
 
 function realtimeApiOrigin(): URL {
   const configured = import.meta.env.VITE_API_URL as string | undefined;
@@ -33,6 +35,7 @@ class TopicClient {
   private startTimer: number | null = null;
   private reconnectAttempt = 0;
   private lastSequence = 0;
+  private readonly seenEventIds = new BoundedEventIds(MAX_SEEN_EVENT_IDS);
   private stopped = false;
   private readonly statusListeners = new Set<(status: RealtimeStatus) => void>();
 
@@ -109,6 +112,7 @@ class TopicClient {
     }
     if (message.sequence <= this.lastSequence) return;
     this.lastSequence = message.sequence;
+    if (!this.rememberEvent(message)) return;
     this.emit(message);
   }
 
@@ -131,7 +135,7 @@ class TopicClient {
       for (const event of snapshot.events ?? []) {
         if (isRealtimeEnvelope(event) && event.sequence > this.lastSequence) {
           this.lastSequence = event.sequence;
-          this.emit(event);
+          if (this.rememberEvent(event)) this.emit(event);
         }
       }
     } catch {
@@ -154,6 +158,12 @@ class TopicClient {
 
   private setStatus(status: RealtimeStatus): void {
     this.statusListeners.forEach((listener) => listener(status));
+  }
+
+  private rememberEvent(envelope: RealtimeEnvelope): boolean {
+    const eventId = realtimeEventId(envelope);
+    if (!eventId) return true;
+    return this.seenEventIds.remember(eventId);
   }
 }
 
@@ -239,4 +249,13 @@ function isSubscribedEnvelope(
     typeof message.sequence === 'number' &&
     Number.isSafeInteger(message.sequence)
   );
+}
+
+function realtimeEventId(envelope: RealtimeEnvelope): string | null {
+  for (const candidate of [envelope.event, envelope.data]) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) continue;
+    const eventId = (candidate as Record<string, unknown>).eventId;
+    if (typeof eventId === 'string' && eventId.length >= 8) return eventId;
+  }
+  return null;
 }

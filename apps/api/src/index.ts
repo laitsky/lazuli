@@ -414,7 +414,15 @@ app.use('/api/v1/admin/*', async (c, next) => {
     c.req.path.startsWith('/api/v1/admin/fault-injections')
   )
     return next();
-  if (!(await releaseControlEnabled(c.env, 'admin_operations', releaseContext(c)))) {
+  await requireAdminRequest(c);
+  if (
+    !(await releaseControlEnabled(c.env, 'admin_operations', {
+      subject: {
+        kind: 'internal',
+        id: c.req.header('X-Admin-Key-Id') ?? 'local-admin',
+      },
+    }))
+  ) {
     return featureDisabled(c, 'Admin routes are temporarily disabled');
   }
   return next();
@@ -2852,7 +2860,6 @@ function releaseContext(c: Context<{ Bindings: Env }>) {
   return {
     authorization: c.req.header('Authorization') ?? null,
     signedAnonymousSubject: getCookie(c, 'lazuli_anon_subject') ?? null,
-    internal: Boolean(c.req.header('X-Admin-Key-Id')),
   };
 }
 

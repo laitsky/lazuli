@@ -12,8 +12,8 @@ Set these independently in staging and production with `wrangler secret put`:
 
 - `NOTIFICATION_ENCRYPTION_KEY`: at least 32 random characters. Treat this as a
   key-encryption root; loss makes existing channel endpoints unrecoverable.
-- `ALERT_EMAIL_DELIVERY_WEBHOOK_URL` and optional
-  `ALERT_EMAIL_DELIVERY_WEBHOOK_SECRET`: free-tier HTTP email adapter.
+- `ALERT_EMAIL`: Cloudflare Email Service binding restricted to
+  `alerts@lazuli.now`; the legacy HTTP adapter remains fallback-only.
 - `ALERT_TELEGRAM_BOT_TOKEN`: provider token for Telegram channels.
 - `ALERT_WEBHOOK_SIGNING_SECRET`: fallback HMAC secret for HTTPS webhooks.
 
@@ -23,16 +23,19 @@ secrets are user-owned encrypted channel values, never Worker variables.
 
 ## Failure and recovery
 
-Transient failures use exponential Queue retries (5 seconds to 15 minutes).
-Non-retryable HTTP 4xx responses are marked `failed`. Exhausted messages are
-marked `dead_letter` in D1 and forwarded to the configured Cloudflare DLQ. Users
-can inspect delivery state and explicitly retry failed/dead-letter attempts via
-`POST /api/v1/me/alert-deliveries/{id}/retry` after correcting the channel.
+Signed HTTPS webhooks use exponential Queue retries (5 seconds to 15 minutes)
+and require receivers to deduplicate the stable `Idempotency-Key`. Email,
+Discord, and Telegram do not provide a receiver-enforced idempotency primitive,
+so they become at-most-once when dispatch begins: an indeterminate timeout or a
+crashed `processing` lease is marked `dead_letter` and never replayed
+automatically. This trades a visible missed delivery for the release gate's
+zero-duplicate guarantee. Users and operators must review the indeterminate
+warning before any manual retry.
 
 The scheduled handler re-enqueues due `queued`/`retry` attempts, covering the
 small failure window between the idempotent D1 insert and Queue send. The unique
 `idempotency_key` prevents duplicate attempts for the same event and channel;
-the conditional `processing` claim prevents duplicate provider dispatch.
+the conditional `processing` claim prevents concurrent provider dispatch.
 
 Operator checks:
 

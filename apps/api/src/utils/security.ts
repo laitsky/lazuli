@@ -8,6 +8,7 @@ import { createSecretRing, verifyRotatingHmac, type SecretRing } from './rotatin
 
 const ADMIN_SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const ADMIN_NONCE_TTL_MS = 10 * 60 * 1000;
+const verifiedAdminRequests = new WeakSet<Request>();
 
 type AppContext = Context<{ Bindings: Env }>;
 
@@ -163,6 +164,7 @@ function presentedApiKey(c: AppContext): string | null {
 }
 
 export async function requireAdminRequest(c: AppContext): Promise<void> {
+  if (verifiedAdminRequests.has(c.req.raw)) return;
   const rotationEnv = c.env as Env & {
     ADMIN_API_KEY_NEXT?: string;
     ADMIN_API_KEY_ID_NEXT?: string;
@@ -178,6 +180,7 @@ export async function requireAdminRequest(c: AppContext): Promise<void> {
       logSecurityEvent(c, 'admin_auth_failed', { reason: 'local_api_key_mismatch' });
       throw unauthorized('Admin API key is required');
     }
+    verifiedAdminRequests.add(c.req.raw);
     return;
   }
 
@@ -232,6 +235,7 @@ export async function requireAdminRequest(c: AppContext): Promise<void> {
     logSecurityEvent(c, 'admin_auth_failed', { reason: 'nonce_replay' });
     throw unauthorized('Admin request nonce has already been used');
   }
+  verifiedAdminRequests.add(c.req.raw);
   logSecurityEvent(c, 'admin_auth_succeeded', { keyId });
 }
 

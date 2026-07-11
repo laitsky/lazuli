@@ -33,11 +33,7 @@ import {
   normalizeAlertDeliveryReferences,
   notificationChannelIds,
 } from './notificationDeliveryService';
-import {
-  hasMagicLinkDeliveryProvider,
-  sendAlertEmail,
-  sendMagicLinkEmail,
-} from './emailDeliveryService';
+import { sendAlertEmail, sendMagicLinkEmail } from './emailDeliveryService';
 import { createSecretRing, signWithCurrentSecret } from '../utils/rotatingSecrets';
 
 const MAGIC_LINK_TTL_SECONDS = 15 * 60;
@@ -249,7 +245,7 @@ export async function createMagicLink(
     .run();
 
   const delivered = await deliverMagicLink(env, email, magicLink, expiresAt);
-  const exposeLink = env.ENVIRONMENT !== 'production' || !hasMagicLinkDeliveryProvider(env);
+  const exposeLink = env.ENVIRONMENT === 'local' || env.ENVIRONMENT === undefined;
   return {
     email,
     expiresAt: expiresAt * 1000,
@@ -263,22 +259,19 @@ export async function verifyMagicLink(env: Env, token: string): Promise<AuthSess
   const tokenHash = await sha256Hex(token.trim());
   const now = unixNow();
   const row = await env.DB.prepare(
-    `SELECT id, email
-     FROM auth_magic_links
-     WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?`
+    `UPDATE auth_magic_links
+     SET consumed_at = ?
+     WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
+     RETURNING email`
   )
-    .bind(tokenHash, now)
-    .first<{ id: string; email: string }>();
+    .bind(now, tokenHash, now)
+    .first<{ email: string }>();
 
   if (!row) {
     throw new Error('Magic link is invalid or expired');
   }
 
   const user = await upsertUser(env, row.email);
-  await env.DB.prepare(`UPDATE auth_magic_links SET consumed_at = unixepoch() WHERE id = ?`)
-    .bind(row.id)
-    .run();
-
   return createSessionForUser(env, user);
 }
 

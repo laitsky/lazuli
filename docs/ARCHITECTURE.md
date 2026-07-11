@@ -22,7 +22,7 @@ Exchange WebSockets -> Ingest Container -> signed batch endpoint -> RealtimeHubD
                                                              |-> Queues -> R2/rollups/delivery
 ```
 
-The Container owns outbound exchange connections, heartbeat, reconnect, sharding, and snapshot reconciliation. A Durable Object ID is derived from each normalized topic. RealtimeHubDO instances keep only a bounded recovery window and use the hibernation WebSocket API for browser connections. They do not open outbound exchange sockets. REST snapshots and polling remain the recovery and rollback paths.
+The Container owns outbound exchange connections, heartbeat, reconnect, sharding, and snapshot reconciliation. A Durable Object ID is derived from each normalized topic. RealtimeHubDO instances keep a bounded recovery/idempotency checkpoint and use the hibernation WebSocket API for browser connections. The checkpoint retains only the last 256 envelopes and 2,048 event IDs so partial ingest retries cannot duplicate trade, CVD, or liquidation events after hibernation. They do not open outbound exchange sockets. REST snapshots and polling remain the recovery and rollback paths.
 
 The accepted decision and its operational consequences are recorded in [ADR-0001](./architecture/adr-0001-realtime-ingest-and-fanout.md).
 
