@@ -51,6 +51,12 @@
     "staging": {
       "name": "lazuli-ingest-staging",
       "workers_dev": true,
+      "routes": [
+        {
+          "pattern": "ingest-staging.lazuli.now",
+          "custom_domain": true,
+        },
+      ],
       "vars": {
         "ENVIRONMENT": "staging",
         "API_BASE_URL": "https://api-staging.lazuli.now",
