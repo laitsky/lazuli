@@ -20,7 +20,8 @@ export const TIMEFRAME_MS: Record<Timeframe, number> = {
 };
 
 export const DEFAULT_BACKFILL_TIMEFRAMES: Timeframe[] = ['1h', '4h', '1d'];
-export const MAX_BACKFILL_ATTEMPTS = 10;
+export const MAX_BACKFILL_ATTEMPTS = 5;
+export const MAX_BACKFILL_TASKS = 5_000;
 const SUPPORTED_EXCHANGES = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'] as const;
 const SUPPORTED_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'] as const;
 const EXCHANGE_CAPABILITIES: Record<string, Array<'spot' | 'perp'>> = {
@@ -77,13 +78,25 @@ interface TaskRow {
 }
 
 export const DEFAULT_BACKFILL_START = Date.parse('2019-01-01T00:00:00Z');
-export const DEFAULT_BACKFILL_END = Date.parse('2020-12-31T23:59:59Z');
+export const DEFAULT_BACKFILL_END = Date.now();
+export const DEFAULT_BACKFILL_SYMBOL_LIMIT = 50;
 
 export class TerminalBackfillError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'TerminalBackfillError';
   }
+}
+
+export function assertBackfillTaskLimit(taskCount: number): void {
+  if (taskCount > MAX_BACKFILL_TASKS) {
+    throw new Error(`Backfill request exceeds the ${MAX_BACKFILL_TASKS} task limit`);
+  }
+}
+
+export function queueRetryDelaySeconds(attempts: number): number {
+  const retryIndex = Math.max(0, Math.floor(attempts) - 1);
+  return Math.min(300, 10 * 2 ** retryIndex);
 }
 
 /**
@@ -106,6 +119,7 @@ export async function createBackfillJob(
   if (tasks.length === 0) {
     throw new Error('Backfill request produced no tasks');
   }
+  assertBackfillTaskLimit(tasks.length);
 
   await env.DB.prepare(
     `INSERT INTO backfill_jobs
@@ -402,7 +416,7 @@ export async function prepareBackfillUniverse(
 
   const maxSymbolsPerExchange =
     request.maxSymbolsPerExchange === undefined
-      ? null
+      ? DEFAULT_BACKFILL_SYMBOL_LIMIT
       : Math.max(1, Math.min(request.maxSymbolsPerExchange, 5_000));
   const symbolsByExchangeType: Record<string, string[]> = {};
   const typesByExchange: Record<string, Array<'spot' | 'perp'>> = {};
@@ -478,10 +492,29 @@ async function loadActiveSymbols(
   maxSymbols: number | null
 ): Promise<string[]> {
   const markets = await ccxtService.getMarkets(exchange);
-  const symbols = markets
+  const activeSymbols = markets
     .filter((market) => market.type === type && market.active)
     .map((market) => market.symbol);
-  return maxSymbols === null ? symbols : symbols.slice(0, maxSymbols);
+  if (maxSymbols === null) return activeSymbols;
+
+  try {
+    const tickers = await ccxtService.getAllTickers(exchange);
+    const activeSet = new Set(activeSymbols);
+    const ranked = tickers
+      .filter((ticker) => ticker.type === type && activeSet.has(ticker.symbol))
+      .sort(
+        (a, b) => (b.quoteVolume24h ?? b.volume24h ?? 0) - (a.quoteVolume24h ?? a.volume24h ?? 0)
+      )
+      .map((ticker) => ticker.symbol);
+    if (ranked.length > 0) {
+      return ranked.slice(0, maxSymbols);
+    }
+  } catch {
+    // If ticker ranking is unavailable, preserve progress with the exchange's
+    // active market order instead of failing the whole backfill creation.
+  }
+
+  return activeSymbols.slice(0, maxSymbols);
 }
 
 async function fetchOhlcvRange(message: BackfillQueueMessage): Promise<OHLCV[]> {
@@ -606,14 +639,14 @@ export function splitMonths(
 }
 
 async function insertTasks(env: Env, tasks: BackfillQueueMessage[]): Promise<void> {
-  for (const task of tasks) {
-    await env.DB.prepare(
-      `INSERT INTO backfill_tasks
-        (id, job_id, status, exchange, symbol, type, timeframe, start_time, end_time, created_at, updated_at)
-       VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
-       ON CONFLICT(id) DO NOTHING`
-    )
-      .bind(
+  for (let index = 0; index < tasks.length; index += 100) {
+    const statements = tasks.slice(index, index + 100).map((task) =>
+      env.DB.prepare(
+        `INSERT INTO backfill_tasks
+          (id, job_id, status, exchange, symbol, type, timeframe, start_time, end_time, created_at, updated_at)
+         VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
+         ON CONFLICT(id) DO NOTHING`
+      ).bind(
         task.taskId,
         task.jobId,
         task.exchange,
@@ -623,7 +656,8 @@ async function insertTasks(env: Env, tasks: BackfillQueueMessage[]): Promise<voi
         task.startTime,
         task.endTime
       )
-      .run();
+    );
+    await env.DB.batch(statements);
   }
 }
 
@@ -639,20 +673,13 @@ async function sendQueueBatch(env: Env, messages: BackfillQueueMessage[]): Promi
 }
 
 async function acquireRateLimit(env: Env, exchange: string): Promise<void> {
-  if (!env.RATE_LIMITER) {
+  if (!env.EXCHANGE_RATE_LIMITER) {
     return;
   }
 
-  const id = env.RATE_LIMITER.idFromName(exchange);
-  const stub = env.RATE_LIMITER.get(id);
-  const response = await stub.fetch(
-    'https://rate-limit/acquire?cost=1&capacity=20&refillPerSecond=5'
-  );
-  if (response.status === 429) {
-    const payload = (await response.json()) as { data?: { retryAfterMs?: number } };
-    throw new Error(
-      `Exchange rate limiter busy; retry after ${payload.data?.retryAfterMs ?? 1000}ms`
-    );
+  const outcome = await env.EXCHANGE_RATE_LIMITER.limit({ key: exchange });
+  if (!outcome.success) {
+    throw new Error('Exchange rate limiter busy; retry after 10000ms');
   }
 }
 

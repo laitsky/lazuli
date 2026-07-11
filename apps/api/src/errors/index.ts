@@ -33,6 +33,7 @@ export enum ErrorCode {
 
   // Authentication/authorization errors
   AUTH_UNAUTHORIZED = 'AUTH_UNAUTHORIZED',
+  FEATURE_DISABLED = 'FEATURE_DISABLED',
 
   // Validation errors (400)
   VALIDATION_FAILED = 'VALIDATION_FAILED',
@@ -86,6 +87,7 @@ export const ErrorCodeToHttpStatus: Record<ErrorCode, number> = {
 
   // Auth errors
   [ErrorCode.AUTH_UNAUTHORIZED]: 401,
+  [ErrorCode.FEATURE_DISABLED]: 503,
 
   // Validation errors
   [ErrorCode.VALIDATION_FAILED]: 400,

@@ -6,17 +6,31 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "limits": {
-    "cpu_ms": 300000,
+    "cpu_ms": 5000,
   },
 
   "observability": {
     "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": false,
+    },
+  },
+
+  "triggers": {
+    "crons": [],
   },
 
   "vars": {
     "ENVIRONMENT": "local",
+    "APP_BASE_URL": "http://localhost:8788",
     "PUBLIC_API_BASE_URL": "http://localhost:8787",
     "CORS_ORIGIN": "http://localhost:3001,http://localhost:8788",
+    "ACCOUNT_FEATURES_ENABLED": "true",
+    "ALERT_EVALUATION_ENABLED": "true",
+    "ADMIN_ROUTES_ENABLED": "true",
   },
 
   "d1_databases": [
@@ -47,7 +61,7 @@
         "queue": "lazuli-backfill-local",
         "max_batch_size": 10,
         "max_batch_timeout": 5,
-        "max_retries": 10,
+        "max_retries": 5,
         "dead_letter_queue": "lazuli-backfill-dlq-local",
       },
     ],
@@ -71,39 +85,87 @@
     },
   ],
 
+  "ratelimits": [
+    {
+      "name": "PUBLIC_RATE_LIMITER",
+      "namespace_id": "698140701",
+      "simple": { "limit": 240, "period": 60 },
+    },
+    {
+      "name": "EXPENSIVE_RATE_LIMITER",
+      "namespace_id": "698140702",
+      "simple": { "limit": 30, "period": 60 },
+    },
+    {
+      "name": "BUILDER_PUBLIC_RATE_LIMITER",
+      "namespace_id": "698140703",
+      "simple": { "limit": 1200, "period": 60 },
+    },
+    {
+      "name": "BUILDER_EXPENSIVE_RATE_LIMITER",
+      "namespace_id": "698140704",
+      "simple": { "limit": 120, "period": 60 },
+    },
+    {
+      "name": "EXCHANGE_RATE_LIMITER",
+      "namespace_id": "698140705",
+      "simple": { "limit": 50, "period": 10 },
+    },
+    {
+      "name": "ADMIN_RATE_LIMITER",
+      "namespace_id": "698140706",
+      "simple": { "limit": 15, "period": 60 },
+    },
+  ],
+
   "durable_objects": {
     "bindings": [
       {
         "name": "MARKET_DATA_CACHE",
-        "class_name": "MarketDataCacheDO",
+        "class_name": "MarketDataCacheV2DO",
       },
       {
-        "name": "RATE_LIMITER",
-        "class_name": "RateLimiterDO",
+        "name": "REALTIME_HUB",
+        "class_name": "RealtimeHubV2DO",
       },
     ],
   },
 
   "migrations": [
     {
-      "tag": "v1",
-      "new_classes": ["MarketDataCacheDO"],
-    },
-    {
-      "tag": "v2",
-      "new_classes": ["RateLimiterDO"],
+      "tag": "resource-safe-v1",
+      "new_sqlite_classes": ["MarketDataCacheV2DO", "RealtimeHubV2DO"],
     },
   ],
 
   "env": {
     "staging": {
       "name": "lazuli-api-staging",
-      "workers_dev": false,
+      "workers_dev": true,
+      "limits": {
+        "cpu_ms": 5000,
+      },
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 0.1,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 0.1,
+          "invocation_logs": false,
+        },
+      },
+      "triggers": {
+        "crons": [],
+      },
       "vars": {
         "ENVIRONMENT": "staging",
+        "APP_BASE_URL": "https://staging.lazuli.now",
         "PUBLIC_API_BASE_URL": "https://api-staging.lazuli.now",
         "CORS_ORIGIN": "https://staging.lazuli.now",
         "ADMIN_API_KEY_ID": "lazuli-admin-staging",
+        "ACCOUNT_FEATURES_ENABLED": "false",
+        "ALERT_EVALUATION_ENABLED": "false",
+        "ADMIN_ROUTES_ENABLED": "false",
       },
       "routes": [
         {
@@ -137,7 +199,7 @@
             "queue": "lazuli-backfill-staging",
             "max_batch_size": 10,
             "max_batch_timeout": 5,
-            "max_retries": 10,
+            "max_retries": 5,
             "dead_letter_queue": "lazuli-backfill-dlq-staging",
           },
         ],
@@ -158,15 +220,47 @@
           "dataset": "lazuli_api_staging",
         },
       ],
+      "ratelimits": [
+        {
+          "name": "PUBLIC_RATE_LIMITER",
+          "namespace_id": "698140711",
+          "simple": { "limit": 240, "period": 60 },
+        },
+        {
+          "name": "EXPENSIVE_RATE_LIMITER",
+          "namespace_id": "698140712",
+          "simple": { "limit": 30, "period": 60 },
+        },
+        {
+          "name": "BUILDER_PUBLIC_RATE_LIMITER",
+          "namespace_id": "698140713",
+          "simple": { "limit": 1200, "period": 60 },
+        },
+        {
+          "name": "BUILDER_EXPENSIVE_RATE_LIMITER",
+          "namespace_id": "698140714",
+          "simple": { "limit": 120, "period": 60 },
+        },
+        {
+          "name": "EXCHANGE_RATE_LIMITER",
+          "namespace_id": "698140715",
+          "simple": { "limit": 50, "period": 10 },
+        },
+        {
+          "name": "ADMIN_RATE_LIMITER",
+          "namespace_id": "698140716",
+          "simple": { "limit": 15, "period": 60 },
+        },
+      ],
       "durable_objects": {
         "bindings": [
           {
             "name": "MARKET_DATA_CACHE",
-            "class_name": "MarketDataCacheDO",
+            "class_name": "MarketDataCacheV2DO",
           },
           {
-            "name": "RATE_LIMITER",
-            "class_name": "RateLimiterDO",
+            "name": "REALTIME_HUB",
+            "class_name": "RealtimeHubV2DO",
           },
         ],
       },
@@ -174,11 +268,30 @@
     "production": {
       "name": "lazuli-api",
       "workers_dev": false,
+      "limits": {
+        "cpu_ms": 5000,
+      },
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 0.05,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 0.05,
+          "invocation_logs": false,
+        },
+      },
+      "triggers": {
+        "crons": [],
+      },
       "vars": {
         "ENVIRONMENT": "production",
+        "APP_BASE_URL": "https://lazuli.now",
         "PUBLIC_API_BASE_URL": "https://api.lazuli.now",
         "CORS_ORIGIN": "https://lazuli.now,https://www.lazuli.now",
         "ADMIN_API_KEY_ID": "lazuli-admin-production",
+        "ACCOUNT_FEATURES_ENABLED": "false",
+        "ALERT_EVALUATION_ENABLED": "false",
+        "ADMIN_ROUTES_ENABLED": "false",
       },
       "routes": [
         {
@@ -212,7 +325,7 @@
             "queue": "lazuli-backfill-prod",
             "max_batch_size": 10,
             "max_batch_timeout": 5,
-            "max_retries": 10,
+            "max_retries": 5,
             "dead_letter_queue": "lazuli-backfill-dlq-prod",
           },
         ],
@@ -233,15 +346,47 @@
           "dataset": "lazuli_api_prod",
         },
       ],
+      "ratelimits": [
+        {
+          "name": "PUBLIC_RATE_LIMITER",
+          "namespace_id": "698140721",
+          "simple": { "limit": 240, "period": 60 },
+        },
+        {
+          "name": "EXPENSIVE_RATE_LIMITER",
+          "namespace_id": "698140722",
+          "simple": { "limit": 30, "period": 60 },
+        },
+        {
+          "name": "BUILDER_PUBLIC_RATE_LIMITER",
+          "namespace_id": "698140723",
+          "simple": { "limit": 1200, "period": 60 },
+        },
+        {
+          "name": "BUILDER_EXPENSIVE_RATE_LIMITER",
+          "namespace_id": "698140724",
+          "simple": { "limit": 120, "period": 60 },
+        },
+        {
+          "name": "EXCHANGE_RATE_LIMITER",
+          "namespace_id": "698140725",
+          "simple": { "limit": 50, "period": 10 },
+        },
+        {
+          "name": "ADMIN_RATE_LIMITER",
+          "namespace_id": "698140726",
+          "simple": { "limit": 15, "period": 60 },
+        },
+      ],
       "durable_objects": {
         "bindings": [
           {
             "name": "MARKET_DATA_CACHE",
-            "class_name": "MarketDataCacheDO",
+            "class_name": "MarketDataCacheV2DO",
           },
           {
-            "name": "RATE_LIMITER",
-            "class_name": "RateLimiterDO",
+            "name": "REALTIME_HUB",
+            "class_name": "RealtimeHubV2DO",
           },
         ],
       },

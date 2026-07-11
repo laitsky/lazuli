@@ -30,14 +30,22 @@ import {
   type AltScreenerQueryParams,
   type FundingRateQueryParams,
   type CrossExchangeFundingQueryParams,
+  type FundingRadarQueryParams,
+  type FundingArbitrageQueryParams,
   type TechnicalIndicatorQueryParams,
   type OrderBookQueryParams,
+  type LiquidationRadarQueryParams,
+  type OrderFlowQueryParams,
   type PriceArbitrageQueryParams,
+  type TrendingVolumeQueryParams,
+  type AlphaFeedQueryParams,
+  type BacktestRequest,
   type InstitutionalAssetQueryParams,
   type InstitutionalRangeQueryParams,
   type OptionsChainQueryParams,
 } from '@/lib/api-client';
 import { STALE_TIMES } from '@/lib/query-client';
+import { RESOURCE_POLICY } from '@/lib/resource-policy';
 
 /* ============================================================
    Query key factory — colocated keys for type-safety
@@ -75,6 +83,11 @@ export const queryKeys = {
       ['indicators', exchange, symbol, params] as const,
   },
 
+  orderflow: {
+    detail: (exchange: string, symbol: string, params: OrderFlowQueryParams) =>
+      ['orderflow', exchange, symbol, params] as const,
+  },
+
   superEma: {
     detail: (exchange: string, symbol: string, params: SuperEMAQueryParams) =>
       ['superema', exchange, symbol, params] as const,
@@ -99,6 +112,8 @@ export const queryKeys = {
     detail: (exchange: string, params: FundingRateQueryParams) =>
       ['funding', exchange, params] as const,
     compare: (params: CrossExchangeFundingQueryParams) => ['funding', 'compare', params] as const,
+    radar: (params: FundingRadarQueryParams) => ['funding', 'radar', params] as const,
+    arbitrage: (params: FundingArbitrageQueryParams) => ['funding', 'arbitrage', params] as const,
   },
 
   orderbook: {
@@ -106,8 +121,28 @@ export const queryKeys = {
       ['orderbook', exchange, symbol, params] as const,
   },
 
+  liquidations: {
+    detail: (exchange: string, symbol: string, params: LiquidationRadarQueryParams) =>
+      ['liquidations', exchange, symbol, params] as const,
+  },
+
   arbitrage: {
     prices: (params: PriceArbitrageQueryParams) => ['arbitrage', 'prices', params] as const,
+  },
+
+  trending: {
+    volume: (exchange: string, params: TrendingVolumeQueryParams) =>
+      ['trending', 'volume', exchange, params] as const,
+  },
+
+  alphaFeed: {
+    list: (params: AlphaFeedQueryParams) => ['alpha-feed', params] as const,
+    detail: (id: string) => ['alpha-feed', 'detail', id] as const,
+  },
+
+  backtest: {
+    detail: (exchange: string, symbol: string, request: BacktestRequest) =>
+      ['backtest', exchange, symbol, request] as const,
   },
 
   institutional: {
@@ -144,7 +179,7 @@ export function useExchanges() {
   });
 }
 
-export function useHealth(refreshMs = 30_000) {
+export function useHealth(refreshMs = RESOURCE_POLICY.healthPollMs) {
   return useQuery({
     queryKey: queryKeys.health,
     queryFn: async () => {
@@ -236,6 +271,33 @@ export function useMarkets(exchange: string, params: MarketsQueryParams) {
   });
 }
 
+export function useAlphaFeed(params: AlphaFeedQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.alphaFeed.list(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getAlphaFeed(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed to load Alpha Feed');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.realtime,
+    refetchInterval: RESOURCE_POLICY.alphaFeedPollMs,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useAlphaFeedEvent(id: string) {
+  return useQuery({
+    queryKey: queryKeys.alphaFeed.detail(id),
+    queryFn: async () => {
+      const res = await LazuliAPI.getAlphaFeedEvent(id);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed to load signal');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.reference,
+    enabled: id.length > 0,
+  });
+}
+
 /* ============================================================
    Charts — OHLCV, multi-timeframe, indicators
    ============================================================ */
@@ -316,6 +378,30 @@ export function useTechnicalIndicators(
       return res.data;
     },
     staleTime: STALE_TIMES.chart,
+  });
+}
+
+export function useOrderFlow(
+  exchange: string,
+  symbol: string,
+  params: OrderFlowQueryParams,
+  options: { enabled?: boolean; refreshMs?: number } = {}
+) {
+  return useQuery({
+    queryKey: queryKeys.orderflow.detail(exchange, symbol, params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getOrderFlow(
+        exchange as Parameters<typeof LazuliAPI.getOrderFlow>[0],
+        symbol,
+        params
+      );
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed order flow');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.chart,
+    refetchInterval: options.refreshMs,
+    refetchIntervalInBackground: false,
+    enabled: (options.enabled ?? true) && !!symbol,
   });
 }
 
@@ -441,6 +527,30 @@ export function useCrossExchangeFunding(params: CrossExchangeFundingQueryParams 
   });
 }
 
+export function useFundingRadar(params: FundingRadarQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.funding.radar(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getFundingRadar(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed funding radar');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.realtime,
+  });
+}
+
+export function useFundingArbitrage(params: FundingArbitrageQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.funding.arbitrage(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getFundingArbitrage(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed funding arbitrage');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.realtime,
+  });
+}
+
 export function useOrderBook(
   exchange: string,
   symbol: string,
@@ -460,6 +570,31 @@ export function useOrderBook(
     },
     staleTime: STALE_TIMES.realtime,
     refetchInterval: options.refreshMs,
+    refetchIntervalInBackground: false,
+    enabled: (options.enabled ?? true) && !!symbol,
+  });
+}
+
+export function useLiquidationRadar(
+  exchange: string,
+  symbol: string,
+  params: LiquidationRadarQueryParams = {},
+  options: { enabled?: boolean; refreshMs?: number } = {}
+) {
+  return useQuery({
+    queryKey: queryKeys.liquidations.detail(exchange, symbol, params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getLiquidationRadar(
+        exchange as Parameters<typeof LazuliAPI.getLiquidationRadar>[0],
+        symbol,
+        params
+      );
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed liquidation radar');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.realtime,
+    refetchInterval: options.refreshMs,
+    refetchIntervalInBackground: false,
     enabled: (options.enabled ?? true) && !!symbol,
   });
 }
@@ -473,6 +608,44 @@ export function usePriceArbitrage(params: PriceArbitrageQueryParams = {}) {
       return { data: res.data, meta: res.meta };
     },
     staleTime: STALE_TIMES.realtime,
+  });
+}
+
+export function useTrendingVolume(exchange: string, params: TrendingVolumeQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.trending.volume(exchange, params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getTrendingVolume(
+        exchange as Parameters<typeof LazuliAPI.getTrendingVolume>[0],
+        params
+      );
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed trending volume');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useBacktest(
+  exchange: string,
+  symbol: string,
+  request: BacktestRequest,
+  options: { enabled?: boolean } = {}
+) {
+  return useQuery({
+    queryKey: queryKeys.backtest.detail(exchange, symbol, request),
+    queryFn: async () => {
+      const res = await LazuliAPI.runBacktest(
+        exchange as Parameters<typeof LazuliAPI.runBacktest>[0],
+        symbol,
+        request
+      );
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed backtest');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.analytics,
+    enabled: (options.enabled ?? true) && !!symbol,
   });
 }
 
@@ -592,24 +765,24 @@ export function useExchangesSuspense() {
 
 const TOPBAR_SYMBOLS = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT'] as const;
 
-export function useTopbarPrices(exchange = 'bybit') {
+export function useTopbarPrices(exchange = 'bybit', enabled = true) {
   return useQuery({
     queryKey: ['topbar', 'prices', exchange, [...TOPBAR_SYMBOLS]] as const,
     queryFn: async () => {
-      // Fetch all three in parallel
-      const results = await Promise.all(
-        TOPBAR_SYMBOLS.map(async (sym) => {
-          const res = await LazuliAPI.getTicker(
-            exchange as Parameters<typeof LazuliAPI.getTicker>[0],
-            sym
-          );
-          return { symbol: sym, ticker: res.success ? res.data : null };
-        })
+      const res = await LazuliAPI.getTickers(
+        exchange as Parameters<typeof LazuliAPI.getTickers>[0],
+        { type: 'spot', limit: 500 }
       );
-      return results;
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed topbar prices');
+      const bySymbol = new Map(res.data.tickers.map((ticker) => [ticker.symbol, ticker]));
+      return TOPBAR_SYMBOLS.map((symbol) => ({
+        symbol,
+        ticker: bySymbol.get(symbol) ?? null,
+      }));
     },
-    staleTime: STALE_TIMES.realtime,
-    refetchInterval: STALE_TIMES.realtime,
+    staleTime: RESOURCE_POLICY.topbarPollMs,
+    refetchInterval: RESOURCE_POLICY.topbarPollMs,
     refetchIntervalInBackground: false,
+    enabled,
   });
 }

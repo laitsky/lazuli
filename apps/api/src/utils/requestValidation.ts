@@ -80,7 +80,7 @@ export const customIndexSchema = z
         })
       )
       .min(1)
-      .max(20),
+      .max(10),
   })
   .superRefine((value, ctx) => {
     const weightTotal = value.assets.reduce((sum, asset) => sum + asset.weight, 0);
@@ -94,7 +94,7 @@ export const customIndexSchema = z
   });
 
 export const ohlcvBatchSchema = z.object({
-  symbols: z.array(symbolSchema).min(1).max(50).default([]),
+  symbols: z.array(symbolSchema).min(1).max(20).default([]),
   period: z.enum(['1h', '4h', '24h', '7d', '30d']).default('24h'),
 });
 

@@ -19,7 +19,7 @@ import { SearchInput } from '@/components/ui/search-input';
 import { Tag } from '@/components/ui/tag';
 import { ChangeText } from '@/components/ui/price-text';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useCrossExchangeFunding } from '@/lib/queries';
+import { useCrossExchangeFunding, useFundingArbitrage } from '@/lib/queries';
 import { cn } from '@/lib/utils';
 
 export default function FundingArbitragePage() {
@@ -27,10 +27,12 @@ export default function FundingArbitragePage() {
   const [sort, setSort] = useState<SortState>({ column: 'spread', direction: 'desc' });
 
   const funding = useCrossExchangeFunding({ limit: 200 });
+  const realisticFunding = useFundingArbitrage({ limit: 50, executionCostBps: 12 });
 
   const data = funding.data;
   const comparisons = data?.comparisons ?? [];
   const opportunities = data?.arbitrageOpportunities ?? [];
+  const netOpportunities = realisticFunding.data?.data.opportunities ?? [];
 
   // Filter by search
   const filtered = useMemo(() => {
@@ -66,15 +68,22 @@ export default function FundingArbitragePage() {
   // Aggregate stats
   const stats = useMemo(() => {
     if (opportunities.length === 0) {
-      return { count: 0, bestSpread: 0, bestApy: 0, exchanges: data?.exchanges.length ?? 0 };
+      return {
+        count: 0,
+        bestSpread: 0,
+        bestApy: 0,
+        bestNetApy: netOpportunities[0]?.netAnnualizedYield ?? 0,
+        exchanges: data?.exchanges.length ?? 0,
+      };
     }
     return {
       count: opportunities.length,
       bestSpread: Math.max(...opportunities.map((o) => o.spread)),
       bestApy: Math.max(...opportunities.map((o) => o.estimatedDailyYield * 365)),
+      bestNetApy: netOpportunities[0]?.netAnnualizedYield ?? 0,
       exchanges: data?.exchanges.length ?? 0,
     };
-  }, [opportunities, data]);
+  }, [opportunities, netOpportunities, data]);
 
   const columns: Array<Column<CrossExchangeFunding>> = useMemo(
     () => [
@@ -210,7 +219,7 @@ export default function FundingArbitragePage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {funding.isLoading ? (
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20" />)
         ) : (
@@ -230,7 +239,16 @@ export default function FundingArbitragePage() {
             </Panel>
             <Panel>
               <Metric label="Best APY" value={`+${stats.bestApy.toFixed(1)}%`} mono size="md" />
-              <p className="mt-1 text-[11px] text-muted-foreground">Annualized (theoretical)</p>
+              <p className="mt-1 text-[11px] text-muted-foreground">Gross annualized</p>
+            </Panel>
+            <Panel>
+              <Metric
+                label="Best Net APY"
+                value={`+${stats.bestNetApy.toFixed(1)}%`}
+                mono
+                size="md"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">After cost and basis</p>
             </Panel>
             <Panel>
               <Metric label="Venues" value={stats.exchanges.toString()} mono size="md" />

@@ -1,22 +1,27 @@
 /**
  * Live market strip — topbar right zone
  *
- * Shows BTC/ETH/SOL prices with 24h % change. Updates every 10s via
- * TanStack Query. Hidden on mobile (<md) to preserve space.
+ * Shows BTC/ETH/SOL prices with 24h % change from one shared ticker request.
+ * The query is disabled when the strip is hidden below the desktop breakpoint.
  */
 
 import { Link } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { useTopbarPrices } from '@/lib/queries';
 import { formatPrice } from '@/lib/format';
 import type { Ticker } from '@lazuli/shared';
+import { RESOURCE_POLICY } from '@/lib/resource-policy';
 
 interface TopbarPricesProps {
   exchange?: string;
 }
 
 export function TopbarPrices({ exchange = 'bybit' }: TopbarPricesProps) {
-  const { data, isLoading, isError } = useTopbarPrices(exchange);
+  const enabled = useMediaQuery(RESOURCE_POLICY.topbarMediaQuery);
+  const { data, isLoading, isError } = useTopbarPrices(exchange, enabled);
+
+  if (!enabled) return null;
 
   if (isError) {
     return (
@@ -40,13 +45,21 @@ export function TopbarPrices({ exchange = 'bybit' }: TopbarPricesProps) {
   return (
     <div className="hidden md:flex items-center gap-1 lg:gap-3">
       {data.map(({ symbol, ticker }) => (
-        <PriceChip key={symbol} symbol={symbol} ticker={ticker} />
+        <PriceChip key={symbol} symbol={symbol} ticker={ticker} exchange={exchange} />
       ))}
     </div>
   );
 }
 
-function PriceChip({ symbol, ticker }: { symbol: string; ticker: Ticker | null }) {
+function PriceChip({
+  symbol,
+  ticker,
+  exchange,
+}: {
+  symbol: string;
+  ticker: Ticker | null;
+  exchange: string;
+}) {
   const base = symbol.split('-')[0];
   const price = ticker?.last ?? null;
   const pct = ticker?.percentage24h ?? null;
@@ -54,7 +67,7 @@ function PriceChip({ symbol, ticker }: { symbol: string; ticker: Ticker | null }
 
   return (
     <Link
-      to={`/workspace?exchange=bybit&symbol=${symbol}&type=spot&timeframe=1h`}
+      to={`/workspace?exchange=${exchange}&symbol=${symbol}&type=spot&timeframe=1h`}
       className={cn(
         'group flex items-center gap-1.5 px-2 py-1 rounded',
         'hover:bg-surface-2 transition-colors',
@@ -78,4 +91,18 @@ function PriceChip({ symbol, ticker }: { symbol: string; ticker: Ticker | null }
       )}
     </Link>
   );
+}
+
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [query]);
+
+  return matches;
 }

@@ -75,6 +75,7 @@ export interface ExchangeInfo {
   supported: boolean;
   hasSpot: boolean;
   hasPerp: boolean;
+  notes?: string;
 }
 
 /**
@@ -174,12 +175,32 @@ export interface Env {
   BACKFILL_WORKFLOW?: Workflow<BackfillWorkflowParams>;
   API_ANALYTICS?: AnalyticsEngineDataset;
   MARKET_DATA_CACHE: DurableObjectNamespace;
-  RATE_LIMITER: DurableObjectNamespace;
+  REALTIME_HUB: DurableObjectNamespace;
+  PUBLIC_RATE_LIMITER: RateLimit;
+  EXPENSIVE_RATE_LIMITER: RateLimit;
+  BUILDER_PUBLIC_RATE_LIMITER: RateLimit;
+  BUILDER_EXPENSIVE_RATE_LIMITER: RateLimit;
+  EXCHANGE_RATE_LIMITER: RateLimit;
+  ADMIN_RATE_LIMITER: RateLimit;
   ADMIN_API_KEY?: string;
   ADMIN_API_KEY_ID?: string;
   ADMIN_SIGNING_SECRET?: string;
+  APP_BASE_URL?: string;
   CORS_ORIGIN?: string;
   ENVIRONMENT?: 'local' | 'staging' | 'production';
+  ACCOUNT_FEATURES_ENABLED?: string;
+  ALERT_EVALUATION_ENABLED?: string;
+  ADMIN_ROUTES_ENABLED?: string;
+  MAGIC_LINK_DELIVERY_WEBHOOK_SECRET?: string;
+  MAGIC_LINK_DELIVERY_WEBHOOK_URL?: string;
+  ALERT_DISCORD_WEBHOOK_URL?: string;
+  ALERT_DELIVERY_WEBHOOK_SECRET?: string;
+  ALERT_DELIVERY_WEBHOOK_URL?: string;
+  ALERT_EMAIL_DELIVERY_WEBHOOK_SECRET?: string;
+  ALERT_EMAIL_DELIVERY_WEBHOOK_URL?: string;
+  ALERT_TELEGRAM_BOT_TOKEN?: string;
+  ALERT_USER_WEBHOOKS_ENABLED?: string;
+  ALERT_WEBHOOK_SIGNING_SECRET?: string;
   PUBLIC_API_BASE_URL?: string;
 }
 

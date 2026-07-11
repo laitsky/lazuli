@@ -4,12 +4,24 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-06-19",
   "workers_dev": true,
+  "limits": {
+    "cpu_ms": 100,
+  },
 
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": true,
+    "run_worker_first": [
+      "/*",
+      "!/assets/*",
+      "!/exchanges/*",
+      "!/fonts/*",
+      "!/*.svg",
+      "!/*.png",
+      "!/*.ico",
+      "!/*.webmanifest",
+    ],
   },
 
   "services": [
@@ -21,12 +33,30 @@
 
   "observability": {
     "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": false,
+    },
   },
 
   "env": {
     "staging": {
       "name": "lazuli-web-staging",
-      "workers_dev": false,
+      "workers_dev": true,
+      "limits": {
+        "cpu_ms": 100,
+      },
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 0.05,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 0.05,
+          "invocation_logs": false,
+        },
+      },
       "routes": [
         {
           "pattern": "staging.lazuli.now/*",
@@ -43,6 +73,18 @@
     "production": {
       "name": "lazuli-web",
       "workers_dev": false,
+      "limits": {
+        "cpu_ms": 100,
+      },
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 0.01,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 0.01,
+          "invocation_logs": false,
+        },
+      },
       "routes": [
         {
           "pattern": "lazuli.now/*",

@@ -40,6 +40,7 @@
   "dependencies": {
     "@hono/zod-validator": "^0.8.0",
     "@lazuli/shared": "*",
+    "@simplewebauthn/server": "^13.3.2",
     "ccxt": "^4.5.59",
     "hono": "^4.12.26",
     "protobufjs": "^8.6.4",

@@ -7,11 +7,13 @@
  * for 2019-2020 OHLCV backfills.
  */
 
-import { Hono } from 'hono';
+import { Hono, type Context, type Next } from 'hono';
 import { cors } from 'hono/cors';
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import type {
   AltcoinPerformance,
+  AlphaFeedItem,
+  AlphaFeedResponse,
   AltScreenerResponse,
   BaseCurrencyPrices,
   CrossExchangeFunding,
@@ -21,20 +23,29 @@ import type {
   FundingMarketStats,
   FundingRateData,
   FundingRateResponse,
+  FundingRadarResponse,
+  FundingArbitrageResponse,
   HealthResponse,
   InstitutionalAsset,
   InstitutionalRange,
   IndexPerformancePoint,
+  LiquidationRadarResponse,
   Market,
   MarketsResponse,
   OHLCVResponse,
   OrderBook,
   OrderBookResponse,
+  OrderFlowResponse,
   PriceArbitrageResponse,
+  BacktestResponse,
   SupportedExchange,
+  StrategyDefinition,
   Ticker,
   TickersResponse,
   Timeframe,
+  TrendingVolumeResponse,
+  TrendingVolumeSpike,
+  UserAccount,
 } from '@lazuli/shared';
 import { DEFAULT_INDICATOR_PERIODS } from '@lazuli/shared';
 import type { BackfillQueueMessage, BackfillWorkflowParams, Env, OHLCV } from './types';
@@ -47,6 +58,7 @@ import {
   tickerNotFound,
 } from './errors';
 import { handleError, successResponse } from './utils/response';
+import { featureDisabledEnvelope, featureEnabled } from './utils/features';
 import {
   parseSymbol,
   validateBoolean,
@@ -68,6 +80,7 @@ import {
 } from './utils/requestValidation';
 import {
   applySecurityHeaders,
+  classifyRouteLimit,
   enforcePublicRateLimit,
   requireAdminRequest,
   requireProductionCors,
@@ -91,19 +104,81 @@ import {
   enqueuePendingTasks,
   getBackfillJob,
   processBackfillMessage,
+  queueRetryDelaySeconds,
   readArchivedOhlcv,
   TerminalBackfillError,
 } from './services/backfillService';
+import {
+  buildFundingArbitrage,
+  buildFundingRadar,
+  buildLiquidationRadar,
+  buildOrderFlowResponse,
+  calculateWilderRsi,
+  defaultStrategyDefinition,
+  normalizePerpSymbol,
+  runBacktest,
+} from './services/marketIntelligenceService';
+import {
+  buildMarketSnapshotSvg,
+  createApiKey,
+  createMagicLink,
+  createPasskeyAuthenticationOptions,
+  createPasskeyRegistrationOptions,
+  createPriceAlert,
+  deletePasskey,
+  deletePriceAlert,
+  deleteSavedBacktest,
+  deleteSignalLabStrategy,
+  deleteWatchlist,
+  deleteWorkspace,
+  evaluateAlertTrigger,
+  listApiKeys,
+  listDuePriceAlerts,
+  listPasskeys,
+  listPriceAlerts,
+  listSavedBacktests,
+  listSignalLabStrategies,
+  listWatchlists,
+  listWorkspaces,
+  readUserFromSession,
+  revokeApiKey,
+  revokeSession,
+  saveBacktest,
+  saveSignalLabStrategy,
+  saveSignalLabStrategyVersion,
+  saveWatchlist,
+  saveWorkspace,
+  updateSignalLabLatestBacktest,
+  verifyPasskeyAuthentication,
+  verifyPasskeyRegistration,
+  verifyMagicLink,
+  type CreatePasskeyAuthenticationOptionsInput,
+  type CreatePriceAlertInput,
+  type SaveBacktestInput,
+  type SaveSignalLabStrategyInput,
+  type SaveWatchlistInput,
+  type SaveWorkspaceInput,
+  type VerifyPasskeyAuthenticationInput,
+  type VerifyPasskeyRegistrationInput,
+} from './services/growthRetentionService';
 
-export { MarketDataCacheDO } from './services/MarketDataCacheDO';
-export { RateLimiterDO } from './services/RateLimiterDO';
+export { MarketDataCacheV2DO } from './services/MarketDataCacheDO';
+export { RealtimeHubV2DO } from './services/RealtimeHubDO';
 
 const exchanges = [
   { name: 'Bybit', id: 'bybit', supported: true, hasSpot: true, hasPerp: true },
   { name: 'OKX', id: 'okx', supported: true, hasSpot: true, hasPerp: true },
   { name: 'Hyperliquid', id: 'hyperliquid', supported: true, hasSpot: false, hasPerp: true },
   { name: 'Upbit', id: 'upbit', supported: true, hasSpot: true, hasPerp: false },
-  { name: 'Binance', id: 'binance', supported: false, hasSpot: true, hasPerp: true },
+  {
+    name: 'Binance',
+    id: 'binance',
+    supported: true,
+    hasSpot: true,
+    hasPerp: true,
+    notes:
+      'Regional availability varies; blocked or rate-limited regions degrade through stale/empty payload metadata.',
+  },
 ] as const;
 
 const publicFundingExchanges: SupportedExchange[] = ['binance', 'bybit', 'okx', 'hyperliquid'];
@@ -166,9 +241,50 @@ app.use(
 
 app.use('/api/v1/*', enforcePublicRateLimit);
 
+app.use('/api/v1/auth/*', async (c, next) => {
+  if (!featureEnabled(c.env, 'ACCOUNT_FEATURES_ENABLED')) {
+    return featureDisabled(c, 'Account features are temporarily disabled');
+  }
+  return next();
+});
+
+app.use('/api/v1/me/alerts/evaluate', async (c, next) => {
+  if (!featureEnabled(c.env, 'ALERT_EVALUATION_ENABLED')) {
+    return featureDisabled(c, 'Alert evaluation is temporarily disabled');
+  }
+  return next();
+});
+
+app.use('/api/v1/me', requireAccountFeatures);
+app.use('/api/v1/me/*', requireAccountFeatures);
+
+app.use('/api/v1/admin/*', async (c, next) => {
+  if (!featureEnabled(c.env, 'ADMIN_ROUTES_ENABLED')) {
+    return featureDisabled(c, 'Admin routes are temporarily disabled');
+  }
+  return next();
+});
+
 app.get('/', (c) => c.redirect('/api/v1/docs'));
 
 app.get('/health', async (c) => ok(c, buildPublicHealth()));
+
+app.get('/ws', (c) => {
+  if (!c.env.REALTIME_HUB) {
+    return c.json(
+      {
+        success: false,
+        data: null,
+        error: 'Realtime hub is not configured',
+        timestamp: Date.now(),
+      },
+      503
+    );
+  }
+
+  const id = c.env.REALTIME_HUB.idFromName('global');
+  return c.env.REALTIME_HUB.get(id).fetch(c.req.raw);
+});
 
 const api = new Hono<{ Bindings: Env }>();
 
@@ -465,6 +581,21 @@ api.get('/indicators/:exchange/:symbol', async (c) => {
   });
 });
 
+api.get('/orderflow/:exchange/:symbol', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const symbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
+  const options = parseOhlcvQuery(c.req.query(), symbol, 240);
+  const candles = (await loadOhlcv(c.env, exchange, symbol, options)).candles;
+  const response: OrderFlowResponse = buildOrderFlowResponse({
+    exchange,
+    symbol,
+    type: options.type,
+    timeframe: options.timeframe,
+    candles,
+  });
+  return ok(c, response, { source: 'ohlcv-derived', model: 'candle-footprint-proxy' });
+});
+
 api.get('/screener/:exchange/stats', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
   const { data: tickers } = await cachedMarketData<Ticker[]>(c.env, 'tickers', exchange);
@@ -487,19 +618,78 @@ api.get('/screener/:exchange', async (c) => {
     exchange,
     validateMarketType(query.type)
   );
+  // Technical enrichment performs one OHLCV load per symbol, so keep its
+  // request fan-out within the relaunch budget regardless of requested size.
+  const technicalScreener = shouldRunTechnicalScreener(query);
+  const userLimit = validateInteger(query.limit, 100, 1, 500);
+  const screenerPool = technicalScreener ? 50 : userLimit;
   const response = buildAltScreener(exchange, tickers, {
     base: parseBaseCurrency(query.base),
     period: parsePerformancePeriod(query.period),
     sortBy: parseScreenerSort(query.sortBy),
     sortOrder: validateSortOrder(query.sortOrder),
-    limit: validateInteger(query.limit, 100, 1, 500),
+    limit: screenerPool,
     minVolume: query.minVolume ? Number(query.minVolume) : undefined,
     maxVolume: query.maxVolume ? Number(query.maxVolume) : undefined,
     minChange: query.minChange ? Number(query.minChange) : undefined,
     maxChange: query.maxChange ? Number(query.maxChange) : undefined,
+    minFundingRate: query.minFundingRate ? Number(query.minFundingRate) : undefined,
+    maxFundingRate: query.maxFundingRate ? Number(query.maxFundingRate) : undefined,
+    minOpenInterest: query.minOpenInterest ? Number(query.minOpenInterest) : undefined,
     search: validateSearchQuery(query.search),
   });
-  return ok(c, response, { source: 'live-cache' });
+  const enriched = technicalScreener
+    ? await enrichScreenerTechnicals(c.env, exchange, response, {
+        type: validateMarketType(query.type) ?? 'spot',
+        minRsi: query.minRsi ? Number(query.minRsi) : undefined,
+        maxRsi: query.maxRsi ? Number(query.maxRsi) : undefined,
+        breakout:
+          query.breakout === 'up' || query.breakout === 'down' || query.breakout === 'any'
+            ? query.breakout
+            : undefined,
+        limit: userLimit,
+      })
+    : response;
+  return ok(c, enriched, {
+    source: 'live-cache',
+    technicalScan: technicalScreener,
+  });
+});
+
+api.get('/trending/:exchange', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const query = c.req.query();
+  const type = validateMarketType(query.type) ?? 'spot';
+  const limit = validateInteger(query.limit, 25, 1, 100);
+  const minRatio = query.minRatio ? Number(query.minRatio) : 1.8;
+  const { data: tickers } = await cachedMarketData<Ticker[]>(c.env, 'tickers', exchange, type);
+  const candidates = tickers
+    .filter((ticker) => {
+      const parsed = parseSymbol(ticker.symbol);
+      return (
+        ticker.last !== null &&
+        (ticker.quoteVolume24h ?? ticker.volume24h ?? 0) > 0 &&
+        (!parsed.quote || ['USDT', 'USD', 'USDC'].includes(parsed.quote))
+      );
+    })
+    .sort((a, b) => (b.quoteVolume24h ?? 0) - (a.quoteVolume24h ?? 0))
+    .slice(0, Math.min(80, Math.max(limit * 3, 20)));
+
+  const items = await mapWithConcurrency(candidates, 5, async (ticker) =>
+    buildTrendingVolumeSpike(c.env, exchange, ticker, type)
+  );
+  const filtered = items
+    .filter((item): item is TrendingVolumeSpike => item !== null)
+    .filter((item) => (item.volumeRatio24hVs7d ?? 0) >= minRatio)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+  const response: TrendingVolumeResponse = {
+    exchange,
+    items: filtered,
+    count: filtered.length,
+    timestamp: Date.now(),
+  };
+  return ok(c, response, { source: 'live-cache+r2-ohlcv', minRatio });
 });
 
 api.post('/screener/:exchange/ohlcv', async (c) => {
@@ -633,6 +823,44 @@ api.get('/institutional/confluence', async (c) => {
   );
 });
 
+api.get('/funding/radar', async (c) => {
+  const exchangeParam = c.req.query('exchange');
+  const limit = validateInteger(c.req.query('limit'), 50, 1, 200);
+  const selectedExchanges =
+    exchangeParam && exchangeParam !== 'all'
+      ? [requireExchange(exchangeParam)]
+      : publicFundingExchanges;
+  const rates = (
+    await Promise.all(
+      selectedExchanges.map(async (exchange) =>
+        cachedMarketData<FundingRateData[]>(c.env, 'funding', exchange, 'perp')
+          .then((result) => result.data)
+          .catch(() => [])
+      )
+    )
+  ).flat();
+  const response: FundingRadarResponse = buildFundingRadar(rates, limit);
+  return ok(c, response, { source: 'live-cache', exchanges: selectedExchanges });
+});
+
+api.get('/funding/arbitrage', async (c) => {
+  const limit = validateInteger(c.req.query('limit'), 50, 1, 200);
+  const executionCostBps = validateInteger(c.req.query('executionCostBps'), 12, 0, 500);
+  const inputs = await Promise.all(
+    publicFundingExchanges.map(async (exchange) => ({
+      exchange,
+      rates: (
+        await cachedMarketData<FundingRateData[]>(c.env, 'funding', exchange, 'perp').catch(() => ({
+          data: [] as FundingRateData[],
+          meta: {},
+        }))
+      ).data,
+    }))
+  );
+  const response: FundingArbitrageResponse = buildFundingArbitrage(inputs, limit, executionCostBps);
+  return ok(c, response, { source: 'live-cache', executionCostBps });
+});
+
 api.get('/funding/compare', async (c) => {
   const limit = validateInteger(c.req.query('limit'), 50, 1, 200);
   const allRates = await Promise.all(
@@ -688,6 +916,314 @@ api.get('/orderbook/:exchange/:symbol', async (c) => {
     timestamp: orderbook.timestamp,
   };
   return ok(c, response, meta);
+});
+
+api.get('/liquidations/:exchange/:symbol', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const rawSymbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
+  const symbol = normalizePerpSymbol(rawSymbol);
+  const [tickersResult, fundingResult, orderbookResult] = await Promise.all([
+    cachedMarketData<Ticker[]>(c.env, 'tickers', exchange, 'perp').catch(() => ({
+      data: [] as Ticker[],
+      meta: {},
+    })),
+    cachedMarketData<FundingRateData[]>(c.env, 'funding', exchange, 'perp').catch(() => ({
+      data: [] as FundingRateData[],
+      meta: {},
+    })),
+    loadOrderBook(c.env, exchange, symbol, 'perp', 50).catch(() => ({
+      orderbook: null,
+      meta: {},
+    })),
+  ]);
+  const ticker = tickersResult.data.find((item) => item.symbol === symbol) ?? null;
+  const funding = fundingResult.data.find((item) => item.symbol === symbol) ?? null;
+  const response: LiquidationRadarResponse = buildLiquidationRadar({
+    exchange,
+    symbol,
+    ticker,
+    funding,
+    orderbook: orderbookResult.orderbook,
+  });
+  return ok(c, response, {
+    source: 'live-cache',
+    model: 'estimated-from-oi-mark-book',
+    warning: 'Estimated liquidation bands, not exchange-native liquidation prints',
+  });
+});
+
+api.post('/backtest/:exchange/:symbol', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const symbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
+  const body = await c.req.json().catch(() => ({}));
+  const query = c.req.query();
+  const options = parseOhlcvQuery(
+    {
+      timeframe: query.timeframe ?? readString(body, 'timeframe'),
+      type: query.type ?? readString(body, 'type'),
+      limit: query.limit ?? readString(body, 'limit') ?? '500',
+      since: query.since ?? readString(body, 'since'),
+      until: query.until ?? readString(body, 'until'),
+    },
+    symbol,
+    500
+  );
+  const strategy = parseStrategyDefinition(body);
+  const candles = (await loadOhlcv(c.env, exchange, symbol, options)).candles;
+  const response: BacktestResponse = runBacktest({
+    exchange,
+    symbol,
+    type: options.type,
+    timeframe: options.timeframe,
+    candles,
+    strategy,
+  });
+  return ok(c, response, { source: 'r2+exchange', candleCount: candles.length });
+});
+
+api.post('/auth/magic-link', async (c) => {
+  const body = await readJsonRecord(c.req.raw);
+  const email = readRequiredString(body, 'email');
+  return ok(c, await createMagicLink(c.env, email));
+});
+
+api.get('/auth/magic-link/verify', async (c) => {
+  const token = c.req.query('token');
+  if (!token) throw invalidParameter('token', 'token is required');
+  return ok(c, await verifyMagicLink(c.env, token));
+});
+
+api.post('/auth/magic-link/verify', async (c) => {
+  const body = await readJsonRecord(c.req.raw);
+  return ok(c, await verifyMagicLink(c.env, readRequiredString(body, 'token')));
+});
+
+api.post('/auth/passkeys/registration/options', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await createPasskeyRegistrationOptions(c.env, user));
+});
+
+api.post('/auth/passkeys/registration/verify', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const body = await readJsonRecord(c.req.raw);
+  return ok(c, await verifyPasskeyRegistration(c.env, user, parsePasskeyRegistrationInput(body)));
+});
+
+api.post('/auth/passkeys/authentication/options', async (c) => {
+  const body = await readJsonRecord(c.req.raw);
+  return ok(
+    c,
+    await createPasskeyAuthenticationOptions(c.env, parsePasskeyAuthenticationOptions(body))
+  );
+});
+
+api.post('/auth/passkeys/authentication/verify', async (c) => {
+  const body = await readJsonRecord(c.req.raw);
+  return ok(c, await verifyPasskeyAuthentication(c.env, parsePasskeyAuthenticationInput(body)));
+});
+
+api.get('/me', async (c) => ok(c, await requireUser(c.env, c.req.header('Authorization') ?? null)));
+
+api.post('/auth/logout', async (c) =>
+  ok(c, await revokeSession(c.env, c.req.header('Authorization') ?? null))
+);
+
+api.get('/me/passkeys', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await listPasskeys(c.env, user.id));
+});
+
+api.delete('/me/passkeys/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await deletePasskey(c.env, user.id, c.req.param('id')));
+});
+
+api.get('/me/workspaces', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await listWorkspaces(c.env, user.id));
+});
+
+api.post('/me/workspaces', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(
+    c,
+    await saveWorkspace(c.env, user.id, parseWorkspaceInput(await readJsonRecord(c.req.raw)))
+  );
+});
+
+api.delete('/me/workspaces/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await deleteWorkspace(c.env, user.id, c.req.param('id')));
+});
+
+api.get('/me/watchlists', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await listWatchlists(c.env, user.id));
+});
+
+api.post('/me/watchlists', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(
+    c,
+    await saveWatchlist(c.env, user.id, parseWatchlistInput(await readJsonRecord(c.req.raw)))
+  );
+});
+
+api.delete('/me/watchlists/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await deleteWatchlist(c.env, user.id, c.req.param('id')));
+});
+
+api.get('/me/backtests', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await listSavedBacktests(c.env, user.id));
+});
+
+api.post('/me/backtests', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(
+    c,
+    await saveBacktest(c.env, user.id, parseSavedBacktestInput(await readJsonRecord(c.req.raw)))
+  );
+});
+
+api.delete('/me/backtests/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await deleteSavedBacktest(c.env, user.id, c.req.param('id')));
+});
+
+api.get('/me/signal-strategies', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await listSignalLabStrategies(c.env, user.id));
+});
+
+api.post('/me/signal-strategies', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const body = await readJsonRecord(c.req.raw);
+  const input = parseSignalLabStrategyInput(body);
+  const latestBacktest =
+    body.autoBacktest === true ? await runSignalLabBacktest(c.env, input) : null;
+  return ok(
+    c,
+    await saveSignalLabStrategy(c.env, user.id, {
+      ...input,
+      latestBacktest,
+    })
+  );
+});
+
+api.post('/me/signal-strategies/:id/versions', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const body = await readJsonRecord(c.req.raw);
+  const input = parseSignalLabStrategyInput(body);
+  const latestBacktest =
+    body.autoBacktest === true ? await runSignalLabBacktest(c.env, input) : null;
+  return ok(
+    c,
+    await saveSignalLabStrategyVersion(c.env, user.id, c.req.param('id'), {
+      ...input,
+      latestBacktest,
+    })
+  );
+});
+
+api.post('/me/signal-strategies/:id/backtest', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const body = await readJsonRecord(c.req.raw);
+  const input = parseSignalLabStrategyInput(body);
+  const latestBacktest = await runSignalLabBacktest(c.env, input);
+  return ok(
+    c,
+    await updateSignalLabLatestBacktest(c.env, user.id, c.req.param('id'), latestBacktest)
+  );
+});
+
+api.delete('/me/signal-strategies/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await deleteSignalLabStrategy(c.env, user.id, c.req.param('id')));
+});
+
+api.get('/me/alerts', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await listPriceAlerts(c.env, user.id));
+});
+
+api.post('/me/alerts', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(
+    c,
+    await createPriceAlert(c.env, user.id, parsePriceAlertInput(await readJsonRecord(c.req.raw)))
+  );
+});
+
+api.delete('/me/alerts/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const id = validateInteger(c.req.param('id'), 0, 1, Number.MAX_SAFE_INTEGER);
+  return ok(c, await deletePriceAlert(c.env, user.id, id));
+});
+
+api.post('/me/alerts/evaluate', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await evaluateUserAlerts(c.env, user.id));
+});
+
+api.get('/me/api-keys', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await listApiKeys(c.env, user.id));
+});
+
+api.post('/me/api-keys', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const body = await readJsonRecord(c.req.raw);
+  const scopes = Array.isArray(body.scopes)
+    ? body.scopes.filter((scope): scope is string => typeof scope === 'string')
+    : ['read:market-data'];
+  return ok(c, await createApiKey(c.env, user.id, readRequiredString(body, 'name'), scopes));
+});
+
+api.delete('/me/api-keys/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await revokeApiKey(c.env, user.id, c.req.param('id')));
+});
+
+api.get('/alpha-feed', async (c) => {
+  const exchange = requireExchange(c.req.query('exchange') ?? 'bybit');
+  const limit = validateInteger(c.req.query('limit'), 20, 1, 50);
+  return ok(c, await buildAlphaFeed(c.env, exchange, limit), { source: 'live-cache' });
+});
+
+api.get('/alpha-feed/:id', async (c) => {
+  const item = await readAlphaFeedEvent(c.env, decodeURIComponent(c.req.param('id')));
+  if (!item) throw invalidParameter('id', 'Alpha Feed event was not found');
+  return ok(c, item, { source: 'd1' });
+});
+
+api.get('/snapshots/market/:exchange/:symbol.svg', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const rawSymbol = c.req.param('symbol') ?? c.req.param('symbol.svg') ?? '';
+  const symbol = parseOrThrow(
+    symbolSchema,
+    decodeURIComponent(rawSymbol.endsWith('.svg') ? rawSymbol.slice(0, -4) : rawSymbol),
+    'symbol'
+  );
+  const type = parseMarketType(c.req.query('type'), symbol);
+  const { data: tickers } = await cachedMarketData<Ticker[]>(c.env, 'tickers', exchange, type);
+  const ticker = tickers.find((item) => item.symbol === symbol);
+  if (!ticker) throw tickerNotFound(symbol, exchange);
+  const svg = buildMarketSnapshotSvg({
+    symbol,
+    exchange,
+    price: ticker.last,
+    change24h: ticker.percentage24h,
+    volume24h: ticker.quoteVolume24h ?? ticker.volume24h,
+    timestamp: Date.now(),
+  });
+  return new Response(svg, {
+    headers: {
+      'Content-Type': 'image/svg+xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
+    },
+  });
 });
 
 api.post('/admin/backfills', async (c) => {
@@ -764,6 +1300,12 @@ export default {
     return app.fetch(request, env, executionCtx);
   },
 
+  scheduled(controller: ScheduledController, env: Env, executionCtx: ExecutionContext) {
+    if (featureEnabled(env, 'ALERT_EVALUATION_ENABLED')) {
+      executionCtx.waitUntil(runScheduledAlertEvaluation(env, controller.scheduledTime));
+    }
+  },
+
   async queue(batch: MessageBatch<BackfillQueueMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
       try {
@@ -782,7 +1324,7 @@ export default {
         if (error instanceof TerminalBackfillError) {
           message.ack();
         } else {
-          message.retry();
+          message.retry({ delaySeconds: queueRetryDelaySeconds(message.attempts) });
         }
       }
     }
@@ -803,7 +1345,7 @@ async function buildDeepHealth(env: Env): Promise<HealthResponse & Record<string
   let cacheReachable = false;
   try {
     if (env.MARKET_DATA_CACHE) {
-      const id = env.MARKET_DATA_CACHE.idFromName('health');
+      const id = env.MARKET_DATA_CACHE.idFromName('bybit');
       const response = await env.MARKET_DATA_CACHE.get(id).fetch('https://cache/health');
       cacheReachable = response.ok;
     }
@@ -832,16 +1374,16 @@ async function buildDeepHealth(env: Env): Promise<HealthResponse & Record<string
  * high-volume usage trail.
  */
 function shouldRecordRequestUsage(path: string, status: number, requestId: string): boolean {
-  if (path === '/health' || path === '/api/v1/health' || path === '/api/v1/docs') {
-    return false;
-  }
   if (status >= 400 || path.includes('/admin/')) {
     return true;
   }
-  if (routeUsageClass(path) === 'expensive') {
-    return true;
+  if (path === '/health' || path === '/api/v1/health' || path === '/api/v1/docs') {
+    return false;
   }
-  return stableSample(requestId, 20);
+  if (routeUsageClass(path) === 'expensive') {
+    return stableSample(requestId, 10);
+  }
+  return stableSample(requestId, 100);
 }
 
 /**
@@ -859,17 +1401,7 @@ function shouldLogRequest(path: string, status: number): boolean {
  */
 function routeUsageClass(path: string): 'admin' | 'health' | 'expensive' | 'public' {
   if (path === '/health' || path === '/api/v1/health') return 'health';
-  if (path.includes('/admin/')) return 'admin';
-  if (
-    path.includes('/custom-index') ||
-    path.includes('/superema/') ||
-    path.includes('/ohlcv') ||
-    path.includes('/orderbook/') ||
-    path.includes('/screener/')
-  ) {
-    return 'expensive';
-  }
-  return 'public';
+  return classifyRouteLimit(path).routeClass;
 }
 
 function stableSample(value: string, every: number): boolean {
@@ -880,6 +1412,20 @@ function stableSample(value: string, every: number): boolean {
   return hash % every === 0;
 }
 
+async function requireAccountFeatures(
+  c: Context<{ Bindings: Env }>,
+  next: Next
+): Promise<Response | void> {
+  if (!featureEnabled(c.env, 'ACCOUNT_FEATURES_ENABLED')) {
+    return featureDisabled(c, 'Account features are temporarily disabled');
+  }
+  return next();
+}
+
+function featureDisabled(c: Context<{ Bindings: Env }>, message: string): Response {
+  return c.json(featureDisabledEnvelope(message), 503);
+}
+
 async function cachedMarketData<T>(
   env: Env,
   resource: 'tickers' | 'markets' | 'funding',
@@ -888,7 +1434,7 @@ async function cachedMarketData<T>(
 ): Promise<{ data: T; meta: Record<string, unknown> }> {
   try {
     if (env.MARKET_DATA_CACHE) {
-      const id = env.MARKET_DATA_CACHE.idFromName(`${resource}:${exchange}`);
+      const id = env.MARKET_DATA_CACHE.idFromName(exchange);
       const url = new URL(`https://cache/${resource}`);
       url.searchParams.set('exchange', exchange);
       if (resource === 'funding' && type) {
@@ -902,6 +1448,12 @@ async function cachedMarketData<T>(
         };
         return { data: payload.data, meta: payload.meta ?? { source: 'durable-object' } };
       }
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new ExchangeError(
+        ErrorCode.EXCHANGE_UNAVAILABLE,
+        payload.error ?? `Live ${resource} refresh failed`,
+        exchange
+      );
     }
 
     if (resource === 'tickers') {
@@ -976,7 +1528,7 @@ async function loadOhlcv(
   };
 }> {
   if (env.MARKET_DATA_CACHE && options.since === undefined && options.until === undefined) {
-    const id = env.MARKET_DATA_CACHE.idFromName(`ohlcv:${exchange}:${symbol}`);
+    const id = env.MARKET_DATA_CACHE.idFromName(exchange);
     const url = new URL('https://cache/ohlcv');
     url.searchParams.set('exchange', exchange);
     url.searchParams.set('symbol', symbol);
@@ -999,6 +1551,20 @@ async function loadOhlcv(
         },
       };
     }
+    const payload = (await response.json().catch(() => ({}))) as { error?: string };
+    return {
+      candles: [],
+      meta: {
+        source: 'live-cache',
+        archiveObjects: [],
+        missingArchive: false,
+        cache: {
+          cache: 'miss',
+          stale: true,
+          refreshError: payload.error ?? 'Live OHLCV refresh failed',
+        },
+      },
+    };
   }
 
   const archived = options.since
@@ -1062,7 +1628,7 @@ async function loadOrderBook(
 ): Promise<{ orderbook: OrderBook; meta: Record<string, unknown> }> {
   try {
     if (env.MARKET_DATA_CACHE) {
-      const id = env.MARKET_DATA_CACHE.idFromName(`orderbook:${exchange}:${symbol}`);
+      const id = env.MARKET_DATA_CACHE.idFromName(exchange);
       const url = new URL('https://cache/orderbook');
       url.searchParams.set('exchange', exchange);
       url.searchParams.set('symbol', symbol);
@@ -1076,6 +1642,12 @@ async function loadOrderBook(
         };
         return { orderbook: payload.data, meta: { source: 'live-cache', cache: payload.meta } };
       }
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      throw new ExchangeError(
+        ErrorCode.EXCHANGE_UNAVAILABLE,
+        payload.error ?? 'Live order book refresh failed',
+        exchange
+      );
     }
 
     return {
@@ -1288,7 +1860,7 @@ async function cachedInstitutionalData<T>(
   }
 ): Promise<{ data: T; meta: Record<string, unknown> }> {
   if (env.MARKET_DATA_CACHE) {
-    const id = env.MARKET_DATA_CACHE.idFromName(`institutional:${kind}:${asset}`);
+    const id = env.MARKET_DATA_CACHE.idFromName('institutional');
     const url = new URL('https://cache/institutional');
     url.searchParams.set('kind', kind);
     url.searchParams.set('asset', asset);
@@ -1380,6 +1952,9 @@ function buildAltScreener(
     maxVolume?: number;
     minChange?: number;
     maxChange?: number;
+    minFundingRate?: number;
+    maxFundingRate?: number;
+    minOpenInterest?: number;
     search?: string;
   }
 ): AltScreenerResponse {
@@ -1397,6 +1972,29 @@ function buildAltScreener(
       const change = ticker.percentage24h ?? 0;
       if (options.minChange !== undefined && change < options.minChange) return false;
       if (options.maxChange !== undefined && change > options.maxChange) return false;
+      const funding =
+        ticker.fundingRate !== undefined && ticker.fundingRate !== null
+          ? ticker.fundingRate * 100
+          : null;
+      if (
+        options.minFundingRate !== undefined &&
+        (funding === null || funding < options.minFundingRate)
+      ) {
+        return false;
+      }
+      if (
+        options.maxFundingRate !== undefined &&
+        (funding === null || funding > options.maxFundingRate)
+      ) {
+        return false;
+      }
+      const openInterest = ticker.openInterest ?? null;
+      if (
+        options.minOpenInterest !== undefined &&
+        (openInterest === null || openInterest < options.minOpenInterest)
+      ) {
+        return false;
+      }
       return true;
     })
     .map<AltcoinPerformance>((ticker) => {
@@ -1418,6 +2016,13 @@ function buildAltScreener(
         high24h: ticker.high24h,
         low24h: ticker.low24h,
         ohlcv: [],
+        derivatives: {
+          fundingRatePercent:
+            ticker.fundingRate !== undefined && ticker.fundingRate !== null
+              ? ticker.fundingRate * 100
+              : null,
+          openInterestUsd: ticker.openInterest ?? null,
+        },
         timestamp: ticker.timestamp,
       };
     });
@@ -1461,6 +2066,160 @@ function buildAltScreener(
       topLoser,
     },
   };
+}
+
+function shouldRunTechnicalScreener(query: Record<string, string | undefined>): boolean {
+  return (
+    query.minRsi !== undefined ||
+    query.maxRsi !== undefined ||
+    query.breakout === 'up' ||
+    query.breakout === 'down' ||
+    query.breakout === 'any'
+  );
+}
+
+async function enrichScreenerTechnicals(
+  env: Env,
+  exchange: SupportedExchange,
+  response: AltScreenerResponse,
+  options: {
+    type: 'spot' | 'perp';
+    minRsi?: number;
+    maxRsi?: number;
+    breakout?: 'up' | 'down' | 'any';
+    limit: number;
+  }
+): Promise<AltScreenerResponse> {
+  const enriched = await mapWithConcurrency(response.altcoins, 5, async (altcoin) => {
+    const candles = await loadOhlcv(env, exchange, altcoin.symbol, {
+      timeframe: '1d',
+      type: options.type,
+      limit: 40,
+    }).catch(() => ({ candles: [] as OHLCV[] }));
+    const closes = candles.candles.map((candle) => candle.close);
+    const rsi14 = calculateWilderRsi(closes, 14);
+    const ema20 = calculateLastEma(closes, 20);
+    const last = closes[closes.length - 1] ?? altcoin.price;
+    const high24h = altcoin.high24h ?? Number.POSITIVE_INFINITY;
+    const low24h = altcoin.low24h ?? 0;
+    const breakout: NonNullable<AltcoinPerformance['technical']>['breakout'] =
+      last >= high24h * 0.995 ? '24h-high' : last <= low24h * 1.005 ? '24h-low' : 'none';
+    const trend: NonNullable<AltcoinPerformance['technical']>['trend'] =
+      ema20 === null ? 'unknown' : last >= ema20 ? 'above-ema20' : 'below-ema20';
+
+    return {
+      ...altcoin,
+      technical: {
+        rsi14,
+        breakout,
+        trend,
+      },
+    };
+  });
+
+  const filtered = enriched
+    .filter((altcoin) => {
+      const rsi14 = altcoin.technical?.rsi14;
+      if (
+        options.minRsi !== undefined &&
+        (rsi14 === null || rsi14 === undefined || rsi14 < options.minRsi)
+      ) {
+        return false;
+      }
+      if (
+        options.maxRsi !== undefined &&
+        (rsi14 === null || rsi14 === undefined || rsi14 > options.maxRsi)
+      ) {
+        return false;
+      }
+      if (options.breakout === 'up' && altcoin.technical?.breakout !== '24h-high') return false;
+      if (options.breakout === 'down' && altcoin.technical?.breakout !== '24h-low') return false;
+      if (options.breakout === 'any' && altcoin.technical?.breakout === 'none') return false;
+      return true;
+    })
+    .slice(0, options.limit)
+    .map((altcoin, index) => ({ ...altcoin, rank: index + 1 }));
+
+  return {
+    ...response,
+    altcoins: filtered,
+    count: filtered.length,
+    stats: {
+      ...response.stats,
+      totalAltcoins: filtered.length,
+      gainers: filtered.filter((coin) => (coin.change24h ?? 0) > 0).length,
+      losers: filtered.filter((coin) => (coin.change24h ?? 0) < 0).length,
+      avgChange:
+        filtered.reduce((sum, coin) => sum + (coin.change24h ?? 0), 0) /
+        Math.max(1, filtered.length),
+      topGainer:
+        [...filtered].sort((a, b) => (b.change24h ?? -Infinity) - (a.change24h ?? -Infinity))[0]
+          ?.symbol ?? '',
+      topLoser:
+        [...filtered].sort((a, b) => (a.change24h ?? Infinity) - (b.change24h ?? Infinity))[0]
+          ?.symbol ?? '',
+    },
+  };
+}
+
+async function buildTrendingVolumeSpike(
+  env: Env,
+  exchange: SupportedExchange,
+  ticker: Ticker,
+  type: 'spot' | 'perp'
+): Promise<TrendingVolumeSpike | null> {
+  try {
+    const candles = (
+      await loadOhlcv(env, exchange, ticker.symbol, {
+        timeframe: '1d',
+        type,
+        limit: 8,
+      })
+    ).candles;
+    const historical = candles.slice(0, -1);
+    const averageVolume =
+      historical.length > 0
+        ? historical.reduce((sum, candle) => sum + candle.volume * candle.close, 0) /
+          historical.length
+        : null;
+    const volume24h =
+      ticker.quoteVolume24h ??
+      (ticker.volume24h !== null && ticker.last !== null ? ticker.volume24h * ticker.last : null);
+    const ratio =
+      averageVolume && volume24h && averageVolume > 0 ? volume24h / averageVolume : null;
+    const change = ticker.percentage24h ?? 0;
+    const score = Math.round(
+      (Math.min(5, ratio ?? 0) / 5) * 70 + Math.min(30, Math.abs(change)) * 1
+    );
+
+    return {
+      symbol: ticker.symbol,
+      exchange,
+      type,
+      price: ticker.last,
+      change24h: ticker.percentage24h,
+      volume24h,
+      sevenDayAverageVolume: averageVolume,
+      volumeRatio24hVs7d: ratio,
+      score,
+    };
+  } catch (error) {
+    if (!isExchangeConnectivityError(error) && !isInvalidTimeframeError(error)) {
+      throw error;
+    }
+    return null;
+  }
+}
+
+function calculateLastEma(values: number[], period: number): number | null {
+  if (values.length < period) return null;
+  const multiplier = 2 / (period + 1);
+  let current =
+    values.slice(0, period).reduce((sum, value) => sum + value, 0) / Math.max(1, period);
+  for (let index = period; index < values.length; index += 1) {
+    current = ((values[index] ?? current) - current) * multiplier + current;
+  }
+  return current;
 }
 
 function getBasePrices(tickers: Ticker[]): BaseCurrencyPrices {
@@ -1593,6 +2352,524 @@ function parsePerformancePeriod(value: string | undefined): '1h' | '4h' | '24h' 
 
 function parseScreenerSort(value: string | undefined): 'performance' | 'volume' | 'name' | 'price' {
   return value === 'volume' || value === 'name' || value === 'price' ? value : 'performance';
+}
+
+function parseStrategyDefinition(body: unknown): StrategyDefinition {
+  const source = isRecord(body) && isRecord(body.strategy) ? body.strategy : body;
+  const mode = readString(source, 'mode');
+  const parsedMode =
+    mode === 'mean-reversion' || mode === 'breakout' || mode === 'momentum' ? mode : 'momentum';
+  const fallback = defaultStrategyDefinition(parsedMode);
+  const strategy: StrategyDefinition = {
+    id: readString(source, 'id') ?? fallback.id,
+    name: readString(source, 'name') ?? fallback.name,
+    mode: parsedMode,
+    fastPeriod: readBoundedNumber(source, 'fastPeriod', fallback.fastPeriod, 2, 200),
+    slowPeriod: readBoundedNumber(source, 'slowPeriod', fallback.slowPeriod, 3, 400),
+    rsiPeriod: readBoundedNumber(source, 'rsiPeriod', fallback.rsiPeriod, 2, 100),
+    rsiOversold: readBoundedNumber(source, 'rsiOversold', fallback.rsiOversold, 1, 50),
+    rsiOverbought: readBoundedNumber(source, 'rsiOverbought', fallback.rsiOverbought, 50, 99),
+    feeBps: readBoundedNumber(source, 'feeBps', fallback.feeBps, 0, 100),
+  };
+
+  if (strategy.fastPeriod >= strategy.slowPeriod) {
+    throw invalidParameter('strategy', 'fastPeriod must be lower than slowPeriod');
+  }
+  if (strategy.rsiOversold >= strategy.rsiOverbought) {
+    throw invalidParameter('strategy', 'rsiOversold must be lower than rsiOverbought');
+  }
+
+  return strategy;
+}
+
+function readString(value: unknown, key: string): string | undefined {
+  if (!isRecord(value)) return undefined;
+  const raw = value[key];
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw);
+  return undefined;
+}
+
+function readBoundedNumber(
+  value: unknown,
+  key: string,
+  fallback: number,
+  minimum: number,
+  maximum: number
+): number {
+  const raw = readString(value, key);
+  if (raw === undefined) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < minimum || parsed > maximum) {
+    throw invalidParameter(key, `${key} must be between ${minimum} and ${maximum}`);
+  }
+  return parsed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function readJsonRecord(request: Request): Promise<Record<string, unknown>> {
+  const body = (await request.json().catch(() => ({}))) as unknown;
+  if (!isRecord(body)) {
+    throw invalidParameter('body', 'JSON object body is required');
+  }
+  return body;
+}
+
+function readRequiredString(value: Record<string, unknown>, key: string): string {
+  const raw = value[key];
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    throw invalidParameter(key, `${key} is required`);
+  }
+  return raw.trim();
+}
+
+async function requireUser(env: Env, authorization: string | null): Promise<UserAccount> {
+  try {
+    return await readUserFromSession(env, authorization);
+  } catch (error) {
+    throw invalidParameter(
+      'authorization',
+      error instanceof Error ? error.message : 'Valid bearer session is required'
+    );
+  }
+}
+
+function parsePasskeyRegistrationInput(
+  body: Record<string, unknown>
+): VerifyPasskeyRegistrationInput {
+  const response = body.response;
+  if (!isRecord(response)) {
+    throw invalidParameter('response', 'response must be a WebAuthn registration object');
+  }
+  const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : undefined;
+  return {
+    challengeId: readRequiredString(body, 'challengeId'),
+    response: response as unknown as VerifyPasskeyRegistrationInput['response'],
+    name,
+  };
+}
+
+function parsePasskeyAuthenticationOptions(
+  body: Record<string, unknown>
+): CreatePasskeyAuthenticationOptionsInput {
+  const email = typeof body.email === 'string' && body.email.trim() ? body.email.trim() : undefined;
+  return { email };
+}
+
+function parsePasskeyAuthenticationInput(
+  body: Record<string, unknown>
+): VerifyPasskeyAuthenticationInput {
+  const response = body.response;
+  if (!isRecord(response)) {
+    throw invalidParameter('response', 'response must be a WebAuthn authentication object');
+  }
+  return {
+    challengeId: readRequiredString(body, 'challengeId'),
+    response: response as unknown as VerifyPasskeyAuthenticationInput['response'],
+  };
+}
+
+function parseWorkspaceInput(body: Record<string, unknown>): SaveWorkspaceInput {
+  const state = body.state;
+  if (!isRecord(state)) {
+    throw invalidParameter('state', 'state must be an object');
+  }
+  return {
+    name: readRequiredString(body, 'name'),
+    state,
+    isDefault: body.isDefault === true,
+  };
+}
+
+function parseWatchlistInput(body: Record<string, unknown>): SaveWatchlistInput {
+  if (!Array.isArray(body.items)) {
+    throw invalidParameter('items', 'items must be an array of symbols');
+  }
+  return {
+    name: readRequiredString(body, 'name'),
+    items: body.items.filter((item): item is string => typeof item === 'string'),
+  };
+}
+
+function parseSavedBacktestInput(body: Record<string, unknown>): SaveBacktestInput {
+  if (!isRecord(body.strategy)) {
+    throw invalidParameter('strategy', 'strategy must be an object');
+  }
+  if (body.result !== undefined && body.result !== null && !isRecord(body.result)) {
+    throw invalidParameter('result', 'result must be an object when provided');
+  }
+  return {
+    name: readRequiredString(body, 'name'),
+    exchange: requireExchange(readRequiredString(body, 'exchange')),
+    symbol: parseOrThrow(symbolSchema, readRequiredString(body, 'symbol'), 'symbol'),
+    timeframe: parseTimeframeString(readRequiredString(body, 'timeframe')),
+    strategy: body.strategy,
+    result: body.result === undefined || body.result === null ? null : body.result,
+  };
+}
+
+function parseSignalLabStrategyInput(body: Record<string, unknown>): SaveSignalLabStrategyInput {
+  const symbol = parseOrThrow(symbolSchema, readRequiredString(body, 'symbol'), 'symbol');
+  return {
+    name: readRequiredString(body, 'name'),
+    exchange: requireExchange(readRequiredString(body, 'exchange')),
+    symbol,
+    marketType: parseMarketType(
+      typeof body.marketType === 'string' ? body.marketType : undefined,
+      symbol
+    ),
+    timeframe: parseTimeframeString(readRequiredString(body, 'timeframe')),
+    strategy: parseStrategyDefinition(body),
+  };
+}
+
+function parsePriceAlertInput(body: Record<string, unknown>): CreatePriceAlertInput {
+  const condition = readRequiredString(body, 'condition');
+  if (condition !== 'above' && condition !== 'below') {
+    throw invalidParameter('condition', 'condition must be above or below');
+  }
+  const priceTarget = Number(body.priceTarget);
+  if (!Number.isFinite(priceTarget) || priceTarget <= 0) {
+    throw invalidParameter('priceTarget', 'priceTarget must be a positive number');
+  }
+  const symbol = parseOrThrow(symbolSchema, readRequiredString(body, 'symbol'), 'symbol');
+  const marketType = parseMarketType(
+    typeof body.marketType === 'string' ? body.marketType : undefined,
+    symbol
+  );
+  return {
+    symbol,
+    exchange: requireExchange(readRequiredString(body, 'exchange')),
+    marketType,
+    priceTarget,
+    condition,
+    delivery: isRecord(body.delivery) ? body.delivery : null,
+    metadata: isRecord(body.metadata) ? body.metadata : null,
+  };
+}
+
+function parseTimeframeString(value: string): Timeframe {
+  if (
+    value === '1m' ||
+    value === '5m' ||
+    value === '15m' ||
+    value === '1h' ||
+    value === '4h' ||
+    value === '1d' ||
+    value === '3d' ||
+    value === '1w'
+  ) {
+    return value;
+  }
+  throw invalidParameter('timeframe', 'Invalid timeframe');
+}
+
+async function evaluateUserAlerts(
+  env: Env,
+  userId: string
+): Promise<{ evaluated: number; triggered: number; events: string[] }> {
+  const alerts = (await listPriceAlerts(env, userId)).filter((alert) => alert.active);
+  return evaluateActiveAlerts(env, alerts);
+}
+
+async function runSignalLabBacktest(
+  env: Env,
+  input: SaveSignalLabStrategyInput
+): Promise<BacktestResponse> {
+  const candles = (
+    await loadOhlcv(env, input.exchange as SupportedExchange, input.symbol, {
+      timeframe: input.timeframe as Timeframe,
+      type: input.marketType,
+      limit: 500,
+    })
+  ).candles;
+  return runBacktest({
+    exchange: input.exchange as SupportedExchange,
+    symbol: input.symbol,
+    type: input.marketType,
+    timeframe: input.timeframe as Timeframe,
+    candles,
+    strategy: input.strategy,
+  });
+}
+
+async function runScheduledAlertEvaluation(
+  env: Env,
+  scheduledTime: number
+): Promise<{ evaluated: number; triggered: number; events: string[] }> {
+  if (!env.DB) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        module: 'alerts',
+        msg: 'scheduled alert evaluation skipped because D1 is unavailable',
+        scheduledTime,
+      })
+    );
+    return { evaluated: 0, triggered: 0, events: [] };
+  }
+
+  const result = await evaluateActiveAlerts(env, await listDuePriceAlerts(env, 500));
+  console.log(
+    JSON.stringify({
+      level: 'info',
+      module: 'alerts',
+      msg: 'scheduled alert evaluation complete',
+      scheduledTime,
+      evaluated: result.evaluated,
+      triggered: result.triggered,
+    })
+  );
+  return result;
+}
+
+async function evaluateActiveAlerts(
+  env: Env,
+  alerts: Array<Awaited<ReturnType<typeof listPriceAlerts>>[number]>
+): Promise<{ evaluated: number; triggered: number; events: string[] }> {
+  const tickerCache = new Map<string, Ticker[]>();
+  const events: string[] = [];
+  let evaluated = 0;
+
+  for (const alert of alerts) {
+    if (!alert.active) continue;
+    const cacheKey = `${alert.exchange}:${alert.marketType}`;
+    let tickers = tickerCache.get(cacheKey);
+    if (!tickers) {
+      tickers = (
+        await cachedMarketData<Ticker[]>(
+          env,
+          'tickers',
+          alert.exchange as SupportedExchange,
+          alert.marketType
+        )
+      ).data;
+      tickerCache.set(cacheKey, tickers);
+    }
+    const ticker = tickers.find((item) => item.symbol === alert.symbol);
+    const currentPrice = ticker?.last ?? null;
+    if (currentPrice === null) continue;
+    evaluated += 1;
+    const result = await evaluateAlertTrigger(env, { alert, currentPrice });
+    if (result.eventId) events.push(result.eventId);
+  }
+
+  return { evaluated, triggered: events.length, events };
+}
+
+async function buildAlphaFeed(
+  env: Env,
+  exchange: SupportedExchange,
+  limit: number
+): Promise<AlphaFeedResponse> {
+  const [trendingResult, arbitrageResult, fundingResult] = await Promise.all([
+    cachedMarketData<Ticker[]>(env, 'tickers', exchange, 'spot').then(async ({ data }) => {
+      const candidates = data
+        .filter((ticker) => (ticker.quoteVolume24h ?? 0) > 0 && ticker.last !== null)
+        .sort((a, b) => Math.abs(b.percentage24h ?? 0) - Math.abs(a.percentage24h ?? 0))
+        .slice(0, 8);
+      return candidates.map<AlphaFeedItem>((ticker, index) => ({
+        id: `trend:${exchange}:${ticker.symbol}:${index}`,
+        kind: 'trending',
+        title: `${ticker.symbol} ${formatSignedPercent(ticker.percentage24h)} in 24h`,
+        summary: `Live ${exchange} spot move with ${formatUsd(ticker.quoteVolume24h ?? ticker.volume24h)} 24h volume.`,
+        score: Math.min(100, Math.abs(ticker.percentage24h ?? 0) * 3 + index),
+        href: `/markets/${exchange}/${encodeURIComponent(ticker.symbol)}`,
+        payload: {
+          exchange,
+          symbol: ticker.symbol,
+          price: ticker.last,
+          change24h: ticker.percentage24h,
+          volume24h: ticker.quoteVolume24h ?? ticker.volume24h,
+        },
+        timestamp: Date.now(),
+      }));
+    }),
+    Promise.all(
+      exchanges
+        .filter((item) => item.supported && item.hasSpot)
+        .map(async (item) => ({
+          exchange: item.id as SupportedExchange,
+          tickers: (
+            await cachedMarketData<Ticker[]>(env, 'tickers', item.id as SupportedExchange, 'spot')
+          ).data,
+        }))
+    ).then((sets) =>
+      buildPriceArbitrageResponse(sets, {
+        type: 'spot',
+        quote: 'USDT',
+        minSpreadBps: 10,
+        limit: 6,
+      }).opportunities.map<AlphaFeedItem>((item, index) => ({
+        id: `price-arb:${item.asset}:${index}`,
+        kind: 'price-arbitrage',
+        title: `${item.asset} spread: ${item.spreadBps.toFixed(1)} bps`,
+        summary: `Buy ${item.bestBuyExchange}, sell ${item.bestSellExchange} from live exchange quotes.`,
+        score: Math.min(100, item.spreadBps),
+        href: '/price-arbitrage',
+        payload: item as unknown as Record<string, unknown>,
+        timestamp: item.timestamp,
+      }))
+    ),
+    Promise.all(
+      publicFundingExchanges.map(async (item) => ({
+        exchange: item,
+        rates: (
+          await cachedMarketData<FundingRateData[]>(env, 'funding', item, 'perp').catch(() => ({
+            data: [] as FundingRateData[],
+            meta: {},
+          }))
+        ).data,
+      }))
+    ).then((inputs) =>
+      buildFundingArbitrage(inputs, 6, 12).opportunities.map<AlphaFeedItem>((item, index) => ({
+        id: `funding-arb:${item.asset}:${index}`,
+        kind: 'funding-arbitrage',
+        title: `${item.asset} funding carry`,
+        summary: `${item.longExchange} vs ${item.shortExchange}, net annualized ${item.netAnnualizedYield.toFixed(2)}%.`,
+        score: Math.min(100, Math.abs(item.netAnnualizedYield)),
+        href: '/funding-arbitrage',
+        payload: item as unknown as Record<string, unknown>,
+        timestamp: Date.now(),
+      }))
+    ),
+  ]);
+
+  const generatedItems = [...trendingResult, ...arbitrageResult, ...fundingResult]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+  const items = await persistAlphaFeedEvents(env, generatedItems);
+  return {
+    items,
+    count: items.length,
+    timestamp: Date.now(),
+  };
+}
+
+interface AlphaFeedEventRow {
+  id: string;
+  kind: AlphaFeedItem['kind'];
+  title: string;
+  summary: string;
+  score: number;
+  payload_json: string;
+  created_at: number;
+}
+
+async function persistAlphaFeedEvents(env: Env, items: AlphaFeedItem[]): Promise<AlphaFeedItem[]> {
+  if (!env.DB || items.length === 0) return items;
+  const persisted = items.map((item) => {
+    const id = alphaFeedEventId(item);
+    return { ...item, id, timestamp: Date.now() };
+  });
+
+  try {
+    await env.DB.batch(
+      persisted.map((storedItem, index) => {
+        const sourceItem = items[index]!;
+        const payloadJson = JSON.stringify({
+          href: storedItem.href,
+          payload: storedItem.payload,
+          sourceId: sourceItem.id,
+        });
+        return env.DB.prepare(
+          `INSERT INTO alpha_feed_events
+          (id, kind, title, summary, score, payload_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, unixepoch())
+         ON CONFLICT(id) DO UPDATE SET
+           kind = excluded.kind,
+           title = excluded.title,
+           summary = excluded.summary,
+           score = excluded.score,
+           payload_json = excluded.payload_json
+         WHERE alpha_feed_events.kind <> excluded.kind
+            OR alpha_feed_events.title <> excluded.title
+            OR alpha_feed_events.summary <> excluded.summary
+            OR alpha_feed_events.score <> excluded.score
+            OR alpha_feed_events.payload_json <> excluded.payload_json`
+        ).bind(
+          storedItem.id,
+          storedItem.kind,
+          storedItem.title,
+          storedItem.summary,
+          storedItem.score,
+          payloadJson
+        );
+      })
+    );
+    return persisted;
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        module: 'alpha-feed',
+        msg: 'failed to persist alpha feed batch',
+        count: items.length,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+    return items;
+  }
+}
+
+async function readAlphaFeedEvent(env: Env, id: string): Promise<AlphaFeedItem | null> {
+  if (!env.DB) return null;
+  const row = await env.DB.prepare(`SELECT * FROM alpha_feed_events WHERE id = ?`)
+    .bind(id)
+    .first<AlphaFeedEventRow>();
+  return row ? mapAlphaFeedEvent(row) : null;
+}
+
+function mapAlphaFeedEvent(row: AlphaFeedEventRow): AlphaFeedItem {
+  const payload = parseAlphaFeedPayload(row.payload_json);
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    summary: row.summary,
+    score: row.score,
+    href: typeof payload.href === 'string' ? payload.href : '/alpha-feed',
+    payload: isRecord(payload.payload) ? payload.payload : payload,
+    timestamp: row.created_at * 1000,
+  };
+}
+
+function parseAlphaFeedPayload(value: string): Record<string, unknown> {
+  const parsed = JSON.parse(value) as unknown;
+  return isRecord(parsed) ? parsed : {};
+}
+
+function alphaFeedEventId(item: AlphaFeedItem): string {
+  const payload = item.payload;
+  const exchange = typeof payload.exchange === 'string' ? payload.exchange : 'cross';
+  const symbol =
+    typeof payload.symbol === 'string'
+      ? payload.symbol
+      : typeof payload.asset === 'string'
+        ? payload.asset
+        : slugify(item.title);
+  return `${item.kind}:${exchange}:${slugify(symbol)}`;
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
+
+function formatSignedPercent(value: number | null): string {
+  const normalized = value ?? 0;
+  return `${normalized >= 0 ? '+' : ''}${normalized.toFixed(2)}%`;
+}
+
+function formatUsd(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return 'unknown';
+  return `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(value)}`;
 }
 
 function periodToTimeframe(period: string | undefined): Timeframe {

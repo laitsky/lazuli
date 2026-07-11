@@ -1,195 +1,64 @@
-# Lazuli Feature Roadmap
+# Lazuli API Roadmap
 
-## ✅ Completed Features
+## Current Production Baseline
 
-- [x] **Basic REST API structure** - Elysia with TypeScript
-- [x] **CCXT integration** - Binance, Bybit, OKX (spot + perpetual markets)
-- [x] **Exchange integrations** - CCXT library for multiple exchanges
-- [x] **API Endpoints**:
-  - [x] `GET /api/v1/exchanges` - List supported exchanges
-  - [x] `GET /api/v1/tickers/:exchange` - Get all tickers for exchange
-  - [x] `GET /api/v1/tickers/:exchange/:symbol` - Get specific ticker
-  - [x] `GET /api/v1/markets/:exchange` - Get all markets for exchange
-- [x] **Code Documentation** - Comprehensive comments throughout codebase
-- [x] **TypeScript Configuration** - Strict typing with proper error handling
-- [x] **Development Workflow** - CLAUDE.md with guidelines and standards
+- [x] Cloudflare Workers API using Hono
+- [x] CCXT live adapters for Binance, Bybit, OKX, Hyperliquid, and Upbit
+- [x] Durable Object market-data cache
+- [x] Durable Object public rate limiter
+- [x] Durable Object realtime hub with topic fan-out
+- [x] D1 control-plane schema for app config, audit events, users, saved state, alerts, API keys, backfill jobs, and R2 manifests
+- [x] R2 OHLCV archive read/write path
+- [x] Queues + Workflows backfill orchestration
+- [x] Signed admin routes for deep health and backfill control
+- [x] Institutional ETF/options/confluence endpoints
+- [x] Options Greeks computed from Deribit IV via Black-Scholes
+- [x] Liquidation radar, order-flow proxy, funding radar, funding arbitrage, and backtest endpoints
+- [x] Public Alpha Feed and market snapshot SVG endpoints
+- [x] Passwordless magic-link sessions with production delivery webhook support
+- [x] User saved workspaces, watchlists, alerts, backtests, and API keys
+- [x] OpenAPI source updated at `src/api-spec.yaml`
 
-## 🚧 Current System Status
+## Track D — Growth & Retention
 
-### Architecture Overview
+- [x] D1 user accounts and magic-link auth
+- [x] Saved workspaces
+- [x] Watchlists
+- [x] Price alerts backed by D1
+- [x] Saved backtests
+- [x] Public Alpha Feed
+- [x] API key issue/list/revoke endpoints
+- [x] Shareable market snapshot SVG generation
+- [x] Web SEO routes for `/alpha-feed`, `/markets/:exchange/:symbol`, `/exchanges/:exchange`, and `/signals/:id`
 
-- **Backend**: Bun + Elysia + TypeScript
-- **Exchange Integration**: CCXT (Binance, Bybit, OKX)
-- **Data Types**: Spot + Perpetual futures markets
-- **Response Format**: Standardized JSON with success/error handling
-- **Development**: Hot reload, TypeScript strict mode, comprehensive logging
+## Track E — Foundation
 
-### Known Limitations & Improvement Areas
+- [x] Rewrite stale root docs and API TODO
+- [x] Update OpenAPI source for Track D/E endpoints
+- [x] Wire `price_alerts` into user alerts and realtime event fan-out
+- [x] Fill options Greeks from Deribit IV
+- [x] Change default backfill window from 2019-2020 to 2019-now
+- [x] Default backfill universe to top 50 symbols per exchange/type when symbols are not explicit
+- [x] Re-enable Binance support with documented regional availability handling
 
-- **No Caching**: Every request hits exchange APIs (can cause rate limits)
-- **No Authentication**: Public endpoints only
-- **No Database**: No data persistence or historical storage
-- **No Rate Limiting**: Could exceed exchange API limits under load
-- **No Input Validation**: Endpoints accept any parameters
-- **No Pagination**: Large responses could be memory intensive
-- **No WebSockets**: Only REST API, no real-time updates
-- **Error Handling**: Basic error responses, could be more specific
+## Next Engineering Priorities
 
-## 📋 Suggested Features for Trading Decision Support
+- [x] Add scheduled alert evaluation so users do not need to call `/me/alerts/evaluate`
+- [x] Add alert delivery relay fan-out beyond realtime topic publish
+- [x] Add delivery adapters for Telegram, Discord, webhook, and email alert destinations
+- [x] Add passkey registration and assertion flows on top of the current user/session tables
+- [x] Add server-side Signal Lab persistence/versioning beyond saved backtest snapshots
+- [x] Add persisted Alpha Feed events for historical SEO pages
+- [x] Add route smoke coverage for auth, saved-state, and Alpha Feed endpoints
+- [x] Add OpenAPI schemas for every Track D response object, not just generic success wrappers
+- [x] Add API-key rate tiers and usage analytics keyed by `key_prefix`
 
-### Data Aggregation & Analysis
+## Verification Commands
 
-- [ ] **Price Comparison**: Compare same asset prices across exchanges
-- [ ] **Arbitrage Detection**: Identify price differences for arbitrage opportunities
-- [ ] **Volume Analysis**: Track 24h volume trends across exchanges
-- [ ] **Market Depth**: Aggregate order book data
-- [ ] **Funding Rates**: Track and compare perpetual funding rates
-- [ ] **Open Interest**: Monitor OI changes for trend analysis
-
-### Technical Indicators
-
-- [ ] **Moving Averages**: SMA, EMA calculations
-- [ ] **RSI**: Relative Strength Index across timeframes
-- [ ] **MACD**: Moving Average Convergence Divergence
-- [ ] **Bollinger Bands**: Volatility indicators
-- [ ] **Volume Profile**: Volume at price levels
-
-### Alerts & Notifications
-
-- [ ] **Price Alerts**: Notify when price reaches target
-- [ ] **Volume Spikes**: Alert on unusual volume
-- [ ] **Funding Rate Alerts**: High/low funding notifications
-- [ ] **New Listing Alerts**: When new pairs are added
-- [ ] **Large Order Detection**: Whale activity monitoring
-
-### Risk Management
-
-- [ ] **Position Calculator**: Calculate position sizes
-- [ ] **Risk/Reward Ratio**: Analyze trade setups
-- [ ] **Correlation Matrix**: Asset correlation analysis
-- [ ] **Portfolio Tracking**: Track P&L across exchanges
-- [ ] **Liquidation Calculator**: Calculate liquidation prices
-
-### Market Intelligence
-
-- [ ] **Market Sentiment**: Aggregate long/short ratios
-- [ ] **Fear & Greed Index**: Custom implementation
-- [ ] **Social Sentiment**: Twitter/Discord mention tracking
-- [ ] **News Aggregation**: Crypto news API integration
-- [ ] **On-chain Metrics**: DEX volume, TVL changes
-
-### Advanced Features
-
-- [ ] **Trading Bot Framework**: Basic bot implementation
-- [ ] **Backtesting Engine**: Test strategies on historical data
-- [ ] **WebSocket Support**: Real-time data streaming
-- [ ] **Multi-timeframe Analysis**: 1m to 1W candles
-- [ ] **Custom Screeners**: Filter assets by criteria
-
-### User Interface Options
-
-- [ ] **CLI Enhancement**: Interactive terminal UI
-- [ ] **Web Dashboard**: React + Vite frontend
-- [ ] **Telegram Bot**: Trading alerts and commands
-- [ ] **Mobile App**: React Native implementation
-
-### Performance & Infrastructure
-
-- [ ] **Redis Caching**: Reduce API calls
-- [ ] **Rate Limit Management**: Smart request queuing
-- [ ] **Historical Data Storage**: Time-series database
-- [ ] **API Documentation**: Swagger/OpenAPI spec
-- [ ] **Monitoring Dashboard**: System health metrics
-
-### Exchange-Specific Features
-
-- [ ] **Binance**: Savings rates, staking yields
-- [ ] **Bybit**: Copy trading stats
-- [ ] **OKX**: Options data integration
-
-### Compliance & Security
-
-- [ ] **API Key Management**: Secure storage system
-- [ ] **Audit Logging**: Track all operations
-- [ ] **2FA Support**: Enhanced security
-- [ ] **IP Whitelisting**: Restrict access
-- [ ] **Encryption**: Data at rest and in transit
-
-## 🎯 Next Sprint Priorities (Recommended Implementation Order)
-
-### Phase 1: Core Enhancements (Week 1-2)
-
-1. **Error Handling & Validation** - Input validation, better error messages
-2. **Rate Limiting** - Implement request throttling to avoid API bans
-3. **Caching Layer** - Redis/memory cache for ticker data (reduce API calls)
-4. **Logging System** - Structured logging with Winston/Pino
-5. **API Documentation** - Swagger/OpenAPI spec generation
-
-### Phase 2: Trading Features (Week 3-4)
-
-6. **Price Comparison** - Compare same asset across exchanges
-7. **Arbitrage Detection** - Identify price discrepancies
-8. **Volume Analysis** - Track unusual volume spikes
-9. **Funding Rate Tracking** - Monitor perpetual funding rates
-10. **Basic Alerts** - Price threshold notifications
-
-### Phase 3: Advanced Features (Month 2)
-
-11. **WebSocket Integration** - Real-time data streaming
-12. **Technical Indicators** - SMA, EMA, RSI calculations
-13. **Historical Data** - Store and retrieve price history
-14. **Market Screening** - Filter assets by custom criteria
-15. **CLI Enhancement** - Interactive terminal interface
-
-### Phase 4: User Interface (Month 3)
-
-16. **Web Dashboard** - React + Vite frontend
-17. **Authentication** - User accounts and API keys
-18. **Portfolio Tracking** - Multi-exchange portfolio view
-19. **Advanced Charts** - Trading view integration
-20. **Mobile Optimization** - Responsive design
-
-### Phase 5: Advanced Trading (Month 4+)
-
-21. **Trading Bot Framework** - Automated trading strategies
-22. **Backtesting Engine** - Strategy testing on historical data
-23. **Risk Management** - Position sizing, stop-loss automation
-24. **Social Features** - Signal sharing, copy trading
-25. **Machine Learning** - Price prediction models
-
-## 🧪 Testing & Quality Assurance
-
-### Testing Strategy (Not Yet Implemented)
-
-- [ ] **Unit Tests** - Jest/Vitest for service and utility functions
-- [ ] **Integration Tests** - API endpoint testing with supertest
-- [ ] **Exchange API Tests** - Mock external API calls for reliable testing
-- [ ] **Load Testing** - Performance testing under high request volume
-- [ ] **Error Scenario Testing** - Test API failures and network issues
-
-### Code Quality Tools (Recommended)
-
-- [ ] **ESLint** - JavaScript/TypeScript linting rules
-- [ ] **Prettier** - Code formatting consistency
-- [ ] **Husky** - Git hooks for pre-commit checks
-- [ ] **Jest Coverage** - Code coverage reporting
-- [ ] **SonarQube** - Code quality analysis
-
-## 🚀 Deployment & DevOps
-
-### Production Readiness Checklist
-
-- [ ] **Environment Configuration** - Production vs development settings
-- [x] **Cloudflare Workers Deployment** - API Worker deployed
-- [x] **Health Checks** - Cloudflare service health exposed via `/health`
-- [x] **Managed HTTPS** - Cloudflare Workers provide TLS at the edge
-- [x] **D1/R2 Migration** - Legacy database path retired in favor of Cloudflare storage
-- [x] **Custom Domain Routes** - Attach `api.lazuli.now` when the zone is available
-
-### Monitoring & Observability
-
-- [ ] **Application Metrics** - Response times, error rates, throughput
-- [ ] **Business Metrics** - API usage per exchange, popular symbols
-- [ ] **Log Aggregation** - Centralized logging with ELK stack or similar
-- [ ] **Alerting** - PagerDuty/Slack alerts for system issues
-- [ ] **Uptime Monitoring** - External monitoring service integration
+```bash
+bun run --filter @lazuli/api type-check
+bun run --filter @lazuli/api test
+bun run --filter @lazuli/web type-check
+bun run lint
+bun run format:check
+```

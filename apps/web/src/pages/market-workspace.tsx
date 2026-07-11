@@ -11,7 +11,9 @@
  */
 
 import { Link } from 'react-router-dom';
-import { Star, Share2, BookOpen, Activity, ChevronRight } from 'lucide-react';
+import { useMemo } from 'react';
+import { Star, Share2, BookOpen, Activity, ChevronRight, Flame, Waves } from 'lucide-react';
+import type { LiquidationRadarResponse, OrderFlowResponse } from '@lazuli/shared';
 import { CandlestickChartWithIndicators } from '@/components/candlestick-chart-with-indicators';
 import { PageHeader } from '@/components/ui/page-header';
 import { Panel, PanelHeader, PanelTitle } from '@/components/ui/panel';
@@ -32,12 +34,21 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { FreshnessBadge } from '@/components/ui/freshness-badge';
 import { PriceText } from '@/components/ui/price-text';
 import { Tag } from '@/components/ui/tag';
+import { Toggle } from '@/components/ui/toggle';
 import { useStringParam, TIMEFRAMES, type TimeframeValue } from '@/lib/url-state';
-import { useExchanges, useTicker, useTechnicalIndicators, useOrderBook } from '@/lib/queries';
+import {
+  useExchanges,
+  useTicker,
+  useTechnicalIndicators,
+  useOrderBook,
+  useLiquidationRadar,
+  useOrderFlow,
+} from '@/lib/queries';
 import { usePreferences, watchlistKey } from '@/lib/preferences';
 import { formatPrice } from '@/lib/format';
 import { formatVolume } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { RESOURCE_POLICY } from '@/lib/resource-policy';
 import { toast } from 'sonner';
 
 // Workspace filters (not using useWorkspaceFilters because we want fine control over each param)
@@ -46,15 +57,18 @@ function useWorkspaceParams() {
   const [symbol, setSymbol] = useStringParam('symbol', 'BTC-USDT');
   const [type, setType] = useStringParam('type', 'spot');
   const [timeframe, setTimeframe] = useStringParam('timeframe', '1h');
+  const [layers, setLayers] = useStringParam('layers', RESOURCE_POLICY.defaultWorkspaceLayers);
   return {
     exchange,
     symbol,
     type: type as 'spot' | 'perp',
     timeframe: timeframe as TimeframeValue,
+    layers,
     setExchange,
     setSymbol,
     setType,
     setTimeframe,
+    setLayers,
   };
 }
 
@@ -71,6 +85,30 @@ export default function MarketWorkspacePage() {
     type,
   });
   const orderBook = useOrderBook(exchange, symbol, { type, limit: 20 }, { refreshMs: 10_000 });
+  const activeLayers = useMemo(
+    () =>
+      new Set(
+        params.layers
+          .split(',')
+          .map((layer) => layer.trim())
+          .filter(Boolean)
+      ),
+    [params.layers]
+  );
+  const liquidationLayer = activeLayers.has('liquidations');
+  const cvdLayer = activeLayers.has('cvd');
+  const liquidations = useLiquidationRadar(
+    exchange,
+    symbol,
+    {},
+    { enabled: type === 'perp' && liquidationLayer, refreshMs: 15_000 }
+  );
+  const orderFlow = useOrderFlow(
+    exchange,
+    symbol,
+    { timeframe, type, limit: 160 },
+    { enabled: cvdLayer, refreshMs: 30_000 }
+  );
 
   const selectedTicker = ticker.data?.data ?? null;
   const watched = isWatched(watchlistKey(exchange, symbol));
@@ -84,6 +122,16 @@ export default function MarketWorkspacePage() {
     : null;
 
   const exchanges = exchangesData?.data ?? [];
+
+  const setLayer = (layer: 'liquidations' | 'cvd', enabled: boolean) => {
+    const next = new Set(activeLayers);
+    if (enabled) {
+      next.add(layer);
+    } else {
+      next.delete(layer);
+    }
+    params.setLayers(Array.from(next).join(','));
+  };
 
   const onShare = () => {
     const url = window.location.href;
@@ -161,6 +209,26 @@ export default function MarketWorkspacePage() {
             size="sm"
             aria-label="Timeframe"
           />
+
+          <div className="flex items-center gap-1">
+            <Toggle
+              size="sm"
+              pressed={liquidationLayer}
+              disabled={type !== 'perp'}
+              onPressedChange={(pressed) => setLayer('liquidations', pressed)}
+              aria-label="Toggle liquidation radar"
+            >
+              <Flame className="h-3.5 w-3.5" aria-hidden />
+            </Toggle>
+            <Toggle
+              size="sm"
+              pressed={cvdLayer}
+              onPressedChange={(pressed) => setLayer('cvd', pressed)}
+              aria-label="Toggle CVD overlay"
+            >
+              <Waves className="h-3.5 w-3.5" aria-hidden />
+            </Toggle>
+          </div>
         </div>
       </Panel>
 
@@ -279,6 +347,48 @@ export default function MarketWorkspacePage() {
             </div>
           </Panel>
 
+          {type === 'perp' && liquidationLayer && (
+            <Panel flush>
+              <PanelHeader className="px-5 pt-5 mb-0">
+                <div className="flex items-center gap-2">
+                  <Flame className="h-4 w-4 text-accent" aria-hidden />
+                  <PanelTitle>Liquidation Radar</PanelTitle>
+                </div>
+                {liquidations.data && <FreshnessBadge meta={liquidations.data.meta} compact />}
+              </PanelHeader>
+              <div className="p-5 pt-3">
+                {liquidations.isLoading ? (
+                  <Skeleton className="h-40" />
+                ) : liquidations.data?.data ? (
+                  <LiquidationRadarPreview radar={liquidations.data.data} />
+                ) : (
+                  <EmptyState title="Liquidations unavailable" compact />
+                )}
+              </div>
+            </Panel>
+          )}
+
+          {cvdLayer && (
+            <Panel flush>
+              <PanelHeader className="px-5 pt-5 mb-0">
+                <div className="flex items-center gap-2">
+                  <Waves className="h-4 w-4 text-accent" aria-hidden />
+                  <PanelTitle>CVD Overlay</PanelTitle>
+                </div>
+                {orderFlow.data && <FreshnessBadge meta={orderFlow.data.meta} compact />}
+              </PanelHeader>
+              <div className="p-5 pt-3">
+                {orderFlow.isLoading ? (
+                  <Skeleton className="h-40" />
+                ) : orderFlow.data?.data ? (
+                  <OrderFlowPreview flow={orderFlow.data.data} />
+                ) : (
+                  <EmptyState title="CVD unavailable" compact />
+                )}
+              </div>
+            </Panel>
+          )}
+
           {/* Continue in */}
           <Panel flush>
             <PanelHeader className="px-5 pt-5 mb-0">
@@ -314,6 +424,116 @@ export default function MarketWorkspacePage() {
 /* ============================================================
    Sub-components
    ============================================================ */
+
+function LiquidationRadarPreview({ radar }: { radar: LiquidationRadarResponse }) {
+  const topLevels = [...radar.levels].sort((a, b) => b.intensity - a.intensity).slice(0, 5);
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2 pb-3 border-b border-border">
+        <div>
+          <div className="text-[10px] font-mono uppercase text-muted-foreground">Mark</div>
+          <div className="numeric text-sm font-semibold text-foreground">
+            {radar.markPrice ? `$${formatPrice(radar.markPrice)}` : '—'}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] font-mono uppercase text-muted-foreground">OI</div>
+          <div className="numeric text-sm font-semibold text-foreground">
+            {radar.openInterestUsd ? `$${formatVolume(radar.openInterestUsd)}` : '—'}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        {topLevels.map((level) => (
+          <div
+            key={`${level.side}-${level.leverage}`}
+            className="grid grid-cols-[54px_1fr_70px] items-center gap-2 text-xs"
+          >
+            <Tag variant={level.side === 'long' ? 'default' : 'accent'}>
+              {level.side === 'long' ? 'Long' : 'Short'}
+            </Tag>
+            <div className="min-w-0">
+              <div className="numeric truncate text-foreground">
+                {level.leverage}x @ ${formatPrice(level.price)}
+              </div>
+              <div className="h-1 rounded bg-surface-2">
+                <div
+                  className={cn('h-1 rounded', level.side === 'long' ? 'bg-down' : 'bg-up')}
+                  style={{ width: `${Math.round(level.intensity * 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="numeric text-right text-muted-foreground">
+              {level.distancePercent.toFixed(2)}%
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Estimated from mark, OI, leverage buckets, and nearby book liquidity.
+      </p>
+    </div>
+  );
+}
+
+function OrderFlowPreview({ flow }: { flow: OrderFlowResponse }) {
+  const latest = flow.points[flow.points.length - 1];
+  const recent = flow.points.slice(-24);
+  const maxDelta = Math.max(...recent.map((point) => Math.abs(point.delta)), 1);
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2 pb-3 border-b border-border">
+        <div>
+          <div className="text-[10px] font-mono uppercase text-muted-foreground">CVD</div>
+          <div
+            className={cn(
+              'numeric text-sm font-semibold',
+              flow.summary.cumulativeDelta >= 0 ? 'text-up' : 'text-down'
+            )}
+          >
+            {formatVolume(flow.summary.cumulativeDelta)}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] font-mono uppercase text-muted-foreground">Divergence</div>
+          <div className="text-sm font-semibold capitalize text-foreground">
+            {flow.summary.divergence}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex h-14 items-end gap-0.5">
+        {recent.map((point) => (
+          <div
+            key={point.timestamp}
+            className={cn('flex-1 rounded-t', point.delta >= 0 ? 'bg-up/70' : 'bg-down/70')}
+            style={{ height: `${Math.max(10, (Math.abs(point.delta) / maxDelta) * 100)}%` }}
+            title={`${new Date(point.timestamp).toLocaleString()} ${formatVolume(point.delta)}`}
+          />
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <div className="text-[10px] font-mono uppercase text-muted-foreground">Absorption</div>
+          <div className="capitalize text-foreground">{flow.summary.absorption}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-[10px] font-mono uppercase text-muted-foreground">Latest Delta</div>
+          <div className="numeric text-foreground">{latest ? formatVolume(latest.delta) : '—'}</div>
+        </div>
+      </div>
+
+      <p className="text-[11px] leading-relaxed text-muted-foreground">
+        Candle-derived proxy until trade-tape WebSocket deltas are available.
+      </p>
+    </div>
+  );
+}
 
 function OrderBookPreview({
   midPrice,

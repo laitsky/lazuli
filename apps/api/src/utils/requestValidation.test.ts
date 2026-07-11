@@ -13,7 +13,7 @@ describe('request validation schemas', () => {
         name: 'Too many assets',
         exchange: 'bybit',
         timeframe: '1h',
-        assets: Array.from({ length: 21 }, (_, index) => ({
+        assets: Array.from({ length: 11 }, (_, index) => ({
           symbol: `ASSET${index}-USDT`,
           weight: 1,
         })),
@@ -40,7 +40,7 @@ describe('request validation schemas', () => {
 
     expect(
       ohlcvBatchSchema.safeParse({
-        symbols: Array.from({ length: 51 }, () => 'BTC-USDT'),
+        symbols: Array.from({ length: 21 }, () => 'BTC-USDT'),
         period: '24h',
       }).success
     ).toBe(false);

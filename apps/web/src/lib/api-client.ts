@@ -35,6 +35,20 @@ import {
   OrderBookResponse,
   PriceArbitrageResponse,
   OHLCV,
+  LiquidationRadarResponse,
+  OrderFlowResponse,
+  FundingRadarResponse,
+  FundingArbitrageResponse,
+  BacktestResponse,
+  StrategyDefinition,
+  TrendingVolumeResponse,
+  AlphaFeedItem,
+  AlphaFeedResponse,
+  AuthMagicLinkResponse,
+  AuthSessionResponse,
+  PasskeyAuthenticationOptionsResponse,
+  PasskeyRecord,
+  PasskeyRegistrationOptionsResponse,
 } from '@lazuli/shared';
 
 // API base URL - defaults to same-origin for Cloudflare Workers Static Assets.
@@ -141,6 +155,12 @@ export interface AltScreenerQueryParams {
   maxVolume?: number; // Maximum 24h volume filter
   minChange?: number; // Minimum percentage change filter
   maxChange?: number; // Maximum percentage change filter
+  minRsi?: number; // Minimum RSI(14) filter
+  maxRsi?: number; // Maximum RSI(14) filter
+  breakout?: 'up' | 'down' | 'any'; // 24h breakout filter
+  minFundingRate?: number; // Minimum funding rate percent
+  maxFundingRate?: number; // Maximum funding rate percent
+  minOpenInterest?: number; // Minimum open interest in USD
   type?: 'spot' | 'perp'; // Market type filter
   search?: string; // Symbol search query
 }
@@ -159,6 +179,19 @@ export interface FundingRateQueryParams {
  */
 export interface CrossExchangeFundingQueryParams {
   limit?: number; // Maximum assets to compare (default: 50, max: 200)
+}
+
+/**
+ * Query parameters for funding radar and cost-adjusted funding arbitrage.
+ */
+export interface FundingRadarQueryParams {
+  exchange?: SupportedExchange | 'all';
+  limit?: number;
+}
+
+export interface FundingArbitrageQueryParams {
+  limit?: number;
+  executionCostBps?: number;
 }
 
 /**
@@ -182,6 +215,19 @@ export interface OrderBookQueryParams {
 }
 
 /**
+ * Query parameters for liquidation radar and CVD/order-flow overlays.
+ */
+export interface LiquidationRadarQueryParams {
+  limit?: number;
+}
+
+export interface OrderFlowQueryParams {
+  timeframe: Timeframe;
+  type?: 'spot' | 'perp';
+  limit?: number;
+}
+
+/**
  * Query parameters for price arbitrage endpoint
  */
 export interface PriceArbitrageQueryParams {
@@ -189,6 +235,35 @@ export interface PriceArbitrageQueryParams {
   quote?: string;
   minSpreadBps?: number;
   limit?: number;
+}
+
+/**
+ * Query parameters for trending volume-spike discovery.
+ */
+export interface TrendingVolumeQueryParams {
+  type?: 'spot' | 'perp';
+  limit?: number;
+  minRatio?: number;
+}
+
+/**
+ * Query parameters for public Alpha Feed.
+ */
+export interface AlphaFeedQueryParams {
+  exchange?: SupportedExchange;
+  limit?: number;
+}
+
+/**
+ * Server-side backtest request.
+ */
+export interface BacktestRequest {
+  timeframe: Timeframe;
+  type?: 'spot' | 'perp';
+  limit?: number;
+  since?: number;
+  until?: number;
+  strategy?: Partial<StrategyDefinition>;
 }
 
 /**
@@ -368,10 +443,115 @@ async function apiPost<T>(
   }
 }
 
+async function apiPostWithBearer<T>(
+  endpoint: string,
+  sessionToken: string,
+  body: unknown,
+  timeout?: number
+): Promise<ApiResponse<T>> {
+  return apiFetch<T>(endpoint, undefined, timeout, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${sessionToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function apiGetWithBearer<T>(
+  endpoint: string,
+  sessionToken: string,
+  timeout?: number
+): Promise<ApiResponse<T>> {
+  return apiFetch<T>(endpoint, undefined, timeout, {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  });
+}
+
+async function apiDeleteWithBearer<T>(
+  endpoint: string,
+  sessionToken: string,
+  timeout?: number
+): Promise<ApiResponse<T>> {
+  return apiFetch<T>(endpoint, undefined, timeout, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  });
+}
+
 /**
  * API Client class with methods for all endpoints
  */
 export class LazuliAPI {
+  static async requestMagicLink(email: string): Promise<ApiResponse<AuthMagicLinkResponse>> {
+    return apiPost<AuthMagicLinkResponse>(`${API_VERSION}/auth/magic-link`, { email });
+  }
+
+  static async verifyMagicLink(token: string): Promise<ApiResponse<AuthSessionResponse>> {
+    return apiPost<AuthSessionResponse>(`${API_VERSION}/auth/magic-link/verify`, { token });
+  }
+
+  static async createPasskeyRegistrationOptions(
+    sessionToken: string
+  ): Promise<ApiResponse<PasskeyRegistrationOptionsResponse>> {
+    return apiPostWithBearer<PasskeyRegistrationOptionsResponse>(
+      `${API_VERSION}/auth/passkeys/registration/options`,
+      sessionToken,
+      {}
+    );
+  }
+
+  static async verifyPasskeyRegistration(
+    sessionToken: string,
+    challengeId: string,
+    response: Record<string, unknown>,
+    name?: string
+  ): Promise<ApiResponse<PasskeyRecord>> {
+    return apiPostWithBearer<PasskeyRecord>(
+      `${API_VERSION}/auth/passkeys/registration/verify`,
+      sessionToken,
+      { challengeId, response, name }
+    );
+  }
+
+  static async createPasskeyAuthenticationOptions(
+    email?: string
+  ): Promise<ApiResponse<PasskeyAuthenticationOptionsResponse>> {
+    return apiPost<PasskeyAuthenticationOptionsResponse>(
+      `${API_VERSION}/auth/passkeys/authentication/options`,
+      email ? { email } : {}
+    );
+  }
+
+  static async verifyPasskeyAuthentication(
+    challengeId: string,
+    response: Record<string, unknown>
+  ): Promise<ApiResponse<AuthSessionResponse>> {
+    return apiPost<AuthSessionResponse>(`${API_VERSION}/auth/passkeys/authentication/verify`, {
+      challengeId,
+      response,
+    });
+  }
+
+  static async listPasskeys(sessionToken: string): Promise<ApiResponse<PasskeyRecord[]>> {
+    return apiGetWithBearer<PasskeyRecord[]>(`${API_VERSION}/me/passkeys`, sessionToken);
+  }
+
+  static async deletePasskey(
+    sessionToken: string,
+    id: string
+  ): Promise<ApiResponse<{ deleted: boolean }>> {
+    return apiDeleteWithBearer<{ deleted: boolean }>(
+      `${API_VERSION}/me/passkeys/${encodeURIComponent(id)}`,
+      sessionToken
+    );
+  }
+
   /**
    * Get list of all supported exchanges
    */
@@ -399,6 +579,35 @@ export class LazuliAPI {
     // URL encode the symbol to handle special characters like /
     const encodedSymbol = encodeURIComponent(symbol);
     return apiFetch<Ticker>(`${API_VERSION}/tickers/${exchange}/${encodedSymbol}`);
+  }
+
+  /**
+   * Get the public Alpha Feed composed from live market signals.
+   */
+  static async getAlphaFeed(
+    queryParams?: AlphaFeedQueryParams
+  ): Promise<ApiResponse<AlphaFeedResponse>> {
+    return apiFetch<AlphaFeedResponse>(`${API_VERSION}/alpha-feed`, queryParams, 60000);
+  }
+
+  /**
+   * Read one persisted Alpha Feed event by permalink id.
+   */
+  static async getAlphaFeedEvent(id: string): Promise<ApiResponse<AlphaFeedItem>> {
+    return apiFetch<AlphaFeedItem>(`${API_VERSION}/alpha-feed/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Build an API-served SVG snapshot URL for market sharing and OG previews.
+   */
+  static getMarketSnapshotUrl(
+    exchange: SupportedExchange,
+    symbol: string,
+    type?: 'spot' | 'perp'
+  ): string {
+    const encodedSymbol = encodeURIComponent(symbol);
+    const query = type ? `?type=${type}` : '';
+    return `${API_BASE_URL}${API_VERSION}/snapshots/market/${exchange}/${encodedSymbol}.svg${query}`;
   }
 
   /**
@@ -655,6 +864,28 @@ export class LazuliAPI {
   }
 
   /**
+   * Get OI-weighted funding and spike radar across one or all exchanges.
+   */
+  static async getFundingRadar(
+    queryParams?: FundingRadarQueryParams
+  ): Promise<ApiResponse<FundingRadarResponse>> {
+    return apiFetch<FundingRadarResponse>(`${API_VERSION}/funding/radar`, queryParams, 90000);
+  }
+
+  /**
+   * Get cost-adjusted cross-exchange funding arbitrage opportunities.
+   */
+  static async getFundingArbitrage(
+    queryParams?: FundingArbitrageQueryParams
+  ): Promise<ApiResponse<FundingArbitrageResponse>> {
+    return apiFetch<FundingArbitrageResponse>(
+      `${API_VERSION}/funding/arbitrage`,
+      queryParams,
+      90000
+    );
+  }
+
+  /**
    * Get order book (market depth) data for a specific symbol
    * Returns bid/ask orders sorted by price with cumulative totals
    *
@@ -676,6 +907,37 @@ export class LazuliAPI {
   }
 
   /**
+   * Get transparent estimated liquidation bands for a perpetual contract.
+   */
+  static async getLiquidationRadar(
+    exchange: SupportedExchange,
+    symbol: string,
+    queryParams?: LiquidationRadarQueryParams
+  ): Promise<ApiResponse<LiquidationRadarResponse>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    return apiFetch<LiquidationRadarResponse>(
+      `${API_VERSION}/liquidations/${exchange}/${encodedSymbol}`,
+      queryParams
+    );
+  }
+
+  /**
+   * Get CVD/order-flow proxy data for workspace overlays.
+   */
+  static async getOrderFlow(
+    exchange: SupportedExchange,
+    symbol: string,
+    queryParams: OrderFlowQueryParams
+  ): Promise<ApiResponse<OrderFlowResponse>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    return apiFetch<OrderFlowResponse>(
+      `${API_VERSION}/orderflow/${exchange}/${encodedSymbol}`,
+      queryParams,
+      60000
+    );
+  }
+
+  /**
    * Get cross-exchange price arbitrage opportunities
    * Compares normalized assets across supported exchanges and returns the
    * widest current price discrepancies for discovery and analysis.
@@ -684,6 +946,36 @@ export class LazuliAPI {
     queryParams?: PriceArbitrageQueryParams
   ): Promise<ApiResponse<PriceArbitrageResponse>> {
     return apiFetch<PriceArbitrageResponse>(`${API_VERSION}/arbitrage/prices`, queryParams, 60000);
+  }
+
+  /**
+   * Get 24h-vs-7d volume spike discovery feed.
+   */
+  static async getTrendingVolume(
+    exchange: SupportedExchange,
+    queryParams?: TrendingVolumeQueryParams
+  ): Promise<ApiResponse<TrendingVolumeResponse>> {
+    return apiFetch<TrendingVolumeResponse>(
+      `${API_VERSION}/trending/${exchange}`,
+      queryParams,
+      90000
+    );
+  }
+
+  /**
+   * Run a server-side strategy backtest against OHLCV history.
+   */
+  static async runBacktest(
+    exchange: SupportedExchange,
+    symbol: string,
+    request: BacktestRequest
+  ): Promise<ApiResponse<BacktestResponse>> {
+    const encodedSymbol = encodeURIComponent(symbol);
+    return apiPost<BacktestResponse>(
+      `${API_VERSION}/backtest/${exchange}/${encodedSymbol}`,
+      request,
+      120000
+    );
   }
 
   /**

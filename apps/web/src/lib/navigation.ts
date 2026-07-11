@@ -24,6 +24,7 @@ import {
   Percent,
   PieChart,
   Radar,
+  Radio,
   Search,
   TrendingUp,
   Waves,
@@ -138,6 +139,14 @@ export const appRoutes = {
     keywords: ['signal', 'setup', 'momentum', 'contrarian', 'breakout', 'trade ideas'],
     section: 'strategies',
   },
+  alphaFeed: {
+    href: '/alpha-feed',
+    label: 'Alpha Feed',
+    description: 'Public ranked live signals',
+    icon: Radio,
+    keywords: ['alpha', 'feed', 'signals', 'seo', 'public'],
+    section: 'strategies',
+  },
   institutional: {
     href: '/institutional',
     label: 'Institutional',
@@ -219,6 +228,7 @@ export const navigationSections: NavigationSection[] = [
     items: [
       appRoutes.priceArbitrage,
       appRoutes.signalLab,
+      appRoutes.alphaFeed,
       appRoutes.institutional,
       appRoutes.etfFlows,
       appRoutes.optionsSurface,

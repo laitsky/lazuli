@@ -2,17 +2,27 @@ import type { Context, Next } from 'hono';
 import { ErrorCode, internalError, unauthorized } from '../errors';
 import { errorResponse } from './response';
 import type { Env } from '../types';
+import { verifyApiKey } from '../services/growthRetentionService';
+import type { ApiKeyRecord } from '@lazuli/shared';
 
 const ADMIN_SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const ADMIN_NONCE_TTL_MS = 10 * 60 * 1000;
-const RATE_LIMITER_TIMEOUT_MS = 750;
 
 type AppContext = Context<{ Bindings: Env }>;
 
-interface RouteLimit {
-  capacity: number;
-  refillPerSecond: number;
-  routeClass: string;
+export type RouteLimitClass = 'public' | 'expensive' | 'admin';
+export type RateLimitBindingName =
+  | 'PUBLIC_RATE_LIMITER'
+  | 'EXPENSIVE_RATE_LIMITER'
+  | 'BUILDER_PUBLIC_RATE_LIMITER'
+  | 'BUILDER_EXPENSIVE_RATE_LIMITER'
+  | 'ADMIN_RATE_LIMITER';
+
+export interface RouteLimit {
+  routeClass: RouteLimitClass;
+  anonymousBinding: RateLimitBindingName;
+  builderBinding: RateLimitBindingName;
+  retryAfterSeconds: number;
 }
 
 export interface AdminSignatureParts {
@@ -52,7 +62,12 @@ export async function enforcePublicRateLimit(c: AppContext, next: Next): Promise
   }
 
   const routeLimit = classifyRouteLimit(c.req.path);
-  if (!c.env.RATE_LIMITER) {
+  const apiKey = shouldResolvePublicApiKey(c.req.path, routeLimit.routeClass)
+    ? await resolvePublicApiKey(c)
+    : null;
+  const bindingName = apiKey ? routeLimit.builderBinding : routeLimit.anonymousBinding;
+  const limiter = c.env[bindingName];
+  if (!limiter) {
     if (shouldFailClosedWhenLimiterUnavailable(routeLimit.routeClass)) {
       return rateLimitUnavailableResponse(c, routeLimit.routeClass);
     }
@@ -64,28 +79,17 @@ export async function enforcePublicRateLimit(c: AppContext, next: Next): Promise
     return;
   }
 
-  const clientId = clientFingerprint(c);
-  const id = c.env.RATE_LIMITER.idFromName(`${routeLimit.routeClass}:${clientId}`);
-  const url = new URL('https://rate-limit/acquire');
-  url.searchParams.set('cost', '1');
-  url.searchParams.set('capacity', String(routeLimit.capacity));
-  url.searchParams.set('refillPerSecond', String(routeLimit.refillPerSecond));
+  const clientId = apiKey ? `api-key:${apiKey.keyPrefix}` : `ip:${clientFingerprint(c)}`;
 
   try {
-    const response = await fetchWithTimeout(
-      () => c.env.RATE_LIMITER.get(id).fetch(url.toString()),
-      RATE_LIMITER_TIMEOUT_MS
-    );
-    const payload = (await response.json().catch(() => ({}))) as {
-      data?: { retryAfterMs?: number; remaining?: number };
-    };
-
-    if (response.status === 429) {
-      const retryAfterMs = payload.data?.retryAfterMs ?? 1000;
-      c.header('Retry-After', String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
+    const outcome = await limiter.limit({ key: clientId });
+    if (!outcome.success) {
+      const retryAfterMs = routeLimit.retryAfterSeconds * 1000;
+      c.header('Retry-After', String(routeLimit.retryAfterSeconds));
       c.header('X-RateLimit-Remaining', '0');
       logSecurityEvent(c, 'rate_limit_rejected', {
         routeClass: routeLimit.routeClass,
+        bindingName,
         retryAfterMs,
       });
       return c.json(
@@ -100,13 +104,15 @@ export async function enforcePublicRateLimit(c: AppContext, next: Next): Promise
       );
     }
 
-    if (typeof payload.data?.remaining === 'number') {
-      c.header('X-RateLimit-Remaining', String(Math.floor(payload.data.remaining)));
+    if (apiKey) {
+      c.header('X-API-Key-Prefix', apiKey.keyPrefix);
+      c.header('X-API-Key-Tier', 'builder');
     }
   } catch (error) {
     if (shouldFailClosedWhenLimiterUnavailable(routeLimit.routeClass)) {
       logSecurityEvent(c, 'rate_limiter_unavailable_fail_closed', {
         routeClass: routeLimit.routeClass,
+        bindingName,
         error: error instanceof Error ? error.message : String(error),
       });
       return rateLimitUnavailableResponse(c, routeLimit.routeClass);
@@ -114,11 +120,45 @@ export async function enforcePublicRateLimit(c: AppContext, next: Next): Promise
 
     logSecurityEvent(c, 'rate_limiter_unavailable_fail_open', {
       routeClass: routeLimit.routeClass,
+      bindingName,
       error: error instanceof Error ? error.message : String(error),
     });
   }
 
   await next();
+}
+
+async function resolvePublicApiKey(c: AppContext): Promise<ApiKeyRecord | null> {
+  const presented = presentedApiKey(c);
+  if (!presented) return null;
+
+  const record = await verifyApiKey(c.env, presented).catch((error) => {
+    logSecurityEvent(c, 'api_key_verification_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
+
+  if (!record) {
+    logSecurityEvent(c, 'api_key_auth_failed', { reason: 'invalid_or_revoked' });
+    throw unauthorized('Invalid API key');
+  }
+
+  logSecurityEvent(c, 'api_key_auth_succeeded', {
+    keyPrefix: record.keyPrefix,
+    userId: record.userId,
+  });
+  return record;
+}
+
+function presentedApiKey(c: AppContext): string | null {
+  const explicit = c.req.header('X-API-Key')?.trim();
+  if (explicit) return explicit;
+
+  const authorization = c.req.header('Authorization')?.trim();
+  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  const token = match?.[1]?.trim();
+  return token?.startsWith('lz_live_') ? token : null;
 }
 
 export async function requireAdminRequest(c: AppContext): Promise<void> {
@@ -136,10 +176,8 @@ export async function requireAdminRequest(c: AppContext): Promise<void> {
       'ADMIN_API_KEY_ID and ADMIN_SIGNING_SECRET must be configured outside local development'
     );
   }
-  if (!c.env.RATE_LIMITER) {
-    throw internalError(
-      'RATE_LIMITER must be configured for admin nonce replay protection outside local development'
-    );
+  if (!c.env.DB) {
+    throw internalError('D1 must be configured for admin nonce replay protection');
   }
 
   const keyId = c.req.header('X-Admin-Key-Id');
@@ -178,7 +216,10 @@ export async function requireAdminRequest(c: AppContext): Promise<void> {
     throw unauthorized(verification.message);
   }
 
-  await rememberAdminNonce(c, keyId, nonce);
+  if (!(await rememberAdminNonce(c.env, keyId, nonce))) {
+    logSecurityEvent(c, 'admin_auth_failed', { reason: 'nonce_replay' });
+    throw unauthorized('Admin request nonce has already been used');
+  }
   logSecurityEvent(c, 'admin_auth_succeeded', { keyId });
 }
 
@@ -240,24 +281,28 @@ export async function verifyAdminSignature(input: {
   return { ok: true };
 }
 
-async function rememberAdminNonce(c: AppContext, keyId: string, nonce: string): Promise<void> {
-  const id = c.env.RATE_LIMITER.idFromName(`admin-nonce:${keyId}`);
-  const url = new URL('https://rate-limit/nonce');
-  url.searchParams.set('nonce', nonce);
-  url.searchParams.set('ttlMs', String(ADMIN_NONCE_TTL_MS));
+export async function rememberAdminNonce(
+  env: Env,
+  keyId: string,
+  nonce: string,
+  nowMs = Date.now()
+): Promise<boolean> {
+  if (!env.DB) throw internalError('D1 must be configured for admin nonce replay protection');
 
-  const response = await fetchWithTimeout(
-    () => c.env.RATE_LIMITER.get(id).fetch(url.toString(), { method: 'POST' }),
-    RATE_LIMITER_TIMEOUT_MS
-  );
-
-  if (response.status === 409) {
-    logSecurityEvent(c, 'admin_auth_failed', { reason: 'nonce_replay' });
-    throw unauthorized('Admin request nonce has already been used');
-  }
-  if (!response.ok) {
-    throw internalError('Admin nonce replay protection is unavailable');
-  }
+  const now = Math.floor(nowMs / 1000);
+  const expiresAt = Math.ceil((nowMs + ADMIN_NONCE_TTL_MS) / 1000);
+  const nonceHash = await sha256Hex(nonce);
+  const result = await env.DB.prepare(
+    `INSERT INTO admin_nonces (key_id, nonce_hash, expires_at, created_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT(key_id, nonce_hash) DO UPDATE SET
+       expires_at = excluded.expires_at,
+       created_at = excluded.created_at
+     WHERE admin_nonces.expires_at <= ?`
+  )
+    .bind(keyId, nonceHash, expiresAt, now, now)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 function normalizedPathWithQuery(rawUrl: string): string {
@@ -281,11 +326,20 @@ function normalizedPathWithQuery(rawUrl: string): string {
 function logSecurityEvent(c: AppContext, event: string, details: Record<string, unknown>): void {
   const requestId = c.res.headers.get('X-Request-ID') ?? '';
   const routeClass = classifyRouteLimit(c.req.path).routeClass;
-  c.env.API_ANALYTICS?.writeDataPoint({
-    blobs: [event, c.req.method, routeClass],
-    doubles: [Date.now()],
-    indexes: [event],
-  });
+  const keyPrefix = typeof details.keyPrefix === 'string' ? details.keyPrefix : '';
+  const userId = typeof details.userId === 'string' ? details.userId : '';
+  if (
+    routeClass === 'admin' ||
+    event.includes('failed') ||
+    event.includes('rejected') ||
+    event.includes('unavailable')
+  ) {
+    c.env.API_ANALYTICS?.writeDataPoint({
+      blobs: [event, c.req.method, routeClass, keyPrefix, userId],
+      doubles: [Date.now()],
+      indexes: [keyPrefix || event],
+    });
+  }
 
   console.warn(
     JSON.stringify({
@@ -300,14 +354,14 @@ function logSecurityEvent(c: AppContext, event: string, details: Record<string, 
 }
 
 function rateLimitUnavailableResponse(c: AppContext, routeClass: string): Response {
-  c.header('Retry-After', '1');
+  c.header('Retry-After', '60');
   c.header('X-RateLimit-Remaining', '0');
   return c.json(
     {
       ...errorResponse('Rate limiter unavailable', ErrorCode.EXCHANGE_RATE_LIMIT),
       meta: {
         requestId: c.res.headers.get('X-Request-ID') ?? undefined,
-        rateLimit: { retryAfterMs: 1000, routeClass, unavailable: true },
+        rateLimit: { retryAfterMs: 60_000, routeClass, unavailable: true },
       },
     },
     429
@@ -323,21 +377,65 @@ function parseAllowedOrigins(env: Env): string[] {
 }
 
 export function classifyRouteLimit(path: string): RouteLimit {
+  if (path.includes('/admin/')) {
+    return {
+      routeClass: 'admin',
+      anonymousBinding: 'ADMIN_RATE_LIMITER',
+      builderBinding: 'ADMIN_RATE_LIMITER',
+      retryAfterSeconds: 60,
+    };
+  }
+
   if (
     path.includes('/custom-index') ||
+    path.includes('/custom-pair/') ||
     path.includes('/superema/') ||
-    (path.includes('/screener/') && path.endsWith('/ohlcv')) ||
-    path.includes('/ohlcv/multi/') ||
+    path.includes('/indicators/') ||
+    path.includes('/ohlcv/') ||
+    path.includes('/screener/') ||
+    path.includes('/orderflow/') ||
+    path.includes('/liquidations/') ||
+    path.includes('/backtest/') ||
+    path.includes('/trending/') ||
+    path.includes('/institutional/') ||
+    path.includes('/alpha-feed') ||
+    path.includes('/funding/radar') ||
+    path.includes('/funding/arbitrage') ||
+    path.includes('/funding/compare') ||
+    path.includes('/arbitrage/prices') ||
     path.includes('/orderbook/')
   ) {
-    return { routeClass: 'expensive', capacity: 20, refillPerSecond: 0.5 };
+    return {
+      routeClass: 'expensive',
+      anonymousBinding: 'EXPENSIVE_RATE_LIMITER',
+      builderBinding: 'BUILDER_EXPENSIVE_RATE_LIMITER',
+      retryAfterSeconds: 60,
+    };
   }
 
-  if (path.includes('/admin/')) {
-    return { routeClass: 'admin', capacity: 10, refillPerSecond: 0.25 };
-  }
+  return {
+    routeClass: 'public',
+    anonymousBinding: 'PUBLIC_RATE_LIMITER',
+    builderBinding: 'BUILDER_PUBLIC_RATE_LIMITER',
+    retryAfterSeconds: 60,
+  };
+}
 
-  return { routeClass: 'public', capacity: 120, refillPerSecond: 4 };
+export function selectRateLimitBindingName(
+  path: string,
+  hasBuilderApiKey: boolean
+): RateLimitBindingName {
+  const limit = classifyRouteLimit(path);
+  return hasBuilderApiKey ? limit.builderBinding : limit.anonymousBinding;
+}
+
+export function shouldResolvePublicApiKey(path: string, routeClass: RouteLimitClass): boolean {
+  if (routeClass === 'admin') return false;
+  return !(
+    path === '/api/v1/me' ||
+    path.startsWith('/api/v1/me/') ||
+    path.startsWith('/api/v1/auth/')
+  );
 }
 
 export function shouldFailClosedWhenLimiterUnavailable(routeClass: string): boolean {
@@ -360,23 +458,6 @@ function defaultCacheControl(path: string): string {
     return 'public, max-age=300, stale-while-revalidate=3600';
   }
   return 'no-store';
-}
-
-async function fetchWithTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(
-      () => reject(new Error(`operation timed out after ${timeoutMs}ms`)),
-      timeoutMs
-    );
-  });
-  try {
-    return await Promise.race([fn(), timeout]);
-  } finally {
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-    }
-  }
 }
 
 async function sha256Hex(value: string): Promise<string> {

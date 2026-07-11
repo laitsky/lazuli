@@ -2,189 +2,170 @@
 
 ## Project Overview
 
-Lazuli is a cryptocurrency trading tool that provides **real-time** data from multiple exchanges to help traders make informed decisions. Implemented as a REST API with TypeScript.
+Lazuli is a Cloudflare-native cryptocurrency market intelligence platform. It serves live multi-exchange data, historical OHLCV archives, derivatives intelligence, saved user state, public signal feeds, and shareable market pages.
 
-**Core Philosophy**: Prioritize live data from exchanges directly. Database features are optional for advanced use cases only.
+**Core philosophy:** live exchange data first, durable Cloudflare storage for control-plane state and history, transparent models for derived trading signals.
 
 ## Architecture
 
-- **Runtime**: Bun - Fast JavaScript runtime with built-in TypeScript support
-- **Monorepo**: Turborepo for efficient multi-package builds
-- **Language**: TypeScript with strict type checking
-- **API Framework**: Elysia (Bun-native REST API)
-- **Web Framework**: React with Vite
-- **Primary Data**: Live exchange APIs (CCXT)
-- **Database**: Supabase (PostgreSQL) - **OPTIONAL** for advanced features
-- **Exchanges**: CCXT (Binance, Bybit, OKX)
+- **Runtime:** Cloudflare Workers in production; Bun for local tooling, scripts, and tests
+- **Monorepo:** Turborepo with Bun workspaces
+- **Language:** TypeScript with strict checking
+- **API Framework:** Hono on Cloudflare Workers
+- **Web Framework:** React 18 + Vite 6, deployed as a Worker/static asset app
+- **Primary Data:** CCXT live exchange adapters with Workers-native `fetchImplementation`
+- **Storage:** D1 for metadata, accounts, alerts, saved objects, jobs, and manifests
+- **Archive:** R2 for historical OHLCV NDJSON gzip objects
+- **Realtime:** Durable Objects for market cache, rate limiting, and WebSocket fan-out
+- **Background Work:** Cloudflare Queues and Workflows for OHLCV backfills
+- **Exchanges:** Binance, Bybit, OKX, Hyperliquid, Upbit
 
 ## Development Workflow
 
-### Running the Project
-
 ```bash
-# Install dependencies (first time only)
 bun install
-
-# Development mode with hot reload (all apps)
 bun run dev
-
-# Development mode for specific app
-bun run dev:api    # API server only
-bun run dev:web    # Web frontend only
-
-# Build for production (all apps)
+bun run dev:api
+bun run dev:web
 bun run build
-
-# Build specific app
-bun run build:api  # API server only
-bun run build:web  # Web frontend only
-
-# Type checking
+bun run build:api
+bun run build:web
 bun run type-check
-
-# Linting
 bun run lint
-
-# Format code
 bun run format
 ```
 
-### Project Structure
-
-```
-lazuli/                      # Monorepo root
-├── apps/
-│   ├── api/                # Elysia REST API
-│   │   ├── src/
-│   │   │   ├── index.ts    # Server entry point
-│   │   │   ├── routes/     # API route definitions
-│   │   │   ├── controllers/# Request handlers
-│   │   │   ├── services/   # Business logic & exchange integrations
-│   │   │   └── types/      # TypeScript type definitions
-│   │   └── package.json
-│   └── web/                # React + Vite web frontend
-│       ├── src/
-│       │   ├── pages/      # Page components
-│       │   └── components/ # React components
-│       └── package.json
-├── packages/
-│   └── shared/             # Shared TypeScript types and utilities
-│       └── src/
-├── bunfig.toml             # Bun configuration
-├── turbo.json              # Turborepo configuration
-└── package.json            # Root workspace configuration
-```
-
-### Code Standards
-
-1. **TypeScript**: Use strict mode, explicit typing, no any types
-2. **Error Handling**: Proper try-catch blocks with descriptive errors
-3. **API Design**: RESTful conventions, versioned endpoints (/api/v1/)
-4. **Code Comments**: MANDATORY - Add comprehensive comments to explain:
-   - What each function/method does
-   - Purpose of complex logic or algorithms
-   - API integrations and data transformations
-   - Business logic and trading-specific calculations
-   - Error handling strategies
-   - Configuration and setup steps
-5. **Response Format**: Consistent JSON structure
-   ```json
-   {
-     "success": boolean,
-     "data": any,
-     "error": string | null,
-     "timestamp": number
-   }
-   ```
-
-### Environment Variables
-
-Create `.env` file (use `.env.example` as template):
-
-```
-PORT=3000
-NODE_ENV=development
-SUPABASE_URL=REDACTED_SUPABASE_URL
-SUPABASE_ANON_KEY=your_supabase_anon_key_here
-```
-
-### Database Integration (Optional)
-
-- **Purpose**: Only for advanced features (historical data, alerts, analytics)
-- **Primary Use**: Live exchange data via APIs (no database needed)
-- **Supabase**: PostgreSQL database with REST API (when needed)
-- **Client**: `@supabase/supabase-js` for database operations
-- **Health Check**: `/health` endpoint includes optional database status
-- **Setup**: Only required if using `/data/*` endpoints
-
-### Bun Runtime Features
-
-- **Native TypeScript**: Run `.ts` files directly without transpilation
-- **Fast Installation**: Up to 25x faster than npm for package installation
-- **Built-in Watch Mode**: `bun --watch` for hot reload during development
-- **Performance**: Optimized JavaScript runtime built on JavaScriptCore
-- **Compatibility**: Drop-in replacement for Node.js with `bun --bun` flag
-- **Workspaces**: Full support for monorepo workspaces
-
-### Testing Commands
-
-Always run these before committing:
+Use these checks before handing off production work:
 
 ```bash
 bun run lint
 bun run type-check
 bun run format:check
+bun run --filter @lazuli/api test
 ```
 
-### API Endpoints Structure
+## Project Structure
 
-#### Core Endpoints (Live Data - No DB)
+```text
+lazuli/
+├── apps/
+│   ├── api/
+│   │   ├── migrations/       # D1 migrations
+│   │   ├── scripts/          # route smoke tests and operator scripts
+│   │   └── src/
+│   │       ├── index.ts      # Hono Worker entrypoint, routes, queue/workflow handlers
+│   │       ├── services/     # exchange, cache, backfill, institutional, growth services
+│   │       ├── utils/        # validation, security, logging, responses
+│   │       └── types/        # Worker Env and API types
+│   └── web/
+│       ├── src/
+│       │   ├── pages/        # app pages and SEO/detail routes
+│       │   ├── components/   # shell, charts, UI primitives
+│       │   ├── lib/          # API client, query hooks, preferences, URL state
+│       │   └── styles/       # brand tokens and global CSS
+│       └── worker/           # web Worker entrypoint
+├── packages/
+│   ├── shared/               # shared TypeScript contracts
+│   └── config/               # shared ESLint/TypeScript configs
+├── docs/
+├── PRODUCT-STRATEGY.md
+├── turbo.json
+└── package.json
+```
 
-- `GET /api/v1/exchanges` - List supported exchanges
-- `GET /api/v1/tickers/:exchange` - Get all tickers for an exchange
-- `GET /api/v1/tickers/:exchange/:symbol` - Get specific ticker
-- `GET /api/v1/markets/:exchange` - Get all markets (spot/perp)
+## API Surface
 
-#### Advanced Endpoints (Optional DB Features)
+All public API routes are under `/api/v1`.
 
-- `POST /api/v1/data/store/:exchange` - Store live data
-- `GET /api/v1/data/history/:symbol` - Historical data
-- `GET /api/v1/data/latest/:exchange/:symbol` - Latest stored
-- `DELETE /api/v1/data/cleanup` - Cleanup old data
+Core live-data routes:
 
-### Integration Notes
+- `GET /exchanges`
+- `GET /tickers/:exchange`
+- `GET /tickers/:exchange/:symbol`
+- `GET /markets/:exchange`
+- `GET /ohlcv/:exchange/:symbol`
+- `GET /ohlcv/multi/:exchange/:symbol`
+- `GET /orderbook/:exchange/:symbol`
 
-#### CCXT
+Strategy and intelligence routes:
 
-- Supports multiple exchanges with unified API
-- Handle rate limits appropriately
-- Implement caching for frequent requests
+- `GET /screener/:exchange`
+- `GET /trending/:exchange`
+- `GET /funding/*`
+- `GET /arbitrage/prices`
+- `GET /liquidations/:exchange/:symbol`
+- `GET /orderflow/:exchange/:symbol`
+- `POST /backtest/:exchange/:symbol`
+- `GET /institutional/*`
 
-### Security Best Practices
+Growth and retention routes:
 
-1. Never commit sensitive credentials
-2. Use environment variables for all secrets
-3. Implement rate limiting on API endpoints
-4. Validate all input parameters
-5. Use CORS appropriately
+- `POST /auth/magic-link`
+- `GET|POST /auth/magic-link/verify`
+- `GET /me`
+- `GET|POST|DELETE /me/workspaces`
+- `GET|POST|DELETE /me/watchlists`
+- `GET|POST|DELETE /me/alerts`
+- `POST /me/alerts/evaluate`
+- `GET|POST|DELETE /me/backtests`
+- `GET|POST|DELETE /me/api-keys`
+- `GET /alpha-feed`
+- `GET /snapshots/market/:exchange/:symbol.svg`
 
-### Performance Considerations
+Admin routes require signed admin headers:
 
-1. Implement caching for ticker data (Redis in future)
-2. Use pagination for large datasets
-3. Implement WebSocket connections for real-time data (future)
-4. Monitor API rate limits for each exchange
+- `GET /admin/health`
+- `POST /admin/backfills`
+- `GET /admin/backfills/:id`
+- `POST /admin/backfills/:id/retry`
 
-### Debugging Tips
+## Response Format
 
-1. Use proper logging (consider Winston/Pino)
-2. Include request IDs for tracing
-3. Log exchange API responses for debugging
-4. Use TypeScript source maps in development
+Keep JSON responses consistent:
 
-### Git Workflow
+```json
+{
+  "success": true,
+  "data": {},
+  "error": null,
+  "timestamp": 1704067200000,
+  "meta": {
+    "requestId": "..."
+  }
+}
+```
 
-1. Create feature branches
-2. Write descriptive commit messages
-3. Keep commits atomic and focused
-4. Update TODO.md with completed/new features
+## Environment And Secrets
+
+Configured in `apps/api/wrangler.jsonc`:
+
+- `ENVIRONMENT`
+- `APP_BASE_URL`
+- `PUBLIC_API_BASE_URL`
+- `CORS_ORIGIN`
+- D1, R2, Queues, Workflows, Analytics Engine, and Durable Object bindings
+
+Secrets set through Wrangler:
+
+- `ADMIN_API_KEY`
+- `ADMIN_API_KEY_ID`
+- `ADMIN_SIGNING_SECRET`
+- `MAGIC_LINK_DELIVERY_WEBHOOK_URL` for production magic-link delivery
+- `MAGIC_LINK_DELIVERY_WEBHOOK_SECRET` when the delivery webhook requires bearer auth
+
+## Code Standards
+
+1. Use strict TypeScript and explicit domain types.
+2. Prefer shared contracts in `packages/shared` for API/web boundaries.
+3. Validate all request input with existing validation utilities or Zod schemas.
+4. Keep route handlers thin; put business logic in services.
+5. Treat exchange failures as transient when possible and return stale/empty metadata instead of crashing broad dashboards.
+6. Never commit credentials or raw API keys. Store only token/key hashes in D1.
+7. Use additive D1 migrations for deployed schema changes.
+8. Document derived trading models clearly, especially liquidation estimates, order-flow proxies, and Greeks.
+
+## Current Track D/E Status
+
+- Track D accounts, saved workspaces/watchlists/alerts/backtests, API keys, Alpha Feed, snapshot SVGs, and SEO detail pages are implemented.
+- Track E docs, price alert storage/event bus, options Greeks, full-history backfill defaults, and Binance geo-handling are implemented or documented.
+- Binance is enabled, but regional blocking can still occur. Existing exchange error handling degrades with stale/empty metadata when connectivity fails.

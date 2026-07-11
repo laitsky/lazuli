@@ -30,6 +30,7 @@ import { useOrderBook, useExchanges } from '@/lib/queries';
 import { formatPrice } from '@/lib/format';
 import { formatVolume } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import { RESOURCE_POLICY } from '@/lib/resource-policy';
 
 export default function OrderBookPage() {
   const [exchange, setExchange] = useStringParam('exchange', 'bybit');
@@ -44,7 +45,7 @@ export default function OrderBookPage() {
     exchange,
     symbol,
     { type: type as 'spot' | 'perp', limit: parseInt(depth, 10) || 50 },
-    { refreshMs: 5_000 }
+    { refreshMs: RESOURCE_POLICY.visibleOrderBookPollMs }
   );
 
   const ob = orderBook.data?.data;

@@ -10,6 +10,7 @@ info:
     - **Custom Pairs**: Create synthetic trading pairs by dividing two tickers
     - **Multi-Exchange Support**: Unified API for Binance, Bybit, OKX, Hyperliquid, and Upbit
     - **Optional Database**: Historical data storage for advanced features
+    - **Public API Keys**: Optional builder keys via `X-API-Key` or `Authorization: Bearer lz_live_...` for metered higher rate limits
 
     ## Exchange Capabilities
     | Exchange | Spot | Perpetual | Notes |
@@ -54,6 +55,12 @@ tags:
     description: Interactive API documentation
   - name: Admin
     description: Signed operator-only endpoints for health and backfill operations
+  - name: Auth
+    description: Passwordless account sessions and user identity
+  - name: Saved State
+    description: Saved workspaces, watchlists, alerts, backtests, and Signal Lab strategies
+  - name: Growth
+    description: Public Alpha Feed, API keys, and shareable snapshots
 
 paths:
   /health:
@@ -107,10 +114,10 @@ paths:
               example:
                 success: true
                 data:
-                  status: "ok"
-                  api: "ready"
-                  database: "not_required"
-                  exchanges: ["binance", "bybit", "okx", "hyperliquid", "upbit"]
+                  status: 'ok'
+                  api: 'ready'
+                  database: 'not_required'
+                  exchanges: ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit']
                   timestamp: 1704067200000
                 error: null
                 timestamp: 1704067200000
@@ -128,32 +135,37 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiSuccessResponse'
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/AuthMagicLinkResponse'
               example:
                 success: true
                 data:
-                  - name: "Binance"
-                    id: "binance"
+                  - name: 'Binance'
+                    id: 'binance'
                     supported: true
                     hasSpot: true
                     hasPerp: true
-                  - name: "Bybit"
-                    id: "bybit"
+                  - name: 'Bybit'
+                    id: 'bybit'
                     supported: true
                     hasSpot: true
                     hasPerp: true
-                  - name: "OKX"
-                    id: "okx"
+                  - name: 'OKX'
+                    id: 'okx'
                     supported: true
                     hasSpot: true
                     hasPerp: true
-                  - name: "Hyperliquid"
-                    id: "hyperliquid"
+                  - name: 'Hyperliquid'
+                    id: 'hyperliquid'
                     supported: true
                     hasSpot: false
                     hasPerp: true
-                  - name: "Upbit"
-                    id: "upbit"
+                  - name: 'Upbit'
+                    id: 'upbit'
                     supported: true
                     hasSpot: true
                     hasPerp: false
@@ -469,7 +481,7 @@ paths:
           schema:
             type: string
             pattern: '^(1m|5m|15m|1h|4h|1d|3d|1w)(,(1m|5m|15m|1h|4h|1d|3d|1w))*$'
-          example: "1m,5m,15m,1h"
+          example: '1m,5m,15m,1h'
         - name: type
           in: query
           description: Market type
@@ -937,6 +949,691 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /auth/magic-link:
+    post:
+      summary: Request a passwordless magic link
+      description: Creates a short-lived magic-link token. Production requires a configured delivery webhook.
+      operationId: requestMagicLink
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Magic link accepted or delivered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMagicLinkApiResponse'
+
+  /auth/magic-link/verify:
+    post:
+      summary: Verify a magic link token
+      operationId: verifyMagicLink
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Session token and user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionApiResponse'
+
+  /auth/passkeys/registration/options:
+    post:
+      summary: Create passkey registration options
+      description: Requires a bearer session and returns a short-lived WebAuthn credential creation challenge.
+      operationId: createPasskeyRegistrationOptions
+      tags:
+        - Auth
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: WebAuthn registration options
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PasskeyOptionsResponse'
+
+  /auth/passkeys/registration/verify:
+    post:
+      summary: Verify and save a passkey registration
+      operationId: verifyPasskeyRegistration
+      tags:
+        - Auth
+      security:
+        - UserBearerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyRegistrationVerifyRequest'
+      responses:
+        '200':
+          description: Saved passkey metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PasskeyRecord'
+
+  /auth/passkeys/authentication/options:
+    post:
+      summary: Create passkey authentication options
+      description: Accepts an optional email for account-scoped login, or no email for discoverable passkeys.
+      operationId: createPasskeyAuthenticationOptions
+      tags:
+        - Auth
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: WebAuthn authentication options
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PasskeyOptionsResponse'
+
+  /auth/passkeys/authentication/verify:
+    post:
+      summary: Verify passkey authentication and create a session
+      operationId: verifyPasskeyAuthentication
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasskeyAuthenticationVerifyRequest'
+      responses:
+        '200':
+          description: Session token and user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionApiResponse'
+
+  /me:
+    get:
+      summary: Read current user profile
+      tags:
+        - Auth
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAccountApiResponse'
+
+  /me/passkeys:
+    get:
+      summary: List saved passkeys
+      tags:
+        - Auth
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Passkey metadata
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccessResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/PasskeyRecord'
+
+  /me/passkeys/{id}:
+    delete:
+      summary: Delete a passkey
+      tags:
+        - Auth
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionApiResponse'
+
+  /me/workspaces:
+    get:
+      summary: List saved workspaces
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Saved workspaces
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedWorkspaceListApiResponse'
+    post:
+      summary: Save a workspace
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, state]
+              properties:
+                name:
+                  type: string
+                state:
+                  type: object
+                isDefault:
+                  type: boolean
+      responses:
+        '200':
+          description: Saved workspace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedWorkspaceApiResponse'
+
+  /me/workspaces/{id}:
+    delete:
+      summary: Delete a saved workspace
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionApiResponse'
+
+  /me/watchlists:
+    get:
+      summary: List saved watchlists
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Saved watchlists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistListApiResponse'
+    post:
+      summary: Save a watchlist
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, items]
+              properties:
+                name:
+                  type: string
+                items:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Saved watchlist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WatchlistApiResponse'
+
+  /me/watchlists/{id}:
+    delete:
+      summary: Delete a saved watchlist
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionApiResponse'
+
+  /me/alerts:
+    get:
+      summary: List user price alerts
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Price alerts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceAlertListApiResponse'
+    post:
+      summary: Create a user price alert
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PriceAlertCreateRequest'
+      responses:
+        '200':
+          description: Created price alert
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PriceAlertApiResponse'
+
+  /me/alerts/{id}:
+    delete:
+      summary: Delete a user price alert
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Deletion status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionApiResponse'
+
+  /me/alerts/evaluate:
+    post:
+      summary: Evaluate active user alerts against live prices
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Evaluation summary and triggered event IDs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertEvaluationApiResponse'
+
+  /me/backtests:
+    get:
+      summary: List saved backtests
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Saved backtests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedBacktestListApiResponse'
+    post:
+      summary: Save a backtest definition and optional result
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Saved backtest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavedBacktestApiResponse'
+
+  /me/backtests/{id}:
+    delete:
+      summary: Delete a saved backtest
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionApiResponse'
+
+  /me/signal-strategies:
+    get:
+      summary: List persisted Signal Lab strategies
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: Versioned Signal Lab strategies
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalLabStrategyListApiResponse'
+    post:
+      summary: Save a Signal Lab strategy
+      description: Persists a version 1 strategy and optionally stores a latest backtest snapshot when `autoBacktest` is true.
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignalLabStrategyRequest'
+      responses:
+        '200':
+          description: Saved Signal Lab strategy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalLabStrategyApiResponse'
+
+  /me/signal-strategies/{id}/versions:
+    post:
+      summary: Save a new Signal Lab strategy version
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignalLabStrategyRequest'
+      responses:
+        '200':
+          description: New Signal Lab strategy version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalLabStrategyApiResponse'
+
+  /me/signal-strategies/{id}/backtest:
+    post:
+      summary: Run and store the latest Signal Lab backtest
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignalLabStrategyRequest'
+      responses:
+        '200':
+          description: Strategy with updated latest backtest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignalLabStrategyApiResponse'
+
+  /me/signal-strategies/{id}:
+    delete:
+      summary: Delete a Signal Lab strategy and its versions
+      tags:
+        - Saved State
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionApiResponse'
+
+  /me/api-keys:
+    get:
+      summary: List public API keys
+      tags:
+        - Growth
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: API key metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyListApiResponse'
+    post:
+      summary: Create a public API key
+      description: Returns the API key secret once. Store only the hash server-side.
+      tags:
+        - Growth
+      security:
+        - UserBearerSession: []
+      responses:
+        '200':
+          description: API key metadata plus one-time secret
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyCreateApiResponse'
+
+  /me/api-keys/{id}:
+    delete:
+      summary: Revoke a public API key
+      tags:
+        - Growth
+      security:
+        - UserBearerSession: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Revocation status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionApiResponse'
+
+  /alpha-feed:
+    get:
+      summary: Public Alpha Feed
+      description: Ranked live signals composed from trending movers, funding carry, and cross-exchange spreads.
+      tags:
+        - Growth
+      parameters:
+        - name: exchange
+          in: query
+          schema:
+            type: string
+            enum: [binance, bybit, okx, hyperliquid, upbit]
+            default: bybit
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+      responses:
+        '200':
+          description: Ranked public feed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlphaFeedApiResponse'
+
+  /alpha-feed/{id}:
+    get:
+      summary: Historical Alpha Feed event
+      description: Reads a persisted Alpha Feed event by permalink id.
+      tags:
+        - Growth
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Persisted Alpha Feed item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlphaFeedItemApiResponse'
+
+  /snapshots/market/{exchange}/{symbol}.svg:
+    get:
+      summary: Shareable market snapshot SVG
+      tags:
+        - Growth
+      parameters:
+        - $ref: '#/components/parameters/ExchangeParam'
+        - name: symbol
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [spot, perp]
+      responses:
+        '200':
+          description: SVG image for social previews and sharing
+          content:
+            image/svg+xml:
+              schema:
+                type: string
+
 components:
   securitySchemes:
     AdminSignedRequest:
@@ -944,6 +1641,15 @@ components:
       in: header
       name: X-Admin-Signature
       description: HMAC-SHA256 signature over method, normalized path+query, timestamp, nonce, and body hash.
+    UserBearerSession:
+      type: http
+      scheme: bearer
+      description: Session token returned by /auth/magic-link/verify.
+    PublicApiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: 'Optional public API key for metered builder-tier rate limits. The same key may also be sent as `Authorization: Bearer lz_live_...`.'
 
   parameters:
     ExchangeParam:
@@ -994,7 +1700,7 @@ components:
           example:
             success: false
             data: null
-            error: "Exchange binancee not supported"
+            error: 'Exchange binancee not supported'
             timestamp: 1704067200000
 
     NotFound:
@@ -1006,7 +1712,7 @@ components:
           example:
             success: false
             data: null
-            error: "Ticker BTC/USDT not found on binance"
+            error: 'Ticker BTC/USDT not found on binance'
             timestamp: 1704067200000
 
     InternalServerError:
@@ -1018,7 +1724,7 @@ components:
           example:
             success: false
             data: null
-            error: "Failed to fetch tickers: Network error"
+            error: 'Failed to fetch tickers: Network error'
             timestamp: 1704067200000
 
     RateLimited:
@@ -1037,11 +1743,11 @@ components:
           example:
             success: false
             data: null
-            error: "Too many requests"
-            code: "EXCHANGE_RATE_LIMIT"
+            error: 'Too many requests'
+            code: 'EXCHANGE_RATE_LIMIT'
             timestamp: 1704067200000
             meta:
-              requestId: "018f8b78-3f5b-7b7c-a077-9d1cdd80c235"
+              requestId: '018f8b78-3f5b-7b7c-a077-9d1cdd80c235'
               rateLimit:
                 retryAfterMs: 1000
 
@@ -1128,6 +1834,699 @@ components:
               type: integer
             unavailable:
               type: boolean
+
+    UserAccount:
+      type: object
+      required: [id, email, displayName, createdAt, lastLoginAt]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        displayName:
+          type: string
+          nullable: true
+        createdAt:
+          type: integer
+          format: int64
+        lastLoginAt:
+          type: integer
+          format: int64
+          nullable: true
+
+    AuthMagicLinkResponse:
+      type: object
+      required: [email, expiresAt, delivered, magicLink]
+      properties:
+        email:
+          type: string
+          format: email
+        expiresAt:
+          type: integer
+          format: int64
+        delivered:
+          type: boolean
+        magicLink:
+          type: string
+          nullable: true
+
+    AuthSessionResponse:
+      type: object
+      required: [user, sessionToken, expiresAt]
+      properties:
+        user:
+          $ref: '#/components/schemas/UserAccount'
+        sessionToken:
+          type: string
+        expiresAt:
+          type: integer
+          format: int64
+
+    DeletionResponse:
+      type: object
+      properties:
+        deleted:
+          type: boolean
+        revoked:
+          type: boolean
+      additionalProperties: false
+
+    SavedWorkspaceRecord:
+      type: object
+      required: [id, userId, name, state, isDefault, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        state:
+          type: object
+          additionalProperties: true
+        isDefault:
+          type: boolean
+        createdAt:
+          type: integer
+          format: int64
+        updatedAt:
+          type: integer
+          format: int64
+
+    WatchlistRecord:
+      type: object
+      required: [id, userId, name, items, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        items:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: integer
+          format: int64
+        updatedAt:
+          type: integer
+          format: int64
+
+    SavedBacktestRecord:
+      type: object
+      required:
+        [id, userId, name, exchange, symbol, timeframe, strategy, result, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        exchange:
+          type: string
+        symbol:
+          type: string
+        timeframe:
+          type: string
+        strategy:
+          type: object
+          additionalProperties: true
+        result:
+          type: object
+          nullable: true
+          additionalProperties: true
+        createdAt:
+          type: integer
+          format: int64
+        updatedAt:
+          type: integer
+          format: int64
+
+    PriceAlertRecord:
+      type: object
+      required:
+        - id
+        - userId
+        - symbol
+        - exchange
+        - marketType
+        - priceTarget
+        - condition
+        - active
+        - triggeredAt
+        - topic
+        - delivery
+        - metadata
+        - lastPrice
+        - lastEvaluatedAt
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+          nullable: true
+        symbol:
+          type: string
+        exchange:
+          type: string
+        marketType:
+          type: string
+          enum: [spot, perp]
+        priceTarget:
+          type: number
+        condition:
+          type: string
+          enum: [above, below]
+        active:
+          type: boolean
+        triggeredAt:
+          type: integer
+          format: int64
+          nullable: true
+        topic:
+          type: string
+          nullable: true
+        delivery:
+          type: object
+          nullable: true
+          additionalProperties: true
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+        lastPrice:
+          type: number
+          nullable: true
+        lastEvaluatedAt:
+          type: integer
+          format: int64
+          nullable: true
+        createdAt:
+          type: integer
+          format: int64
+        updatedAt:
+          type: integer
+          format: int64
+
+    AlertEvaluationResponse:
+      type: object
+      required: [evaluated, triggered, events]
+      properties:
+        evaluated:
+          type: integer
+        triggered:
+          type: integer
+        events:
+          type: array
+          items:
+            type: string
+
+    SignalLabStrategy:
+      type: object
+      required:
+        - id
+        - userId
+        - name
+        - exchange
+        - symbol
+        - marketType
+        - timeframe
+        - strategy
+        - version
+        - parentId
+        - latestBacktest
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        exchange:
+          type: string
+          enum: [binance, bybit, okx, hyperliquid, upbit]
+        symbol:
+          type: string
+        marketType:
+          type: string
+          enum: [spot, perp]
+        timeframe:
+          type: string
+          enum: [1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w]
+        strategy:
+          type: object
+          additionalProperties: true
+        version:
+          type: integer
+        parentId:
+          type: string
+          nullable: true
+        latestBacktest:
+          type: object
+          nullable: true
+          additionalProperties: true
+        createdAt:
+          type: integer
+          format: int64
+        updatedAt:
+          type: integer
+          format: int64
+
+    ApiKeyRecord:
+      type: object
+      required: [id, userId, name, keyPrefix, scopes, createdAt, lastUsedAt, revokedAt]
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        name:
+          type: string
+        keyPrefix:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: integer
+          format: int64
+        lastUsedAt:
+          type: integer
+          format: int64
+          nullable: true
+        revokedAt:
+          type: integer
+          format: int64
+          nullable: true
+
+    ApiKeyCreateResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiKeyRecord'
+        - type: object
+          required: [secret]
+          properties:
+            secret:
+              type: string
+
+    AlphaFeedItem:
+      type: object
+      required: [id, kind, title, summary, score, href, payload, timestamp]
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [trending, funding-arbitrage, liquidation, price-arbitrage]
+        title:
+          type: string
+        summary:
+          type: string
+        score:
+          type: number
+        href:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        timestamp:
+          type: integer
+          format: int64
+
+    AlphaFeedResponse:
+      type: object
+      required: [items, count, timestamp]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AlphaFeedItem'
+        count:
+          type: integer
+        timestamp:
+          type: integer
+          format: int64
+
+    AuthMagicLinkApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AuthMagicLinkResponse'
+
+    AuthSessionApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AuthSessionResponse'
+
+    UserAccountApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UserAccount'
+
+    DeletionApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DeletionResponse'
+
+    SavedWorkspaceApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SavedWorkspaceRecord'
+
+    SavedWorkspaceListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/SavedWorkspaceRecord'
+
+    WatchlistApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/WatchlistRecord'
+
+    WatchlistListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/WatchlistRecord'
+
+    PriceAlertApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/PriceAlertRecord'
+
+    PriceAlertListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/PriceAlertRecord'
+
+    AlertEvaluationApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AlertEvaluationResponse'
+
+    SavedBacktestApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SavedBacktestRecord'
+
+    SavedBacktestListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/SavedBacktestRecord'
+
+    SignalLabStrategyApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/SignalLabStrategy'
+
+    SignalLabStrategyListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/SignalLabStrategy'
+
+    ApiKeyListApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ApiKeyRecord'
+
+    ApiKeyCreateApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/ApiKeyCreateResponse'
+
+    AlphaFeedApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AlphaFeedResponse'
+
+    AlphaFeedItemApiResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiSuccessResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AlphaFeedItem'
+
+    PasskeyOptionsResponse:
+      type: object
+      required:
+        - challengeId
+        - options
+        - expiresAt
+      properties:
+        challengeId:
+          type: string
+          description: One-use server-side WebAuthn challenge identifier.
+        options:
+          type: object
+          description: WebAuthn options JSON passed to @simplewebauthn/browser.
+          additionalProperties: true
+        expiresAt:
+          type: integer
+          format: int64
+          description: Challenge expiry as a Unix timestamp in milliseconds.
+
+    PasskeyRegistrationVerifyRequest:
+      type: object
+      required:
+        - challengeId
+        - response
+      properties:
+        challengeId:
+          type: string
+        response:
+          type: object
+          description: RegistrationResponseJSON from @simplewebauthn/browser.
+          additionalProperties: true
+        name:
+          type: string
+          description: Optional user-facing device label.
+
+    PasskeyAuthenticationVerifyRequest:
+      type: object
+      required:
+        - challengeId
+        - response
+      properties:
+        challengeId:
+          type: string
+        response:
+          type: object
+          description: AuthenticationResponseJSON from @simplewebauthn/browser.
+          additionalProperties: true
+
+    PasskeyRecord:
+      type: object
+      required:
+        - id
+        - userId
+        - credentialId
+        - name
+        - transports
+        - deviceType
+        - backedUp
+        - createdAt
+        - lastUsedAt
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        credentialId:
+          type: string
+          description: Public WebAuthn credential ID. Public keys and counters are never returned.
+        name:
+          type: string
+          nullable: true
+        transports:
+          type: array
+          items:
+            type: string
+            enum: [ble, cable, hybrid, internal, nfc, smart-card, usb]
+        deviceType:
+          type: string
+          nullable: true
+        backedUp:
+          type: boolean
+        createdAt:
+          type: integer
+          format: int64
+        lastUsedAt:
+          type: integer
+          format: int64
+          nullable: true
+
+    PriceAlertCreateRequest:
+      type: object
+      required:
+        - exchange
+        - symbol
+        - priceTarget
+        - condition
+      properties:
+        exchange:
+          type: string
+          enum: [binance, bybit, okx, hyperliquid, upbit]
+        symbol:
+          type: string
+          example: BTC-USDT
+        marketType:
+          type: string
+          enum: [spot, perp]
+        priceTarget:
+          type: number
+          minimum: 0
+        condition:
+          type: string
+          enum: [above, below]
+        delivery:
+          type: object
+          description: Channel preferences for native email, Discord, Telegram, webhook, and optional relay delivery. Provider secrets stay in Worker secrets/vars, not in Lazuli D1.
+          additionalProperties: true
+          example:
+            channels: [email, discord, telegram, webhook]
+            email: user@example.com
+            discord:
+              channelId: alerts
+            telegram:
+              chatId: '123456789'
+            webhook:
+              url: https://example.com/lazuli-alerts
+        metadata:
+          type: object
+          additionalProperties: true
+
+    SignalLabStrategyRequest:
+      type: object
+      required:
+        - name
+        - exchange
+        - symbol
+        - timeframe
+        - strategy
+      properties:
+        name:
+          type: string
+          example: BTC Momentum v1
+        exchange:
+          type: string
+          enum: [binance, bybit, okx, hyperliquid, upbit]
+        symbol:
+          type: string
+          example: BTC-USDT
+        marketType:
+          type: string
+          enum: [spot, perp]
+        timeframe:
+          type: string
+          enum: [1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w]
+        autoBacktest:
+          type: boolean
+          description: Run a bounded server-side backtest immediately and store it as the latest snapshot.
+        strategy:
+          type: object
+          required:
+            - name
+            - mode
+            - fastPeriod
+            - slowPeriod
+            - rsiPeriod
+            - rsiOversold
+            - rsiOverbought
+            - feeBps
+          properties:
+            name:
+              type: string
+            mode:
+              type: string
+              enum: [momentum, mean-reversion, breakout]
+            fastPeriod:
+              type: integer
+              minimum: 2
+            slowPeriod:
+              type: integer
+              minimum: 3
+            rsiPeriod:
+              type: integer
+              minimum: 2
+            rsiOversold:
+              type: number
+            rsiOverbought:
+              type: number
+            feeBps:
+              type: number
 
     # Exchange schemas
     ExchangeInfo:

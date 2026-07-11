@@ -10,7 +10,6 @@
  */
 
 import { Link, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -86,11 +85,6 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: SidebarProps) {
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const location = useLocation();
-
-  // Close mobile drawer on route change
-  useEffect(() => {
-    onNavigate?.();
-  }, [location.pathname, onNavigate]);
 
   return (
     <>

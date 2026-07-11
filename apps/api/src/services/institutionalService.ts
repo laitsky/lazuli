@@ -657,6 +657,13 @@ function normalizeOptionSummary(
   if (!instrumentName) return [];
   const parsed = parseDeribitOptionName(instrumentName);
   if (!parsed || parsed.asset !== asset) return [];
+  const greeks = calculateBlackScholesGreeks({
+    spot: finiteOrNull(summary.underlying_price),
+    strike: parsed.strike,
+    expiryTimestamp: parsed.expiryTimestamp,
+    optionType: parsed.optionType,
+    impliedVolatility: finiteOrNull(summary.mark_iv),
+  });
   return [
     {
       instrumentName,
@@ -672,10 +679,10 @@ function normalizeOptionSummary(
       openInterest: finiteOrZero(summary.open_interest),
       volume24h: finiteOrZero(summary.volume_usd ?? summary.volume),
       impliedVolatility: finiteOrNull(summary.mark_iv),
-      delta: null,
-      gamma: null,
-      theta: null,
-      vega: null,
+      delta: greeks.delta,
+      gamma: greeks.gamma,
+      theta: greeks.theta,
+      vega: greeks.vega,
     },
   ];
 }
@@ -1081,6 +1088,15 @@ function buildFallbackOptions(asset: InstitutionalAsset): OptionInstrument[] {
       (['call', 'put'] as const).map((optionType) => {
         const moneyness = Math.abs(strike / spot - 1);
         const openInterest = Math.round((1 / (0.08 + moneyness)) * (expiryIndex + 1) * 25);
+        const impliedVolatility =
+          48 + expiryIndex * 2 + moneyness * 60 + (optionType === 'put' ? 2 : 0);
+        const greeks = calculateBlackScholesGreeks({
+          spot,
+          strike,
+          expiryTimestamp,
+          optionType,
+          impliedVolatility,
+        });
         return {
           instrumentName: `${asset}-${expiry}-${strike}-${optionType === 'call' ? 'C' : 'P'}`,
           asset,
@@ -1094,11 +1110,11 @@ function buildFallbackOptions(asset: InstitutionalAsset): OptionInstrument[] {
           underlyingPrice: spot,
           openInterest,
           volume24h: openInterest * spot * 0.04,
-          impliedVolatility: 48 + expiryIndex * 2 + moneyness * 60 + (optionType === 'put' ? 2 : 0),
-          delta: null,
-          gamma: null,
-          theta: null,
-          vega: null,
+          impliedVolatility,
+          delta: greeks.delta,
+          gamma: greeks.gamma,
+          theta: greeks.theta,
+          vega: greeks.vega,
         };
       })
     );
@@ -1197,10 +1213,17 @@ async function writeSnapshot(env: Env | undefined, key: string, data: unknown): 
       httpMetadata: { contentType: 'application/json' },
     });
     await env?.DB?.prepare(
-      'CREATE TABLE IF NOT EXISTS institutional_provider_status (provider TEXT PRIMARY KEY, source TEXT NOT NULL, ok INTEGER NOT NULL, updated_at INTEGER NOT NULL, message TEXT)'
-    ).run();
-    await env?.DB?.prepare(
-      'INSERT OR REPLACE INTO institutional_provider_status (provider, source, ok, updated_at, message) VALUES (?1, ?2, ?3, ?4, ?5)'
+      `INSERT INTO institutional_provider_status (provider, source, ok, updated_at, message)
+       VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT(provider) DO UPDATE SET
+         source = excluded.source,
+         ok = excluded.ok,
+         updated_at = excluded.updated_at,
+         message = excluded.message
+       WHERE institutional_provider_status.source <> excluded.source
+          OR institutional_provider_status.ok <> excluded.ok
+          OR COALESCE(institutional_provider_status.message, '') <> COALESCE(excluded.message, '')
+          OR institutional_provider_status.updated_at <= excluded.updated_at - 21600000`
     )
       .bind('Farside Investors', 'live', 1, Date.now(), null)
       .run();
@@ -1302,6 +1325,83 @@ function average(values: number[]): number | null {
   const clean = values.filter(Number.isFinite);
   if (clean.length === 0) return null;
   return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+}
+
+function calculateBlackScholesGreeks(params: {
+  spot: number | null;
+  strike: number;
+  expiryTimestamp: number;
+  optionType: 'call' | 'put';
+  impliedVolatility: number | null;
+}): Pick<OptionInstrument, 'delta' | 'gamma' | 'theta' | 'vega'> {
+  const { spot, strike, expiryTimestamp, optionType } = params;
+  const rawIv = params.impliedVolatility;
+  if (
+    spot === null ||
+    rawIv === null ||
+    spot <= 0 ||
+    strike <= 0 ||
+    expiryTimestamp <= Date.now()
+  ) {
+    return nullGreeks();
+  }
+
+  const sigma = rawIv > 3 ? rawIv / 100 : rawIv;
+  const timeYears = Math.max((expiryTimestamp - Date.now()) / (365 * DAY_MS), 1 / 365);
+  const riskFreeRate = 0.04;
+  if (!Number.isFinite(sigma) || sigma <= 0 || sigma > 5) {
+    return nullGreeks();
+  }
+
+  const sqrtTime = Math.sqrt(timeYears);
+  const d1 =
+    (Math.log(spot / strike) + (riskFreeRate + 0.5 * sigma * sigma) * timeYears) /
+    (sigma * sqrtTime);
+  const d2 = d1 - sigma * sqrtTime;
+  const pdfD1 = standardNormalPdf(d1);
+  const callDelta = standardNormalCdf(d1);
+  const delta = optionType === 'call' ? callDelta : callDelta - 1;
+  const gamma = pdfD1 / (spot * sigma * sqrtTime);
+  const thetaCall =
+    (-(spot * pdfD1 * sigma) / (2 * sqrtTime) -
+      riskFreeRate * strike * Math.exp(-riskFreeRate * timeYears) * standardNormalCdf(d2)) /
+    365;
+  const thetaPut =
+    (-(spot * pdfD1 * sigma) / (2 * sqrtTime) +
+      riskFreeRate * strike * Math.exp(-riskFreeRate * timeYears) * standardNormalCdf(-d2)) /
+    365;
+  const vega = (spot * pdfD1 * sqrtTime) / 100;
+
+  return {
+    delta: roundGreek(delta),
+    gamma: roundGreek(gamma),
+    theta: roundGreek(optionType === 'call' ? thetaCall : thetaPut),
+    vega: roundGreek(vega),
+  };
+}
+
+function nullGreeks(): Pick<OptionInstrument, 'delta' | 'gamma' | 'theta' | 'vega'> {
+  return { delta: null, gamma: null, theta: null, vega: null };
+}
+
+function standardNormalPdf(value: number): number {
+  return Math.exp(-0.5 * value * value) / Math.sqrt(2 * Math.PI);
+}
+
+function standardNormalCdf(value: number): number {
+  const sign = value < 0 ? -1 : 1;
+  const x = Math.abs(value) / Math.sqrt(2);
+  const t = 1 / (1 + 0.3275911 * x);
+  const erf =
+    1 -
+    ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) *
+      t *
+      Math.exp(-x * x);
+  return 0.5 * (1 + sign * erf);
+}
+
+function roundGreek(value: number): number | null {
+  return Number.isFinite(value) ? Math.round(value * 1_000_000) / 1_000_000 : null;
 }
 
 function median(values: number[]): number | null {

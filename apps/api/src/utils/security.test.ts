@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test';
-import { isActiveNonceReplay } from './nonceReplay';
 import {
   buildAdminCanonicalRequest,
   classifyRouteLimit,
+  rememberAdminNonce,
+  selectRateLimitBindingName,
   shouldFailClosedWhenLimiterUnavailable,
+  shouldResolvePublicApiKey,
   signAdminRequest,
   verifyAdminSignature,
 } from './security';
+import type { Env } from '../types';
 
 const nowMs = 1_700_000_000_000;
 const timestamp = String(nowMs);
@@ -128,6 +131,19 @@ describe('rate limiter hardening helpers', () => {
   test('fails closed only for admin and expensive route classes', () => {
     expect(classifyRouteLimit('/api/v1/admin/health').routeClass).toBe('admin');
     expect(classifyRouteLimit('/api/v1/orderbook/bybit/BTC-USDT').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/ohlcv/bybit/BTC-USDT').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/screener/bybit').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/custom-pair/bybit/BTC-USDT/ETH-USDT').routeClass).toBe(
+      'expensive'
+    );
+    expect(classifyRouteLimit('/api/v1/institutional/overview').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/alpha-feed').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/liquidations/bybit/BTCUSDT.P').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/orderflow/bybit/BTC-USDT').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/backtest/bybit/BTC-USDT').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/trending/bybit').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/funding/arbitrage').routeClass).toBe('expensive');
+    expect(classifyRouteLimit('/api/v1/arbitrage/prices').routeClass).toBe('expensive');
     expect(classifyRouteLimit('/api/v1/exchanges').routeClass).toBe('public');
 
     expect(shouldFailClosedWhenLimiterUnavailable('admin')).toBe(true);
@@ -135,9 +151,55 @@ describe('rate limiter hardening helpers', () => {
     expect(shouldFailClosedWhenLimiterUnavailable('public')).toBe(false);
   });
 
-  test('detects active admin nonce replay windows', () => {
-    expect(isActiveNonceReplay(nowMs + 1, nowMs)).toBe(true);
-    expect(isActiveNonceReplay(nowMs, nowMs)).toBe(false);
-    expect(isActiveNonceReplay(undefined, nowMs)).toBe(false);
+  test('selects dedicated anonymous, builder, and admin bindings', () => {
+    expect(selectRateLimitBindingName('/api/v1/exchanges', false)).toBe('PUBLIC_RATE_LIMITER');
+    expect(selectRateLimitBindingName('/api/v1/exchanges', true)).toBe(
+      'BUILDER_PUBLIC_RATE_LIMITER'
+    );
+    expect(selectRateLimitBindingName('/api/v1/backtest/bybit/BTC-USDT', false)).toBe(
+      'EXPENSIVE_RATE_LIMITER'
+    );
+    expect(selectRateLimitBindingName('/api/v1/backtest/bybit/BTC-USDT', true)).toBe(
+      'BUILDER_EXPENSIVE_RATE_LIMITER'
+    );
+    expect(selectRateLimitBindingName('/api/v1/admin/health', true)).toBe('ADMIN_RATE_LIMITER');
+  });
+
+  test('never performs API-key D1 lookup before account or admin route gates', () => {
+    expect(shouldResolvePublicApiKey('/api/v1/auth/magic-link', 'public')).toBe(false);
+    expect(shouldResolvePublicApiKey('/api/v1/me', 'public')).toBe(false);
+    expect(shouldResolvePublicApiKey('/api/v1/me/api-keys', 'public')).toBe(false);
+    expect(shouldResolvePublicApiKey('/api/v1/admin/health', 'admin')).toBe(false);
+    expect(shouldResolvePublicApiKey('/api/v1/tickers/bybit', 'public')).toBe(true);
+  });
+
+  test('stores only hashed admin nonces and rejects a global replay', async () => {
+    let activeExpiry = 0;
+    let nonceHash = '';
+    const env = {
+      DB: {
+        prepare: (sql: string) => ({
+          bind: (...values: unknown[]) => ({
+            run: async () => {
+              expect(sql.includes('admin_nonces')).toBe(true);
+              nonceHash = String(values[1]);
+              const requestedExpiry = Number(values[2]);
+              const requestTime = Number(values[4]);
+              const changes = activeExpiry <= requestTime ? 1 : 0;
+              if (changes === 1) activeExpiry = requestedExpiry;
+              return { meta: { changes } };
+            },
+          }),
+        }),
+      },
+    } as unknown as Env;
+
+    await expect(rememberAdminNonce(env, keyId, nonce, nowMs)).resolves.toBe(true);
+    expect(nonceHash.includes(nonce)).toBe(false);
+    expect(/^[a-f0-9]{64}$/.test(nonceHash)).toBe(true);
+    await expect(rememberAdminNonce(env, keyId, nonce, nowMs + 1)).resolves.toBe(false);
+    await expect(rememberAdminNonce(env, keyId, nonce, nowMs + 10 * 60 * 1000 + 1)).resolves.toBe(
+      true
+    );
   });
 });

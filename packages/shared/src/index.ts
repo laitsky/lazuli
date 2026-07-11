@@ -84,6 +84,7 @@ export interface ExchangeInfo {
   supported: boolean; // Is supported
   hasSpot: boolean; // Has spot markets
   hasPerp: boolean; // Has perpetual markets
+  notes?: string; // Optional operational caveat, e.g. regional availability
 }
 
 /**
@@ -106,6 +107,165 @@ export interface MarketWorkspaceState {
   symbol: string;
   type: 'spot' | 'perp';
   timeframe: Timeframe;
+}
+
+/**
+ * Passwordless account profile returned by authenticated endpoints.
+ */
+export interface UserAccount {
+  id: string;
+  email: string;
+  displayName: string | null;
+  createdAt: number;
+  lastLoginAt: number | null;
+}
+
+/**
+ * Magic-link request response. Production deployments omit `magicLink` after
+ * handing the link to the configured delivery webhook.
+ */
+export interface AuthMagicLinkResponse {
+  email: string;
+  expiresAt: number;
+  delivered: boolean;
+  magicLink: string | null;
+}
+
+/**
+ * Session token returned after a magic link is verified.
+ */
+export interface AuthSessionResponse {
+  user: UserAccount;
+  sessionToken: string;
+  expiresAt: number;
+}
+
+/**
+ * Passkey credential metadata. Public keys and counters stay server-side.
+ */
+export interface PasskeyRecord {
+  id: string;
+  userId: string;
+  credentialId: string;
+  name: string | null;
+  transports: string[];
+  deviceType: string | null;
+  backedUp: boolean;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
+/**
+ * WebAuthn option envelopes. The nested options are passed to
+ * @simplewebauthn/browser on the client.
+ */
+export interface PasskeyRegistrationOptionsResponse {
+  challengeId: string;
+  options: Record<string, unknown>;
+  expiresAt: number;
+}
+
+export interface PasskeyAuthenticationOptionsResponse {
+  challengeId: string;
+  options: Record<string, unknown>;
+  expiresAt: number;
+}
+
+/**
+ * Persisted workspace state for restoring URL-addressable analysis layouts.
+ */
+export interface SavedWorkspaceRecord {
+  id: string;
+  userId: string;
+  name: string;
+  state: Record<string, unknown>;
+  isDefault: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * User watchlist persisted server-side for cross-device retention.
+ */
+export interface WatchlistRecord {
+  id: string;
+  userId: string;
+  name: string;
+  items: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Saved server-side backtest definition and optional latest result snapshot.
+ */
+export interface SavedBacktestRecord {
+  id: string;
+  userId: string;
+  name: string;
+  exchange: string;
+  symbol: string;
+  timeframe: string;
+  strategy: Record<string, unknown>;
+  result: Record<string, unknown> | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Price alert persisted in D1 and evaluated against live exchange data.
+ */
+export interface PriceAlertRecord {
+  id: number;
+  userId: string | null;
+  symbol: string;
+  exchange: string;
+  marketType: 'spot' | 'perp';
+  priceTarget: number;
+  condition: 'above' | 'below';
+  active: boolean;
+  triggeredAt: number | null;
+  topic: string | null;
+  delivery: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+  lastPrice: number | null;
+  lastEvaluatedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Public API key metadata. The secret is returned only once on creation.
+ */
+export interface ApiKeyRecord {
+  id: string;
+  userId: string;
+  name: string;
+  keyPrefix: string;
+  scopes: string[];
+  createdAt: number;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+}
+
+/**
+ * Public alpha-feed item composed from live market signals.
+ */
+export interface AlphaFeedItem {
+  id: string;
+  kind: 'trending' | 'funding-arbitrage' | 'liquidation' | 'price-arbitrage';
+  title: string;
+  summary: string;
+  score: number;
+  href: string;
+  payload: Record<string, unknown>;
+  timestamp: number;
+}
+
+export interface AlphaFeedResponse {
+  items: AlphaFeedItem[];
+  count: number;
+  timestamp: number;
 }
 
 /**
@@ -350,6 +510,15 @@ export interface AltcoinPerformance {
   high24h: number | null; // 24 hour high price
   low24h: number | null; // 24 hour low price
   ohlcv: OHLCV[]; // Recent OHLCV data for mini chart
+  technical?: {
+    rsi14: number | null;
+    breakout: '24h-high' | '24h-low' | 'none';
+    trend: 'above-ema20' | 'below-ema20' | 'unknown';
+  };
+  derivatives?: {
+    fundingRatePercent: number | null;
+    openInterestUsd: number | null;
+  };
   rank?: number; // Rank by selected sort criteria
   timestamp: number; // Data timestamp
 }
@@ -372,6 +541,12 @@ export interface ScreenerFilters {
   maxVolume?: number; // Maximum 24h volume in USD
   minChange?: number; // Minimum percentage change
   maxChange?: number; // Maximum percentage change
+  minRsi?: number; // Minimum RSI(14) filter when technical scan is enabled
+  maxRsi?: number; // Maximum RSI(14) filter when technical scan is enabled
+  breakout?: 'up' | 'down' | 'any'; // 24h high/low breakout filter
+  minFundingRate?: number; // Minimum perp funding rate percentage
+  maxFundingRate?: number; // Maximum perp funding rate percentage
+  minOpenInterest?: number; // Minimum perp open interest in USD
   type?: 'spot' | 'perp'; // Market type filter
   search?: string; // Symbol search query
 }
@@ -626,6 +801,241 @@ export interface CrossExchangeFundingResponse {
     shortExchange: string; // Exchange to go short (high funding)
     estimatedDailyYield: number; // Estimated daily yield from funding arbitrage
   }[];
+}
+
+// ============================================================================
+// Real-time Engine, Order-flow, Backtesting, and Signal Lab Types
+// ============================================================================
+
+/**
+ * One modeled liquidation band around the current mark price.
+ *
+ * Public REST exchange APIs usually do not expose every liquidation print, so
+ * Lazuli labels these rows as estimated and derives notional risk from mark
+ * price, open interest, order-book proximity, and leverage assumptions.
+ */
+export interface LiquidationLevel {
+  side: 'long' | 'short';
+  leverage: number;
+  price: number;
+  distancePercent: number;
+  estimatedNotionalUsd: number;
+  intensity: number;
+}
+
+/**
+ * Transparent liquidation radar response used by the workspace overlay and
+ * future public realtime streams.
+ */
+export interface LiquidationRadarResponse {
+  exchange: SupportedExchange;
+  symbol: string;
+  type: 'perp';
+  markPrice: number | null;
+  openInterestUsd: number | null;
+  levels: LiquidationLevel[];
+  heatmap: Array<{
+    price: number;
+    longIntensity: number;
+    shortIntensity: number;
+    totalEstimatedNotionalUsd: number;
+  }>;
+  cascades: Array<{
+    side: 'long' | 'short';
+    triggerPrice: number;
+    estimatedNotionalUsd: number;
+    severity: 'low' | 'medium' | 'high' | 'extreme';
+    reason: string;
+  }>;
+  assumptions: {
+    model: 'estimated-from-oi-mark-book';
+    leverageBuckets: number[];
+    maintenanceMarginRate: number;
+  };
+  timestamp: number;
+}
+
+/**
+ * Per-candle order-flow proxy. Positive delta means close finished above open;
+ * negative delta means sellers dominated the candle. This is deliberately a
+ * proxy until exchange-native trade tape streams are wired into the Worker.
+ */
+export interface OrderFlowPoint {
+  timestamp: number;
+  price: number;
+  buyVolume: number;
+  sellVolume: number;
+  delta: number;
+  cumulativeDelta: number;
+  footprintImbalance: number;
+}
+
+/**
+ * CVD and footprint response for chart overlays.
+ */
+export interface OrderFlowResponse {
+  exchange: SupportedExchange;
+  symbol: string;
+  type: 'spot' | 'perp';
+  timeframe: Timeframe;
+  points: OrderFlowPoint[];
+  summary: {
+    cumulativeDelta: number;
+    deltaPercentOfVolume: number;
+    absorption: 'bid' | 'ask' | 'balanced';
+    divergence: 'bullish' | 'bearish' | 'none';
+  };
+  timestamp: number;
+}
+
+/**
+ * OI-weighted funding row used by the funding radar.
+ */
+export interface FundingRadarItem {
+  symbol: string;
+  baseAsset: string;
+  exchange: string;
+  fundingRatePercent: number;
+  annualizedRate: number;
+  openInterestUsd: number | null;
+  volume24h: number | null;
+  oiWeightedCarryUsd: number | null;
+  pressure: 'longs-pay' | 'shorts-pay' | 'neutral';
+  spikeScore: number;
+}
+
+/**
+ * Funding and OI spike radar response.
+ */
+export interface FundingRadarResponse {
+  items: FundingRadarItem[];
+  count: number;
+  stats: {
+    totalOpenInterestUsd: number;
+    oiWeightedAverageFundingPercent: number;
+    positiveCarryUsd: number;
+    negativeCarryUsd: number;
+  };
+  timestamp: number;
+}
+
+/**
+ * Funding arbitrage quote adjusted for estimated execution costs and basis.
+ */
+export interface FundingArbitrageOpportunity {
+  asset: string;
+  longExchange: string;
+  shortExchange: string;
+  grossAnnualizedYield: number;
+  estimatedExecutionCostBps: number;
+  basisPercent: number;
+  netAnnualizedYield: number;
+  confidence: 'low' | 'medium' | 'high';
+}
+
+/**
+ * Realistic funding arbitrage response that includes cost-adjusted yield.
+ */
+export interface FundingArbitrageResponse {
+  opportunities: FundingArbitrageOpportunity[];
+  count: number;
+  timestamp: number;
+}
+
+/**
+ * Minimal strategy definition for server-side Signal Lab and backtests.
+ */
+export interface StrategyDefinition {
+  id?: string;
+  name: string;
+  mode: 'momentum' | 'mean-reversion' | 'breakout';
+  fastPeriod: number;
+  slowPeriod: number;
+  rsiPeriod: number;
+  rsiOversold: number;
+  rsiOverbought: number;
+  feeBps: number;
+}
+
+/**
+ * One historical backtest trade.
+ */
+export interface BacktestTrade {
+  entryTime: number;
+  exitTime: number;
+  direction: 'long' | 'short';
+  entryPrice: number;
+  exitPrice: number;
+  pnlPercent: number;
+  reason: string;
+}
+
+/**
+ * Backtest response generated from OHLCV archive/live candles.
+ */
+export interface BacktestResponse {
+  exchange: SupportedExchange;
+  symbol: string;
+  type: 'spot' | 'perp';
+  timeframe: Timeframe;
+  strategy: StrategyDefinition;
+  metrics: {
+    totalReturnPercent: number;
+    maxDrawdownPercent: number;
+    sharpe: number;
+    winRate: number;
+    tradeCount: number;
+    profitFactor: number;
+  };
+  equityCurve: Array<{ timestamp: number; equity: number; drawdownPercent: number }>;
+  trades: BacktestTrade[];
+  timestamp: number;
+}
+
+/**
+ * Persisted Signal Lab metadata. Storage is optional; when D1 is unavailable the
+ * API can still return generated signals without persistence.
+ */
+export interface SignalLabStrategy {
+  id: string;
+  userId: string;
+  name: string;
+  exchange: SupportedExchange;
+  symbol: string;
+  marketType: 'spot' | 'perp';
+  timeframe: Timeframe;
+  strategy: StrategyDefinition;
+  version: number;
+  parentId: string | null;
+  createdAt: number;
+  updatedAt: number;
+  latestBacktest: BacktestResponse | null;
+}
+
+/**
+ * Trending detector item comparing current 24h volume against a 7-day candle
+ * baseline.
+ */
+export interface TrendingVolumeSpike {
+  symbol: string;
+  exchange: SupportedExchange;
+  type: 'spot' | 'perp';
+  price: number | null;
+  change24h: number | null;
+  volume24h: number | null;
+  sevenDayAverageVolume: number | null;
+  volumeRatio24hVs7d: number | null;
+  score: number;
+}
+
+/**
+ * Discovery feed response for volume spikes and trend acceleration.
+ */
+export interface TrendingVolumeResponse {
+  exchange: SupportedExchange;
+  items: TrendingVolumeSpike[];
+  count: number;
+  timestamp: number;
 }
 
 // ============================================================================
