@@ -11,8 +11,9 @@ interface SocketAttachment {
 const MAX_TOPIC_LENGTH = 120;
 const MAX_SNAPSHOT_EVENTS = 256;
 const MAX_DEDUPE_EVENTS = 2048;
+const MAX_COMPLETED_BATCHES = 256;
+const MAX_PUBLISH_BATCH_EVENTS = 500;
 const MAX_BUFFERED_BYTES = 1_048_576;
-const MAX_CHECKPOINT_BYTES = 1_500_000;
 const CHECKPOINT_KEY = 'realtime-checkpoint-v1';
 
 interface RealtimeEnvelope {
@@ -27,14 +28,14 @@ interface RealtimeEnvelope {
 
 interface RealtimeCheckpoint {
   sequence: number;
-  recent: RealtimeEnvelope[];
-  eventSequences: Array<[string, number]>;
+  completedBatchIds: string[];
 }
 
 export class RealtimeHubV2DO extends DurableObject<Env> {
   private sequence = 0;
   private readonly recent: RealtimeEnvelope[] = [];
   private readonly eventSequences = new BoundedRealtimeEventIndex(MAX_DEDUPE_EVENTS);
+  private readonly completedBatchIds = new Set<string>();
   private readonly ready: Promise<void>;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -43,8 +44,12 @@ export class RealtimeHubV2DO extends DurableObject<Env> {
       const checkpoint = await ctx.storage.get<RealtimeCheckpoint>(CHECKPOINT_KEY);
       if (!checkpoint) return;
       this.sequence = checkpoint.sequence;
-      this.recent.push(...checkpoint.recent.slice(-MAX_SNAPSHOT_EVENTS));
-      this.eventSequences.restore(checkpoint.eventSequences);
+      const completedBatchIds = Array.isArray(checkpoint.completedBatchIds)
+        ? checkpoint.completedBatchIds
+        : [];
+      for (const batchId of completedBatchIds.slice(-MAX_COMPLETED_BATCHES)) {
+        this.completedBatchIds.add(batchId);
+      }
     });
   }
 
@@ -82,7 +87,7 @@ export class RealtimeHubV2DO extends DurableObject<Env> {
       });
     }
 
-    if (request.method === 'POST' && url.pathname === '/publish') {
+    if (request.method === 'POST' && url.pathname === '/publish-batch') {
       if (!this.env.ADMIN_API_KEY) {
         return Response.json({ error: 'Publishing is disabled' }, { status: 503 });
       }
@@ -93,15 +98,13 @@ export class RealtimeHubV2DO extends DurableObject<Env> {
 
       const topic = sanitizeTopic(url.searchParams.get('topic'));
       if (!topic) return Response.json({ error: 'Missing topic' }, { status: 400 });
-      const payload = await request.json().catch(() => null);
-      if (payload === null) {
+      const input = await request.json().catch(() => null);
+      if (!isPublishBatch(input)) {
         return Response.json({ error: 'Invalid JSON payload' }, { status: 400 });
       }
-      const eventId = realtimeEventId(payload);
-      if (!eventId) {
-        return Response.json({ error: 'A valid eventId is required' }, { status: 400 });
-      }
-      return this.ctx.blockConcurrencyWhile(() => this.publish(topic, eventId, payload));
+      return this.ctx.blockConcurrencyWhile(() =>
+        this.publishBatch(topic, input.batchId, input.events)
+      );
     }
 
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') {
@@ -209,29 +212,49 @@ export class RealtimeHubV2DO extends DurableObject<Env> {
     return delivered;
   }
 
-  private async publish(topic: string, eventId: string, payload: unknown): Promise<Response> {
-    const existingSequence = this.eventSequences.get(eventId);
-    if (existingSequence !== undefined) {
+  private async publishBatch(
+    topic: string,
+    batchId: string,
+    payloads: Record<string, unknown>[]
+  ): Promise<Response> {
+    if (this.completedBatchIds.has(batchId)) {
       return Response.json({
         ok: true,
         duplicate: true,
         topic,
-        sequence: existingSequence,
+        sequences: [],
         delivered: 0,
         timestamp: Date.now(),
       });
     }
 
-    const envelope = this.append(topic, payload);
-    const delivered = this.broadcast(envelope);
-    this.rememberEvent(eventId, envelope.sequence);
-    await this.persistCheckpoint();
+    const sequences: number[] = [];
+    let delivered = 0;
+    for (const payload of payloads) {
+      const eventId = realtimeEventId(payload);
+      if (!eventId) {
+        return Response.json({ error: 'Every event requires a valid eventId' }, { status: 400 });
+      }
+      const existingSequence = this.eventSequences.get(eventId);
+      if (existingSequence !== undefined) {
+        sequences.push(existingSequence);
+        continue;
+      }
+      const envelope = this.append(topic, payload);
+      delivered += this.broadcast(envelope);
+      this.rememberEvent(eventId, envelope.sequence);
+      sequences.push(envelope.sequence);
+    }
+    // Persist only compact batch progress once per upstream topic batch. Live
+    // envelopes and event IDs deliberately remain in bounded broker memory.
+    await this.persistBatchCheckpoint(batchId);
+    this.rememberCompletedBatch(batchId);
     return Response.json({
       ok: true,
       topic,
-      sequence: envelope.sequence,
+      sequences,
       delivered,
-      timestamp: envelope.publishedAt,
+      timestamp: Date.now(),
     });
   }
 
@@ -239,20 +262,40 @@ export class RealtimeHubV2DO extends DurableObject<Env> {
     this.eventSequences.remember(eventId, sequence);
   }
 
-  private async persistCheckpoint(): Promise<void> {
-    const eventSequences = this.eventSequences.entries();
-    let recent = this.recent.slice(-MAX_SNAPSHOT_EVENTS);
-    let checkpoint: RealtimeCheckpoint = { sequence: this.sequence, recent, eventSequences };
-    while (recent.length > 0 && checkpointBytes(checkpoint) > MAX_CHECKPOINT_BYTES) {
-      recent = recent.slice(Math.ceil(recent.length / 2));
-      checkpoint = { sequence: this.sequence, recent, eventSequences };
+  private rememberCompletedBatch(batchId: string): void {
+    this.completedBatchIds.delete(batchId);
+    this.completedBatchIds.add(batchId);
+    while (this.completedBatchIds.size > MAX_COMPLETED_BATCHES) {
+      const oldest = this.completedBatchIds.values().next().value as string | undefined;
+      if (!oldest) break;
+      this.completedBatchIds.delete(oldest);
     }
-    await this.ctx.storage.put(CHECKPOINT_KEY, checkpoint);
+  }
+
+  private async persistBatchCheckpoint(batchId: string): Promise<void> {
+    const completedBatchIds = [...this.completedBatchIds, batchId].slice(-MAX_COMPLETED_BATCHES);
+    await this.ctx.storage.put(CHECKPOINT_KEY, {
+      sequence: this.sequence,
+      completedBatchIds,
+    } satisfies RealtimeCheckpoint);
   }
 }
 
-function checkpointBytes(value: RealtimeCheckpoint): number {
-  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+function isPublishBatch(
+  value: unknown
+): value is { batchId: string; events: Record<string, unknown>[] } {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const input = value as Record<string, unknown>;
+  return (
+    typeof input.batchId === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(input.batchId) &&
+    Array.isArray(input.events) &&
+    input.events.length > 0 &&
+    input.events.length <= MAX_PUBLISH_BATCH_EVENTS &&
+    input.events.every(
+      (event) => typeof event === 'object' && event !== null && !Array.isArray(event)
+    )
+  );
 }
 
 function realtimeEventId(value: unknown): string | null {

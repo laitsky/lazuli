@@ -66,8 +66,8 @@
       },
       "routes": [
         {
-          "pattern": "staging.lazuli.now/*",
-          "zone_name": "lazuli.now",
+          "pattern": "staging.lazuli.now",
+          "custom_domain": true,
         },
       ],
       "services": [

@@ -28,7 +28,7 @@ describe('growth retention service', () => {
     expect(result.delivered).toBe(false);
   });
 
-  test('atomically consumes a magic link before creating one session', async () => {
+  test('atomically issues one session and consumes its magic link', async () => {
     let claimAvailable = true;
     let sessionsCreated = 0;
     const statements: string[] = [];
@@ -40,10 +40,8 @@ describe('growth retention service', () => {
             bind() {
               return {
                 async first() {
-                  if (statement.includes('UPDATE auth_magic_links')) {
-                    if (!claimAvailable) return null;
-                    claimAvailable = false;
-                    return { email: 'user@example.com' };
+                  if (statement.includes('SELECT email FROM auth_magic_links')) {
+                    return claimAvailable ? { email: 'user@example.com' } : null;
                   }
                   if (statement.includes('SELECT * FROM users WHERE email')) {
                     return {
@@ -57,12 +55,19 @@ describe('growth retention service', () => {
                   return null;
                 },
                 async run() {
-                  if (statement.includes('INSERT INTO user_sessions')) sessionsCreated += 1;
                   return { meta: { changes: 1 } };
                 },
               };
             },
           };
+        },
+        async batch(batchStatements: Array<{ sql?: string }>) {
+          const claimed = claimAvailable;
+          claimAvailable = false;
+          if (claimed) sessionsCreated += 1;
+          return batchStatements.map((_, index) => ({
+            meta: { changes: claimed || index === 0 ? 1 : 0 },
+          }));
         },
       },
     } as unknown as Env;
@@ -73,8 +78,39 @@ describe('growth retention service', () => {
       'Magic link is invalid or expired'
     );
     expect(sessionsCreated).toBe(1);
-    expect(statements[0]?.includes('UPDATE auth_magic_links')).toBe(true);
-    expect(statements[0]?.includes('RETURNING email')).toBe(true);
+    expect(statements.some((statement) => statement.includes('INSERT INTO user_sessions'))).toBe(
+      true
+    );
+    expect(statements.some((statement) => statement.includes('UPDATE auth_magic_links'))).toBe(
+      true
+    );
+  });
+
+  test('does not burn a magic link when its transactional session batch fails', async () => {
+    const linkAvailable = true;
+    const env = {
+      DB: {
+        prepare(statement: string) {
+          return {
+            bind() {
+              return {
+                async first() {
+                  if (statement.includes('SELECT email FROM auth_magic_links')) {
+                    return linkAvailable ? { email: 'user@example.com' } : null;
+                  }
+                  return null;
+                },
+              };
+            },
+          };
+        },
+        async batch() {
+          throw new Error('transient D1 failure');
+        },
+      },
+    } as unknown as Env;
+    await expect(verifyMagicLink(env, 'ml_valid-token')).rejects.toThrow('transient D1 failure');
+    expect(linkAvailable).toBe(true);
   });
 
   test('claims a one-shot alert atomically before creating a delivery event', async () => {

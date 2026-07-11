@@ -156,6 +156,7 @@ import {
   processAlertDeliveryMessage,
   reconcilePendingAlertDeliveries,
   reencryptNotificationChannels,
+  replayIndeterminateNotificationDelivery,
   retryNotificationDelivery,
   updateNotificationChannel,
   type NotificationChannelInput,
@@ -538,19 +539,21 @@ app.post('/internal/realtime/batch', async (c) => {
   if (claim === 'processing') throw new Error('Realtime ingest batch is already processing');
 
   try {
+    const eventsByTopic = new Map<string, Record<string, unknown>[]>();
+    for (const { normalized, topic } of enabledEvents) {
+      const topicEvents = eventsByTopic.get(topic) ?? [];
+      topicEvents.push(normalized);
+      eventsByTopic.set(topic, topicEvents);
+      const ticker = realtimeTickerInput(normalized);
+      if (ticker) c.executionCtx.waitUntil(evaluateRealtimeTickerAlerts(c.env, ticker));
+      const openInterest = realtimeOpenInterestInput(normalized);
+      if (openInterest)
+        c.executionCtx.waitUntil(persistOpenInterestObservation(c.env, openInterest));
+    }
     const published = await Promise.all(
-      enabledEvents.map(async ({ normalized, topic }) => {
-        const result = await publishRealtimeEvent(c.env, topic, normalized);
-        const ticker = realtimeTickerInput(normalized);
-        if (ticker) {
-          c.executionCtx.waitUntil(evaluateRealtimeTickerAlerts(c.env, ticker));
-        }
-        const openInterest = realtimeOpenInterestInput(normalized);
-        if (openInterest) {
-          c.executionCtx.waitUntil(persistOpenInterestObservation(c.env, openInterest));
-        }
-        return result;
-      })
+      [...eventsByTopic].map(([topic, events]) =>
+        publishRealtimeTopicBatch(c.env, topic, batchId, events)
+      )
     );
     await persistLiquidationPrintCheckpoints(
       c.env,
@@ -558,10 +561,12 @@ app.post('/internal/realtime/batch', async (c) => {
     );
     await completeRealtimeIngestBatch(c.env, batchId);
     return ok(c, {
-      accepted: published.length,
+      accepted: enabledEvents.length,
       skippedByRollout: normalizedEvents.length - enabledEvents.length,
       delivered: published.reduce((sum, item) => sum + item.delivered, 0),
-      sequences: published.map((item) => ({ topic: item.topic, sequence: item.sequence })),
+      sequences: published.flatMap((item) =>
+        item.sequences.map((sequence) => ({ topic: item.topic, sequence }))
+      ),
     });
   } catch (error) {
     await releaseRealtimeIngestBatch(c.env, batchId);
@@ -1944,6 +1949,23 @@ api.post('/admin/notification-channels/re-encrypt', async (c) => {
   return ok(c, await reencryptNotificationChannels(c.env, { limit, cursor }));
 });
 
+api.post('/admin/alert-deliveries/:id/replay', async (c) => {
+  await requireAdminRequest(c);
+  const body = await readJsonRecord(c.req.raw);
+  const actor = c.req.header('X-Admin-Key-Id') ?? 'local-admin';
+  c.header('Cache-Control', 'private, no-store');
+  return ok(
+    c,
+    await replayIndeterminateNotificationDelivery(c.env, {
+      attemptId: c.req.param('id'),
+      actor,
+      reason: readRequiredString(body, 'reason'),
+      changeId: readRequiredString(body, 'changeId'),
+      confirmDuplicateRisk: body.confirmDuplicateRisk === true,
+    })
+  );
+});
+
 api.post('/admin/backfills', async (c) => {
   await requireAdminRequest(c);
   const body = await c.req.json().catch(() => ({}));
@@ -2563,16 +2585,17 @@ async function recordUniqueProductMetric(
   return accepted;
 }
 
-async function publishRealtimeEvent(
+async function publishRealtimeTopicBatch(
   env: Env,
   topic: string,
-  payload: unknown
-): Promise<{ topic: string; sequence: number; delivered: number }> {
+  batchId: string,
+  events: Record<string, unknown>[]
+): Promise<{ topic: string; sequences: number[]; delivered: number }> {
   if (!env.REALTIME_HUB || !env.ADMIN_API_KEY) {
     throw new Error('Realtime publishing is not configured');
   }
   const id = env.REALTIME_HUB.idFromName(topic);
-  const url = new URL('https://realtime/publish');
+  const url = new URL('https://realtime/publish-batch');
   url.searchParams.set('topic', topic);
   const response = await env.REALTIME_HUB.get(id).fetch(url.toString(), {
     method: 'POST',
@@ -2580,11 +2603,11 @@ async function publishRealtimeEvent(
       'Content-Type': 'application/json',
       'X-Admin-API-Key': env.ADMIN_API_KEY,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ batchId, events }),
   });
   if (!response.ok) throw new Error(`Realtime publish failed with HTTP ${response.status}`);
-  const result = (await response.json()) as { sequence: number; delivered: number };
-  return { topic, sequence: result.sequence, delivered: result.delivered };
+  const result = (await response.json()) as { sequences: number[]; delivered: number };
+  return { topic, sequences: result.sequences, delivered: result.delivered };
 }
 
 async function requireRealtimeIngestSignature(

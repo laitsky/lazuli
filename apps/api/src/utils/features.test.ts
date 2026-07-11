@@ -5,6 +5,7 @@ import {
   featureEnabled,
   legacyReleaseControlFallback,
   releaseControlEnabled,
+  resolveReleaseSubject,
 } from './features';
 
 describe('public-first feature gates', () => {
@@ -83,5 +84,68 @@ describe('public-first feature gates', () => {
     expect(legacyReleaseControlFallback(production, 'async_backtests')).toBe(true);
     expect(legacyReleaseControlFallback(production, 'cron_reconciliation')).toBe(false);
     expect(legacyReleaseControlFallback(production, 'admin_operations')).toBe(false);
+  });
+
+  test('does not construct rollout identities from unverified API-key text', async () => {
+    const statements: string[] = [];
+    const env = {
+      DB: {
+        prepare(statement: string) {
+          statements.push(statement);
+          return {
+            bind() {
+              return { first: async () => null, run: async () => ({ meta: { changes: 0 } }) };
+            },
+          };
+        },
+      },
+    } as unknown as Env;
+    const subject = await resolveReleaseSubject(env, {
+      authorization: `Bearer lz_live_${'a'.repeat(64)}`,
+    });
+    expect(subject).toBe(null);
+    expect(statements.some((statement) => statement.includes('FROM api_keys'))).toBe(true);
+  });
+
+  test('uses the persisted API-key id only after hash verification', async () => {
+    const secret = `lz_live_${'b'.repeat(64)}`;
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret));
+    const keyHash = [...new Uint8Array(digest)]
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+    const env = {
+      DB: {
+        prepare(statement: string) {
+          return {
+            bind() {
+              return {
+                async first() {
+                  return statement.includes('FROM api_keys')
+                    ? {
+                        id: 'key_verified',
+                        user_id: 'usr_1',
+                        name: 'Builder',
+                        key_prefix: secret.slice(0, 18),
+                        key_hash: keyHash,
+                        scopes_json: '["read"]',
+                        created_at: 1,
+                        last_used_at: null,
+                        revoked_at: null,
+                      }
+                    : null;
+                },
+                async run() {
+                  return { meta: { changes: 1 } };
+                },
+              };
+            },
+          };
+        },
+      },
+    } as unknown as Env;
+    expect(await resolveReleaseSubject(env, { authorization: `Bearer ${secret}` })).toEqual({
+      kind: 'api_key',
+      id: 'key_verified',
+    });
   });
 });

@@ -2471,6 +2471,41 @@ paths:
         default:
           $ref: '#/components/responses/InternalServerError'
 
+  /admin/alert-deliveries/{id}/replay:
+    post:
+      summary: Replay an indeterminate non-idempotent alert delivery
+      description: Signed operator-only recovery. Requires explicit duplicate-risk confirmation and appends a sanitized audit event before requeueing.
+      operationId: replayIndeterminateAlertDelivery
+      tags:
+        - Admin
+      security:
+        - AdminSignedRequest: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, pattern: '^nda_[a-zA-Z0-9-]{1,64}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, changeId, confirmDuplicateRisk]
+              properties:
+                reason: { type: string, minLength: 3, maxLength: 500 }
+                changeId: { type: string, minLength: 3, maxLength: 120 }
+                confirmDuplicateRisk: { type: boolean, enum: [true] }
+      responses:
+        '200':
+          description: Audited replay result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
   /admin/backfills:
     post:
       summary: Create or execute /admin/backfills

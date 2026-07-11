@@ -204,8 +204,8 @@
       ],
       "routes": [
         {
-          "pattern": "api-staging.lazuli.now/*",
-          "zone_name": "lazuli.now",
+          "pattern": "api-staging.lazuli.now",
+          "custom_domain": true,
         },
       ],
       "d1_databases": [

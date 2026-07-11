@@ -258,21 +258,55 @@ export async function verifyMagicLink(env: Env, token: string): Promise<AuthSess
   assertD1(env);
   const tokenHash = await sha256Hex(token.trim());
   const now = unixNow();
-  const row = await env.DB.prepare(
-    `UPDATE auth_magic_links
-     SET consumed_at = ?
-     WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
-     RETURNING email`
+  const link = await env.DB.prepare(
+    `SELECT email FROM auth_magic_links
+     WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?`
   )
-    .bind(now, tokenHash, now)
+    .bind(tokenHash, now)
     .first<{ email: string }>();
-
-  if (!row) {
+  if (!link) {
     throw new Error('Magic link is invalid or expired');
   }
 
-  const user = await upsertUser(env, row.email);
-  return createSessionForUser(env, user);
+  const userId = `usr_${crypto.randomUUID()}`;
+  const sessionToken = `ls_${randomToken(36)}`;
+  const sessionHash = await sha256Hex(sessionToken);
+  const sessionId = `sess_${crypto.randomUUID()}`;
+  const expiresAt = now + SESSION_TTL_SECONDS;
+  // D1 batch statements commit atomically. The conditional INSERT is the
+  // one-time claim: if session issuance or either follow-up update fails, D1
+  // rolls the entire batch back and the link remains usable.
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO users (id, email, created_at, updated_at)
+       VALUES (?, ?, unixepoch(), unixepoch())`
+    ).bind(userId, link.email),
+    env.DB.prepare(
+      `INSERT INTO user_sessions (id, user_id, token_hash, expires_at, created_at, last_seen_at)
+       SELECT ?, u.id, ?, ?, unixepoch(), unixepoch()
+       FROM auth_magic_links l JOIN users u ON u.email = l.email
+       WHERE l.token_hash = ? AND l.consumed_at IS NULL AND l.expires_at > ?`
+    ).bind(sessionId, sessionHash, expiresAt, tokenHash, now),
+    env.DB.prepare(
+      `UPDATE auth_magic_links SET consumed_at = ?
+       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
+         AND EXISTS (SELECT 1 FROM user_sessions WHERE id = ?)`
+    ).bind(now, tokenHash, now, sessionId),
+    env.DB.prepare(
+      `UPDATE users SET last_login_at = unixepoch()
+       WHERE email = ? AND EXISTS (SELECT 1 FROM user_sessions WHERE id = ?)`
+    ).bind(link.email, sessionId),
+  ]);
+  if ((results[1]?.meta.changes ?? 0) !== 1 || (results[2]?.meta.changes ?? 0) !== 1) {
+    throw new Error('Magic link is invalid or expired');
+  }
+  const user = await getUserByEmail(env, link.email);
+  if (!user) throw new Error('Magic-link session user was not persisted');
+  return {
+    user: { ...user, lastLoginAt: Date.now() },
+    sessionToken,
+    expiresAt: expiresAt * 1000,
+  };
 }
 
 export async function readUserFromSession(
@@ -1321,25 +1355,6 @@ export function buildMarketSnapshotSvg(params: {
   <text x="690" y="456" fill="#8ea0bd" font-family="Inter,Arial,sans-serif" font-size="28">24h volume</text>
   <text x="88" y="538" fill="#5f718d" font-family="Inter,Arial,sans-serif" font-size="22">Generated ${new Date(params.timestamp).toISOString()}</text>
 </svg>`;
-}
-
-async function upsertUser(env: Env, email: string): Promise<UserAccount> {
-  const existing = await env.DB.prepare(`SELECT * FROM users WHERE email = ?`)
-    .bind(email)
-    .first<UserRow>();
-  if (existing) return mapUser(existing);
-
-  const id = `usr_${crypto.randomUUID()}`;
-  await env.DB.prepare(
-    `INSERT INTO users (id, email, created_at, updated_at) VALUES (?, ?, unixepoch(), unixepoch())`
-  )
-    .bind(id, email)
-    .run();
-  const created = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`)
-    .bind(id)
-    .first<UserRow>();
-  if (!created) throw new Error('User was not persisted');
-  return mapUser(created);
 }
 
 async function getUserById(env: Env, id: string): Promise<UserAccount | null> {

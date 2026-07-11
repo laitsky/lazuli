@@ -20,7 +20,7 @@ Inspect attempt state, attempt number, timestamps, redacted status, and Queue me
 ## Replay
 
 1. Export the affected message/idempotency keys and expected count.
-2. Requeue through the signed operator tool; never edit delivered rows to queued. For an
+2. Requeue with signed `POST /api/v1/admin/alert-deliveries/{id}/replay`; never edit delivered rows to queued. Supply a change ID, reason, and `confirmDuplicateRisk: true`. The route appends a sanitized `audit_events` record in the same D1 batch. For an
    indeterminate Email, Discord, or Telegram attempt, warn that manual replay can duplicate a
    provider-accepted message and require explicit operator confirmation.
 3. Consumer conditionally claims only non-delivered attempts and records every retry.

@@ -15,7 +15,11 @@ describe('Cloudflare cost regression guards', () => {
     expect(/\.storage\b/.test(marketCache)).toBe(false);
     expect(realtimeHub.includes('MAX_DEDUPE_EVENTS')).toBe(true);
     expect(realtimeHub.includes('MAX_SNAPSHOT_EVENTS')).toBe(true);
-    expect(realtimeHub.includes('MAX_CHECKPOINT_BYTES')).toBe(true);
+    expect(realtimeHub.includes('MAX_COMPLETED_BATCHES')).toBe(true);
+    expect(realtimeHub.includes("url.pathname === '/publish-batch'")).toBe(true);
+    expect(realtimeHub.includes('await this.persistBatchCheckpoint(batchId)')).toBe(true);
+    expect(realtimeHub.includes('recent: this.recent')).toBe(false);
+    expect(realtimeHub.includes('eventSequences: this.eventSequences')).toBe(false);
     for (const source of [marketCache, realtimeHub]) {
       expect(/\b(?:alarm|getAlarm|setAlarm|deleteAlarm)\s*\(/.test(source)).toBe(false);
     }

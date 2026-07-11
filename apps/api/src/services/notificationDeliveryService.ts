@@ -113,6 +113,7 @@ interface AttemptRow {
 }
 
 export class RetryableAlertDeliveryError extends Error {}
+class DefinitePreDispatchError extends Error {}
 
 export async function listNotificationChannels(
   env: Env,
@@ -340,6 +341,73 @@ export async function retryNotificationDelivery(
   if ((result.meta.changes ?? 0) < 1) return { retried: false };
   await env.ALERT_DELIVERY_QUEUE.send({ kind: 'alert-delivery', attemptId });
   return { retried: true };
+}
+
+export async function replayIndeterminateNotificationDelivery(
+  env: Env,
+  input: {
+    attemptId: string;
+    actor: string;
+    reason: string;
+    changeId: string;
+    confirmDuplicateRisk: boolean;
+  }
+): Promise<{ replayed: boolean }> {
+  if (!env.ALERT_DELIVERY_QUEUE) throw new Error('Alert delivery Queue is not configured');
+  if (!/^nda_[a-zA-Z0-9-]{1,64}$/.test(input.attemptId)) {
+    throw new Error('Delivery attempt ID is invalid');
+  }
+  if (!input.confirmDuplicateRisk) {
+    throw new Error('Explicit duplicate-risk confirmation is required');
+  }
+  const actor = input.actor.trim().slice(0, 120);
+  const reason = input.reason.trim().slice(0, 500);
+  const changeId = input.changeId.trim().slice(0, 120);
+  if (!actor || reason.length < 3 || changeId.length < 3) {
+    throw new Error('Actor, reason, and change ID are required');
+  }
+  const attempt = await env.DB.prepare(
+    `SELECT id FROM notification_delivery_attempts
+     WHERE id = ? AND status = 'dead_letter'
+       AND COALESCE(last_error, '') LIKE 'Indeterminate provider acceptance;%'
+       AND NOT EXISTS (
+         SELECT 1 FROM notification_delivery_attempts delivered
+         WHERE delivered.idempotency_key = notification_delivery_attempts.idempotency_key
+           AND delivered.status = 'delivered'
+       )`
+  )
+    .bind(input.attemptId)
+    .first<{ id: string }>();
+  if (!attempt) return { replayed: false };
+  const auditId = `audit_${crypto.randomUUID()}`;
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE notification_delivery_attempts
+       SET status = 'queued', attempt_number = 0, response_status = NULL,
+           last_error = 'Operator-confirmed replay after indeterminate provider acceptance',
+           next_attempt_at = NULL, queued_at = unixepoch(), updated_at = unixepoch()
+       WHERE id = ? AND status = 'dead_letter'
+         AND COALESCE(last_error, '') LIKE 'Indeterminate provider acceptance;%'
+         AND NOT EXISTS (
+           SELECT 1 FROM notification_delivery_attempts delivered
+           WHERE delivered.idempotency_key = notification_delivery_attempts.idempotency_key
+             AND delivered.status = 'delivered'
+         )`
+    ).bind(input.attemptId),
+    env.DB.prepare(
+      `INSERT INTO audit_events
+        (id, actor, action, target_type, target_id, details_json, created_at)
+       VALUES (?, ?, 'alert_delivery_indeterminate_replay', 'notification_delivery_attempt', ?, ?, unixepoch())`
+    ).bind(
+      auditId,
+      actor,
+      input.attemptId,
+      JSON.stringify({ changeId, reason, duplicateRiskConfirmed: true })
+    ),
+  ]);
+  if ((results[0]?.meta.changes ?? 0) !== 1) return { replayed: false };
+  await env.ALERT_DELIVERY_QUEUE.send({ kind: 'alert-delivery', attemptId: input.attemptId });
+  return { replayed: true };
 }
 
 export async function enqueueAlertDeliveries(
@@ -579,6 +647,18 @@ export async function processAlertDeliveryMessage(
   } catch (error) {
     if (error instanceof RetryableAlertDeliveryError) throw error;
     const messageText = redactDeliveryError(error);
+    if (error instanceof DefinitePreDispatchError) {
+      await recordDeliveryFailure(
+        env,
+        row,
+        attemptNumber,
+        false,
+        row.channel_kind,
+        null,
+        messageText
+      );
+      throw new RetryableAlertDeliveryError(messageText);
+    }
     if (row.channel_kind !== 'webhook') {
       await markIndeterminateDelivery(env, row, messageText);
       return;
@@ -756,18 +836,24 @@ async function dispatchDelivery(
   env: Env,
   row: AttemptRow
 ): Promise<{ ok: boolean; status: number; provider: string }> {
-  const endpoint = await decryptNotificationValue(
-    env,
-    row.endpoint_ciphertext,
-    channelAad(row.user_id, row.channel_id, 'endpoint')
-  );
-  const channelSecret = row.secret_ciphertext
-    ? await decryptNotificationValue(
-        env,
-        row.secret_ciphertext,
-        channelAad(row.user_id, row.channel_id, 'secret')
-      )
-    : null;
+  let endpoint: string;
+  let channelSecret: string | null;
+  try {
+    endpoint = await decryptNotificationValue(
+      env,
+      row.endpoint_ciphertext,
+      channelAad(row.user_id, row.channel_id, 'endpoint')
+    );
+    channelSecret = row.secret_ciphertext
+      ? await decryptNotificationValue(
+          env,
+          row.secret_ciphertext,
+          channelAad(row.user_id, row.channel_id, 'secret')
+        )
+      : null;
+  } catch (error) {
+    throw new DefinitePreDispatchError(redactDeliveryError(error));
+  }
   const payload = safeJsonRecord(row.payload_json);
   const text = `Lazuli price alert: ${row.symbol} on ${row.exchange.toUpperCase()} is ${formatNumber(row.trigger_price)}, ${row.condition} target ${formatNumber(row.target_price)}.`;
   let url: string;
@@ -786,23 +872,24 @@ async function dispatchDelivery(
         payload,
         idempotencyKey: row.idempotency_key,
       });
-      if (!result) throw new Error('Email delivery provider is unavailable');
+      if (!result) throw new DefinitePreDispatchError('Email delivery provider is unavailable');
       return result;
     }
     case 'discord':
-      if (!isDiscordWebhook(endpoint)) throw new Error('Discord endpoint is invalid');
+      if (!isDiscordWebhook(endpoint))
+        throw new DefinitePreDispatchError('Discord endpoint is invalid');
       url = endpoint;
       body = { content: text, allowed_mentions: { parse: [] } };
       break;
     case 'telegram':
       if (!env.ALERT_TELEGRAM_BOT_TOKEN)
-        throw new Error('Telegram delivery provider is unavailable');
+        throw new DefinitePreDispatchError('Telegram delivery provider is unavailable');
       url = `https://api.telegram.org/bot${env.ALERT_TELEGRAM_BOT_TOKEN}/sendMessage`;
       body = { chat_id: endpoint, text, disable_web_page_preview: true };
       break;
     case 'webhook': {
       if (env.ALERT_USER_WEBHOOKS_ENABLED !== 'true' || !isSafePublicHttpsUrl(endpoint)) {
-        throw new Error('Webhook endpoint is not allowed');
+        throw new DefinitePreDispatchError('Webhook endpoint is not allowed');
       }
       url = endpoint;
       const timestamp = Date.now().toString();

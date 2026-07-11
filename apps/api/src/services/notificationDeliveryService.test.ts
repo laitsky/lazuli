@@ -9,6 +9,7 @@ import {
   isSafePublicHttpsUrl,
   processAlertDeliveryMessage,
   reencryptNotificationChannels,
+  replayIndeterminateNotificationDelivery,
 } from './notificationDeliveryService';
 
 const encryptionEnv = {
@@ -251,5 +252,125 @@ describe('notification delivery service', () => {
     await processAlertDeliveryMessage(env, { kind: 'alert-delivery', attemptId: 'nda_1' });
     expect(status).toBe('dead_letter');
     expect(sends).toBe(1);
+  });
+
+  test('safely retries a definite provider-configuration failure before dispatch', async () => {
+    const userId = 'usr_1';
+    const channelId = 'nch_1';
+    const key = 'test-only-notification-encryption-key-that-is-long-enough';
+    const endpoint = await encryptNotificationValue(
+      { NOTIFICATION_ENCRYPTION_KEY: key },
+      'user@example.com',
+      `lazuli:notification:v1:${userId}:${channelId}:endpoint`
+    );
+    let recordedState: string | null = null;
+    const env = {
+      NOTIFICATION_ENCRYPTION_KEY: key,
+      DB: {
+        prepare(sql: string) {
+          return {
+            sql,
+            bind(...values: unknown[]) {
+              return {
+                sql,
+                values,
+                async first() {
+                  if (!sql.includes('SELECT a.*')) return null;
+                  return {
+                    id: 'nda_2',
+                    alert_event_id: 'ae_2',
+                    channel_id: channelId,
+                    idempotency_key: 'alert:ae_2:channel:nch_1:v1',
+                    status: 'queued',
+                    attempt_number: 0,
+                    provider: null,
+                    response_status: null,
+                    last_error: null,
+                    queued_at: 1,
+                    attempted_at: null,
+                    delivered_at: null,
+                    next_attempt_at: null,
+                    channel_kind: 'email',
+                    channel_label: 'Account email',
+                    endpoint_ciphertext: endpoint,
+                    secret_ciphertext: null,
+                    config_json: '{}',
+                    payload_json: '{}',
+                    symbol: 'BTC-USDT',
+                    exchange: 'bybit',
+                    trigger_price: 100,
+                    target_price: 100,
+                    condition: 'above',
+                    user_id: userId,
+                  };
+                },
+                async run() {
+                  return { meta: { changes: 1 } };
+                },
+              };
+            },
+          };
+        },
+        async batch(statements: Array<{ values?: unknown[] }>) {
+          recordedState = String(statements[0]?.values?.[0]);
+          return statements.map(() => ({ meta: { changes: 1 } }));
+        },
+      },
+    } as unknown as Env;
+    await expect(
+      processAlertDeliveryMessage(env, { kind: 'alert-delivery', attemptId: 'nda_2' })
+    ).rejects.toThrow('Email delivery provider is unavailable');
+    expect(recordedState).toBe('retry');
+  });
+
+  test('requires explicit risk confirmation and audits operator replay', async () => {
+    const statements: Array<{ sql: string; values: unknown[] }> = [];
+    let queued = 0;
+    const env = {
+      ALERT_DELIVERY_QUEUE: {
+        async send() {
+          queued += 1;
+        },
+      },
+      DB: {
+        prepare(sql: string) {
+          return {
+            bind(...values: unknown[]) {
+              const statement = { sql, values };
+              statements.push(statement);
+              return {
+                ...statement,
+                async first() {
+                  return sql.startsWith('SELECT id') ? { id: 'nda_1' } : null;
+                },
+              };
+            },
+          };
+        },
+        async batch(batchStatements: unknown[]) {
+          return batchStatements.map(() => ({ meta: { changes: 1 } }));
+        },
+      },
+    } as unknown as Env;
+    await expect(
+      replayIndeterminateNotificationDelivery(env, {
+        attemptId: 'nda_1',
+        actor: 'release-operator',
+        reason: 'provider confirmed no acceptance',
+        changeId: 'CHG-123',
+        confirmDuplicateRisk: false,
+      })
+    ).rejects.toThrow('confirmation');
+    expect(
+      await replayIndeterminateNotificationDelivery(env, {
+        attemptId: 'nda_1',
+        actor: 'release-operator',
+        reason: 'provider confirmed no acceptance',
+        changeId: 'CHG-123',
+        confirmDuplicateRisk: true,
+      })
+    ).toEqual({ replayed: true });
+    expect(queued).toBe(1);
+    expect(statements.some(({ sql }) => sql.includes('INSERT INTO audit_events'))).toBe(true);
   });
 });

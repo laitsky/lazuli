@@ -7,7 +7,7 @@ import {
   type ReleaseResource,
   type ReleaseSubject,
 } from '../services/releaseControlService';
-import { readUserFromSession } from '../services/growthRetentionService';
+import { readUserFromSession, verifyApiKey } from '../services/growthRetentionService';
 import type { Env } from '../types';
 import { errorResponse, type ApiErrorResponse } from './response';
 
@@ -92,7 +92,8 @@ export async function resolveReleaseSubject(
   const authorization = context.authorization?.trim() ?? '';
   const bearer = /^Bearer\s+(.+)$/i.exec(authorization)?.[1]?.trim();
   if (bearer?.startsWith('lz_live_')) {
-    return { kind: 'api_key', id: bearer.slice(0, 18).toLowerCase() };
+    const apiKey = await verifyApiKey(env, bearer).catch(() => null);
+    return apiKey ? { kind: 'api_key', id: apiKey.id.toLowerCase() } : null;
   }
   if (bearer) {
     try {
