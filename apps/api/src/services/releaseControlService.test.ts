@@ -109,4 +109,52 @@ describe('release control evaluation', () => {
     ).rejects.toThrow(/revision conflict/);
     expect(writes).toBe(0);
   });
+
+  test('accepts D1 change counts that include the immutable audit trigger', async () => {
+    let reads = 0;
+    const env = {
+      DB: {
+        prepare(statement: string) {
+          return {
+            bind() {
+              return {
+                async first() {
+                  if (!statement.includes('SELECT * FROM release_controls')) return null;
+                  reads += 1;
+                  return releaseControlRow(reads === 1 ? 'off' : 'internal', reads === 1 ? 1 : 2);
+                },
+                async run() {
+                  return { meta: { changes: 2 } };
+                },
+              };
+            },
+          };
+        },
+      },
+    } as unknown as Env;
+    const updated = await updateReleaseControl(env, {
+      flag: 'admin_operations',
+      state: 'internal',
+      expectedRevision: 1,
+      actor: 'operator',
+      reason: 'staging acceptance',
+    });
+    expect(updated.state).toBe('internal');
+    expect(updated.revision).toBe(2);
+  });
 });
+
+function releaseControlRow(state: 'off' | 'internal', revision: number) {
+  return {
+    flag: 'admin_operations',
+    state,
+    subject_allowlist_json: '[]',
+    provider_allowlist_json: '[]',
+    topic_allowlist_json: '[]',
+    revision,
+    updated_by: 'operator',
+    update_reason: 'test',
+    created_at: 1,
+    updated_at: 1,
+  };
+}

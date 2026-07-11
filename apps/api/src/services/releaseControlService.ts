@@ -241,7 +241,10 @@ export async function updateReleaseControl(
         input.expectedRevision
       )
       .run();
-    if ((result.meta.changes ?? 0) !== 1) {
+    // D1 may include rows written by the immutable audit trigger in `changes`.
+    // Zero means the optimistic-lock update lost; any positive value means the
+    // release-control row changed and its audit event committed atomically.
+    if ((result.meta.changes ?? 0) < 1) {
       const latest = await getReleaseControl(env, input.flag);
       throw new ReleaseControlConflictError(
         input.flag,
