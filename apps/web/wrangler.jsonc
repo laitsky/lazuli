@@ -41,10 +41,20 @@
     },
   },
 
+  "vars": {
+    "ENVIRONMENT": "local",
+    "METRICS_INGEST_SECRET_ID": "metrics-local-v1",
+    "OPS_READ_SECRET": "local-ops",
+  },
+
   "env": {
     "staging": {
       "name": "lazuli-web-staging",
       "workers_dev": true,
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "METRICS_INGEST_SECRET_ID": "metrics-staging-v1",
+      },
       "limits": {
         "cpu_ms": 100,
       },
@@ -59,8 +69,8 @@
       },
       "routes": [
         {
-          "pattern": "staging.lazuli.now/*",
-          "zone_name": "lazuli.now",
+          "pattern": "staging.lazuli.now",
+          "custom_domain": true,
         },
       ],
       "services": [
@@ -73,6 +83,10 @@
     "production": {
       "name": "lazuli-web",
       "workers_dev": false,
+      "vars": {
+        "ENVIRONMENT": "production",
+        "METRICS_INGEST_SECRET_ID": "metrics-production-v1",
+      },
       "limits": {
         "cpu_ms": 100,
       },

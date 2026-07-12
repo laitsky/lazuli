@@ -115,4 +115,22 @@ describe('price arbitrage service', () => {
     expect(response.count).toBe(0);
     expect(response.opportunities).toEqual([]);
   });
+
+  test('rejects implausible same-ticker identity collisions across venues', () => {
+    const response = buildPriceArbitrageResponse(
+      [
+        {
+          exchange: 'bybit',
+          tickers: [ticker('bybit', 'U-USDT', 'spot', { bid: 0.004, ask: 0.005, last: 0.0045 })],
+        },
+        {
+          exchange: 'binance',
+          tickers: [ticker('binance', 'U-USDT', 'spot', { bid: 12, ask: 13, last: 12.5 })],
+        },
+      ],
+      { type: 'spot', quote: 'USDT', minSpreadBps: 1, limit: 20 }
+    );
+
+    expect(response.opportunities).toEqual([]);
+  });
 });

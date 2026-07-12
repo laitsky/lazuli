@@ -10,8 +10,10 @@
  * Mobile: hamburger + compact wordmark + price icon. Desktop: full width.
  */
 
-import { Menu, Command as CommandIcon, Search } from 'lucide-react';
+import { Menu, Command as CommandIcon, Search, UserRound } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/lib/auth';
 import { BrandLockup } from './BrandLockup';
 import { SymbolSearch } from './SymbolSearch';
 import { TopbarPrices } from './TopbarPrices';
@@ -23,6 +25,8 @@ interface TopbarProps {
 }
 
 export function Topbar({ onOpenMobileNav, onOpenCommandPalette }: TopbarProps) {
+  const { status, user } = useAuth();
+
   return (
     <header
       className={cn(
@@ -98,6 +102,25 @@ export function Topbar({ onOpenMobileNav, onOpenCommandPalette }: TopbarProps) {
         </button>
 
         <AccentPicker />
+
+        <Link
+          to="/account"
+          aria-label={
+            user ? `Account settings for ${user.email}` : 'Sign in or open account settings'
+          }
+          className={cn(
+            'flex h-9 min-w-9 items-center justify-center gap-2 rounded-md px-2.5',
+            'bg-surface-1 border border-border text-sm',
+            'hover:bg-surface-3 hover:border-border-strong transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-0'
+          )}
+        >
+          <UserRound className="h-4 w-4" aria-hidden />
+          <span className="hidden xl:inline max-w-32 truncate">
+            {status === 'loading' ? 'Account' : user?.displayName || user?.email || 'Sign in'}
+          </span>
+          {user && <span className="h-1.5 w-1.5 rounded-full bg-success" aria-hidden />}
+        </Link>
       </div>
     </header>
   );

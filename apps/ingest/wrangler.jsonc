@@ -1,0 +1,121 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "lazuli-ingest",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "ENVIRONMENT": "local",
+    "API_BASE_URL": "http://host.docker.internal:8787",
+    "INGEST_SIGNING_SECRET_ID": "ingest-local-v1",
+    "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
+    "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
+    "UPBIT_QUOTE": "KRW",
+    "OPS_READ_SECRET": "local-ops",
+  },
+  "triggers": {
+    "crons": ["*/2 * * * *"],
+  },
+  "containers": [
+    {
+      "class_name": "IngestContainer",
+      "image": "./Dockerfile",
+      "max_instances": 5,
+      "instance_type": "lite",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "INGEST_CONTAINER",
+        "class_name": "IngestContainer",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "ingest-container-v1",
+      "new_sqlite_classes": ["IngestContainer"],
+    },
+  ],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": false,
+    },
+  },
+  "env": {
+    "staging": {
+      "name": "lazuli-ingest-staging",
+      "workers_dev": true,
+      "routes": [
+        {
+          "pattern": "ingest-staging.lazuli.now",
+          "custom_domain": true,
+        },
+      ],
+      "vars": {
+        "ENVIRONMENT": "staging",
+        "API_BASE_URL": "https://api-staging.lazuli.now",
+        "INGEST_SIGNING_SECRET_ID": "ingest-staging-v1",
+        "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
+        "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
+        "UPBIT_QUOTE": "KRW",
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "INGEST_CONTAINER",
+            "class_name": "IngestContainer",
+          },
+        ],
+      },
+      "containers": [
+        {
+          "class_name": "IngestContainer",
+          "image": "./Dockerfile",
+          "max_instances": 5,
+          "instance_type": "lite",
+        },
+      ],
+    },
+    "production": {
+      "name": "lazuli-ingest",
+      "workers_dev": true,
+      "routes": [
+        {
+          "pattern": "ingest.lazuli.now",
+          "custom_domain": true,
+        },
+      ],
+      "vars": {
+        "ENVIRONMENT": "production",
+        "API_BASE_URL": "https://api.lazuli.now",
+        "INGEST_SIGNING_SECRET_ID": "ingest-production-v1",
+        "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
+        "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
+        "UPBIT_QUOTE": "KRW",
+      },
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "INGEST_CONTAINER",
+            "class_name": "IngestContainer",
+          },
+        ],
+      },
+      "containers": [
+        {
+          "class_name": "IngestContainer",
+          "image": "./Dockerfile",
+          "max_instances": 5,
+          "instance_type": "lite",
+        },
+      ],
+    },
+  },
+}

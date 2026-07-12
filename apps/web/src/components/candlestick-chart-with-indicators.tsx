@@ -8,7 +8,14 @@ import {
   CandlestickData,
   LineData,
 } from 'lightweight-charts';
-import { Timeframe, IndicatorDataPoint, DEFAULT_INDICATOR_PERIODS } from '@lazuli/shared';
+import {
+  Timeframe,
+  IndicatorDataPoint,
+  DEFAULT_INDICATOR_PERIODS,
+  type LiquidationLevel,
+  type LiquidationPrint,
+  type OrderFlowPoint,
+} from '@lazuli/shared';
 import { calculatePricePrecision, formatPrice } from '@/lib/format';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -75,6 +82,12 @@ interface CandlestickChartWithIndicatorsProps {
   availableRSI?: number[];
   /** Show indicator controls (default: true) */
   showControls?: boolean;
+  /** Transparent modeled liquidation bands rendered on the price chart. */
+  liquidationLevels?: LiquidationLevel[];
+  /** Timestamped exchange-native prints, rendered as markers—not model bands. */
+  liquidationPrints?: LiquidationPrint[];
+  /** Exchange-native or labeled fallback CVD points rendered in a synced pane. */
+  cvdPoints?: OrderFlowPoint[];
 }
 
 /**
@@ -98,14 +111,19 @@ export function CandlestickChartWithIndicators({
   availableEMA = DEFAULT_INDICATOR_PERIODS.ema as unknown as number[],
   availableRSI = DEFAULT_INDICATOR_PERIODS.rsi as unknown as number[],
   showControls = true,
+  liquidationLevels = [],
+  liquidationPrints = [],
+  cvdPoints = [],
 }: CandlestickChartWithIndicatorsProps) {
   // Chart container refs
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef = useRef<HTMLDivElement>(null);
+  const cvdContainerRef = useRef<HTMLDivElement>(null);
 
   // Chart API refs
   const chartRef = useRef<IChartApi | null>(null);
   const rsiChartRef = useRef<IChartApi | null>(null);
+  const cvdChartRef = useRef<IChartApi | null>(null);
 
   // Series refs for updating data
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -264,6 +282,39 @@ export function CandlestickChartWithIndicators({
       candlestickSeries.setData(chartData.candlesticks);
       candlestickSeriesRef.current = candlestickSeries;
 
+      for (const level of liquidationLevels) {
+        candlestickSeries.createPriceLine({
+          price: level.price,
+          color:
+            level.side === 'long'
+              ? `rgba(239, 68, 68, ${Math.max(0.25, level.intensity)})`
+              : `rgba(34, 197, 94, ${Math.max(0.25, level.intensity)})`,
+          lineWidth: level.intensity >= 0.7 ? 3 : level.intensity >= 0.4 ? 2 : 1,
+          lineStyle: 2,
+          axisLabelVisible: level.intensity >= 0.4,
+          title: `${level.leverage}x ${level.side}`,
+        });
+      }
+
+      candlestickSeries.setMarkers(
+        liquidationPrints.flatMap((print) => {
+          const eventSeconds = Math.floor(print.exchangeTimestamp / 1000);
+          const candle = [...chartData.candlesticks]
+            .reverse()
+            .find((item) => typeof item.time === 'number' && item.time <= eventSeconds);
+          if (!candle) return [];
+          return [
+            {
+              time: candle.time as Time,
+              position: print.side === 'long' ? ('belowBar' as const) : ('aboveBar' as const),
+              color: print.side === 'long' ? '#ef4444' : '#22c55e',
+              shape: print.side === 'long' ? ('arrowDown' as const) : ('arrowUp' as const),
+              text: `${print.side === 'long' ? 'L' : 'S'} $${formatPrice(print.price)}`,
+            },
+          ];
+        })
+      );
+
       // Add SMA lines
       for (const period of availableSMA) {
         const lineData = chartData.smaData.get(period);
@@ -325,7 +376,15 @@ export function CandlestickChartWithIndicators({
     } catch (error) {
       console.error('Error creating main chart:', error);
     }
-  }, [chartData, height, availableSMA, availableEMA, pricePrecision]);
+  }, [
+    chartData,
+    height,
+    availableSMA,
+    availableEMA,
+    pricePrecision,
+    liquidationLevels,
+    liquidationPrints,
+  ]);
 
   // Update SMA visibility when toggled
   useEffect(() => {
@@ -456,6 +515,55 @@ export function CandlestickChartWithIndicators({
     }
   }, [chartData, showRSI]);
 
+  useEffect(() => {
+    if (!cvdContainerRef.current || cvdPoints.length === 0) return;
+    const chart = createChart(cvdContainerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: 'transparent' },
+        textColor: '#9ca3af',
+      },
+      grid: { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
+      width: cvdContainerRef.current.clientWidth,
+      height: 120,
+      timeScale: { visible: false },
+      rightPriceScale: { borderColor: '#374151' },
+    });
+    cvdChartRef.current = chart;
+    const series = chart.addHistogramSeries({
+      priceLineVisible: false,
+      lastValueVisible: true,
+      title: 'CVD',
+    });
+    series.setData(
+      cvdPoints.map((point) => ({
+        time: Math.floor(point.timestamp / 1000) as Time,
+        value: point.cumulativeDelta,
+        color: point.delta >= 0 ? 'rgba(34, 197, 94, 0.75)' : 'rgba(239, 68, 68, 0.75)',
+      }))
+    );
+    if (chartRef.current) {
+      const main = chartRef.current.timeScale();
+      const cvd = chart.timeScale();
+      main.subscribeVisibleLogicalRangeChange((range) => {
+        if (range) cvd.setVisibleLogicalRange(range);
+      });
+      cvd.subscribeVisibleLogicalRangeChange((range) => {
+        if (range) main.setVisibleLogicalRange(range);
+      });
+    }
+    const resize = () => {
+      if (cvdContainerRef.current) {
+        chart.applyOptions({ width: cvdContainerRef.current.clientWidth });
+      }
+    };
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('resize', resize);
+      chart.remove();
+      cvdChartRef.current = null;
+    };
+  }, [cvdPoints]);
+
   // Generate chart title
   const chartTitle = symbol ? `${symbol} - ${timeframe}` : timeframe;
 
@@ -563,6 +671,15 @@ export function CandlestickChartWithIndicators({
               RSI ({availableRSI[0] || 14})
             </div>
             <div ref={rsiContainerRef} className="w-full" />
+          </div>
+        )}
+
+        {cvdPoints.length > 0 && (
+          <div className="border-t border-white/5">
+            <div className="px-6 pt-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              Cumulative Volume Delta
+            </div>
+            <div ref={cvdContainerRef} className="w-full" />
           </div>
         )}
 

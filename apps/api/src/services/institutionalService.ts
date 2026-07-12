@@ -11,10 +11,16 @@ import type {
   InstitutionalOverviewResponse,
   InstitutionalProviderStatus,
   InstitutionalRange,
+  MacroHistoryPoint,
+  MacroHistoryResponse,
+  MacroHistorySeries,
+  MacroMetric,
   OptionExpirySummary,
   OptionInstrument,
+  OptionIvQuality,
   OptionsChainResponse,
   OptionsExpiriesResponse,
+  OptionsSurfaceResponse,
   OptionsVolatilityResponse,
   OptionStrikeSummary,
   SupportedExchange,
@@ -29,7 +35,11 @@ const FARSIDE_URLS: Record<InstitutionalAsset, string> = {
 };
 
 const DERIBIT_BASE_URL = 'https://www.deribit.com/api/v2';
+const COINGECKO_GLOBAL_URL = 'https://api.coingecko.com/api/v3/global';
+const DEFILLAMA_STABLECOIN_URL = 'https://stablecoins.llama.fi/stablecoincharts/all';
+const ALTERNATIVE_FNG_URL = 'https://api.alternative.me/fng/';
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MACRO_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const ETF_FUNDS: Record<
   InstitutionalAsset,
@@ -179,6 +189,15 @@ interface CachedInstitutional<T> {
   updatedAt: number;
 }
 
+interface MacroSnapshotRow {
+  metric: string;
+  provider: string;
+  observed_at: number;
+  value: number | null;
+  source_status: string;
+  source_fresh_at: number | null;
+}
+
 const memoryCache = new Map<string, CachedInstitutional<unknown>>();
 
 /**
@@ -300,6 +319,21 @@ export async function getOptionsChain(
 }
 
 /**
+ * Returns an observed-only IV surface. Missing and illiquid contract sides are
+ * represented by quality masks rather than fabricated interpolation.
+ */
+export async function getOptionsSurface(
+  asset: InstitutionalAsset
+): Promise<OptionsSurfaceResponse> {
+  const options = await getOptionsDataset(asset);
+  return buildOptionsSurface(
+    asset,
+    options.provider.source === 'fallback' ? [] : options.chain,
+    options.provider
+  );
+}
+
+/**
  * Loads Deribit volatility index candles for BTC or ETH.
  */
 export async function getOptionsVolatility(
@@ -363,21 +397,87 @@ export async function getOptionsVolatility(
 }
 
 /**
+ * Loads the three macro inputs independently. A failed provider falls back to
+ * its own D1 history without making healthy series appear unavailable.
+ */
+export async function getMacroHistory(
+  range: InstitutionalRange,
+  env?: Env
+): Promise<MacroHistoryResponse> {
+  const cacheKey = `macro:${range}:${env?.DB ? 'db' : 'memory'}`;
+  const cached = getCached<MacroHistoryResponse>(cacheKey, MACRO_CACHE_TTL_MS);
+  if (cached) return cached;
+
+  const now = Date.now();
+  const limit = macroRangeLimit(range, now);
+  const [btcDominance, stablecoinSupplyUsd, fearGreedIndex] = await Promise.all([
+    loadMacroSeries({
+      metric: 'btcDominance',
+      unit: 'percent',
+      providerName: 'CoinGecko',
+      env,
+      since: limit,
+      now,
+      fetchLive: async () =>
+        parseCoinGeckoGlobal(await fetchJson(COINGECKO_GLOBAL_URL, 10_000), now),
+    }),
+    loadMacroSeries({
+      metric: 'stablecoinSupplyUsd',
+      unit: 'usd',
+      providerName: 'DefiLlama',
+      env,
+      since: limit,
+      now,
+      fetchLive: async () =>
+        parseDefiLlamaStablecoinHistory(await fetchJson(DEFILLAMA_STABLECOIN_URL, 12_000)),
+    }),
+    loadMacroSeries({
+      metric: 'fearGreedIndex',
+      unit: 'index',
+      providerName: 'Alternative.me',
+      env,
+      since: limit,
+      now,
+      fetchLive: async () => {
+        const url = new URL(ALTERNATIVE_FNG_URL);
+        url.searchParams.set('limit', String(macroRangeDays(range, now)));
+        url.searchParams.set('format', 'json');
+        return parseAlternativeFearGreed(await fetchJson(url.toString(), 10_000));
+      },
+    }),
+  ]);
+  const response: MacroHistoryResponse = {
+    range,
+    series: { btcDominance, stablecoinSupplyUsd, fearGreedIndex },
+    providers: [btcDominance.provider, stablecoinSupplyUsd.provider, fearGreedIndex.provider],
+    timestamp: now,
+  };
+  setCached(cacheKey, response);
+  return response;
+}
+
+/**
  * Combines ETF, options, funding, and spot trend into transparent regime
  * signals. Each score is intentionally simple and explainable.
  */
 export async function getInstitutionalConfluence(params: {
   asset: InstitutionalAsset;
+  env?: Env;
   etf?: EtfFlowResponse;
   options?: OptionsExpiriesResponse;
   volatility?: OptionsVolatilityResponse;
+  macro?: MacroHistoryResponse | null;
   fundingRates?: FundingRateData[];
   spotTicker?: Ticker | null;
 }): Promise<InstitutionalConfluenceResponse> {
-  const [etf, options, volatility] = await Promise.all([
+  const shouldLoadMacro =
+    params.macro === undefined &&
+    !(params.etf !== undefined && params.options !== undefined && params.volatility !== undefined);
+  const [etf, options, volatility, macro] = await Promise.all([
     params.etf ?? getEtfFlows(params.asset, '30d'),
     params.options ?? getOptionsExpiries(params.asset),
     params.volatility ?? getOptionsVolatility(params.asset, '90d'),
+    params.macro ?? (shouldLoadMacro ? getMacroHistory('90d', params.env) : Promise.resolve(null)),
   ]);
   const fundingRates = params.fundingRates ?? [];
   const spotTicker = params.spotTicker ?? null;
@@ -391,6 +491,9 @@ export async function getInstitutionalConfluence(params: {
     buildBasisStressSignal(fundingRates),
     buildSpotTrendSignal(spotTicker),
     buildLiquidityRiskSignal(nearest, spotTicker),
+    buildBtcDominanceSignal(params.asset, macro?.series.btcDominance ?? null),
+    buildStablecoinLiquiditySignal(macro?.series.stablecoinSupplyUsd ?? null),
+    buildFearGreedSignal(macro?.series.fearGreedIndex ?? null),
   ];
   const score = clamp(Math.round(average(signals.map((signal) => signal.score)) ?? 50), 0, 100);
   const regime = classifyRegime(signals, score);
@@ -403,7 +506,7 @@ export async function getInstitutionalConfluence(params: {
     ),
     summary: summarizeRegime(params.asset, regime, score),
     signals,
-    providers: [etf.provider, options.provider, volatility.provider],
+    providers: [etf.provider, options.provider, volatility.provider, ...(macro?.providers ?? [])],
     timestamp: Date.now(),
   };
   return response;
@@ -420,16 +523,18 @@ export async function getInstitutionalOverview(params: {
   sourceExchange?: SupportedExchange;
 }): Promise<InstitutionalOverviewResponse> {
   const sourceExchange = params.sourceExchange ?? 'bybit';
-  const [etf, options, volatility] = await Promise.all([
+  const [etf, options, volatility, macro] = await Promise.all([
     getEtfFlows(params.asset, '30d', params.env),
     getOptionsExpiries(params.asset),
     getOptionsVolatility(params.asset, '90d'),
+    getMacroHistory('90d', params.env),
   ]);
   const confluence = await getInstitutionalConfluence({
     asset: params.asset,
     etf,
     options,
     volatility,
+    macro,
     fundingRates: params.fundingRates ?? [],
     spotTicker: params.spotTicker ?? null,
   });
@@ -563,6 +668,12 @@ async function fetchText(url: string, timeoutMs: number): Promise<string> {
   const response = await fetchWithTimeout(url, timeoutMs);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.text();
+}
+
+async function fetchJson(url: string, timeoutMs: number): Promise<unknown> {
+  const response = await fetchWithTimeout(url, timeoutMs);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.json();
 }
 
 async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
@@ -729,7 +840,7 @@ function parseDeribitExpiry(value: string): number | null {
   return Date.UTC(2000 + Number(match[3]), month, Number(match[1]), 8, 0, 0);
 }
 
-function buildExpirySummaries(chain: OptionInstrument[]): OptionExpirySummary[] {
+function buildExpirySummaries(chain: OptionInstrument[], now = Date.now()): OptionExpirySummary[] {
   const byExpiry = groupBy(chain, (instrument) => instrument.expiry);
   return Object.entries(byExpiry)
     .map(([expiry, instruments]) => {
@@ -749,7 +860,7 @@ function buildExpirySummaries(chain: OptionInstrument[]): OptionExpirySummary[] 
         expiryTimestamp: instruments[0]?.expiryTimestamp ?? Date.parse(expiry),
         daysToExpiry: Math.max(
           0,
-          Math.ceil(((instruments[0]?.expiryTimestamp ?? Date.now()) - Date.now()) / DAY_MS)
+          Math.ceil(((instruments[0]?.expiryTimestamp ?? now) - now) / DAY_MS)
         ),
         instrumentCount: instruments.length,
         totalOpenInterest,
@@ -820,6 +931,177 @@ export function parseVolatilityCandles(payload: unknown): VolatilityCandle[] {
     }
     return [];
   });
+}
+
+/** Builds an observed-only strike/expiry matrix from normalized contracts. */
+export function buildOptionsSurface(
+  asset: InstitutionalAsset,
+  chain: OptionInstrument[],
+  provider: InstitutionalProviderStatus,
+  now = Date.now()
+): OptionsSurfaceResponse {
+  const observedChain = chain.filter(
+    (instrument) =>
+      instrument.asset === asset &&
+      instrument.expiryTimestamp > now &&
+      Number.isFinite(instrument.strike) &&
+      instrument.strike > 0
+  );
+  const underlyingPrice = median(
+    observedChain.map((instrument) => instrument.underlyingPrice).filter(isNumber)
+  );
+  const byExpiryStrike = groupBy(
+    observedChain,
+    (instrument) => `${instrument.expiry}|${instrument.strike}`
+  );
+  const points = Object.values(byExpiryStrike)
+    .flatMap((instruments) => {
+      const call = instruments.find((instrument) => instrument.optionType === 'call');
+      const put = instruments.find((instrument) => instrument.optionType === 'put');
+      const first = instruments[0];
+      return first
+        ? [
+            {
+              expiry: first.expiry,
+              expiryTimestamp: first.expiryTimestamp,
+              daysToExpiry: Math.max(0, (first.expiryTimestamp - now) / DAY_MS),
+              strike: first.strike,
+              callIv: call?.impliedVolatility ?? null,
+              putIv: put?.impliedVolatility ?? null,
+              callDelta: call?.delta ?? null,
+              putDelta: put?.delta ?? null,
+              callOpenInterest: call?.openInterest ?? 0,
+              putOpenInterest: put?.openInterest ?? 0,
+              qualityMask: {
+                call: optionQuality(call),
+                put: optionQuality(put),
+              },
+            },
+          ]
+        : [];
+    })
+    .sort((left, right) =>
+      left.expiryTimestamp === right.expiryTimestamp
+        ? left.strike - right.strike
+        : left.expiryTimestamp - right.expiryTimestamp
+    );
+  const byExpiry = groupBy(observedChain, (instrument) => instrument.expiry);
+  const termStructure = Object.values(byExpiry)
+    .flatMap((instruments) => {
+      const first = instruments[0];
+      if (!first) return [];
+      const nearestStrike =
+        underlyingPrice === null
+          ? null
+          : ([...new Set(instruments.map((instrument) => instrument.strike))].sort(
+              (left, right) => Math.abs(left - underlyingPrice) - Math.abs(right - underlyingPrice)
+            )[0] ?? null);
+      const atm =
+        nearestStrike === null
+          ? []
+          : instruments.filter((instrument) => instrument.strike === nearestStrike);
+      const usableAtm = atm.filter((instrument) => optionQuality(instrument) === 'observed');
+      const atmIv = average(
+        usableAtm.map((instrument) => instrument.impliedVolatility).filter(isNumber)
+      );
+      const quality: OptionIvQuality =
+        atmIv !== null
+          ? 'observed'
+          : atm.some((instrument) => optionQuality(instrument) === 'illiquid')
+            ? 'illiquid'
+            : 'missing';
+      return [
+        {
+          expiry: first.expiry,
+          expiryTimestamp: first.expiryTimestamp,
+          daysToExpiry: Math.max(0, (first.expiryTimestamp - now) / DAY_MS),
+          atmImpliedVolatility: atmIv,
+          sourceStrike: nearestStrike,
+          strikeDistancePercent:
+            nearestStrike !== null && underlyingPrice !== null
+              ? (Math.abs(nearestStrike - underlyingPrice) / underlyingPrice) * 100
+              : null,
+          skew25Delta: calculateObservedDeltaSkew(instruments),
+          quality,
+        },
+      ];
+    })
+    .sort((left, right) => left.expiryTimestamp - right.expiryTimestamp);
+  const masks = points.flatMap((point) => [point.qualityMask.call, point.qualityMask.put]);
+  const observedSides = masks.filter((mask) => mask === 'observed').length;
+  const illiquidSides = masks.filter((mask) => mask === 'illiquid').length;
+  const missingSides = masks.filter((mask) => mask === 'missing').length;
+
+  return {
+    asset,
+    underlyingPrice,
+    points,
+    termStructure,
+    expiries: buildExpirySummaries(observedChain, now),
+    quality: {
+      observedSides,
+      illiquidSides,
+      missingSides,
+      coveragePercent:
+        masks.length > 0 ? Math.round((observedSides / masks.length) * 10_000) / 100 : 0,
+      methodology: 'observed-only',
+    },
+    provider,
+    timestamp: now,
+  };
+}
+
+/** Parses CoinGecko's global response into a normalized BTC-dominance point. */
+export function parseCoinGeckoGlobal(
+  payload: unknown,
+  fallbackNow = Date.now()
+): MacroHistoryPoint[] {
+  if (!isRecord(payload) || !isRecord(payload.data)) return [];
+  const marketCaps = payload.data.market_cap_percentage;
+  if (!isRecord(marketCaps)) return [];
+  const value = finiteOrNull(marketCaps.btc);
+  if (value === null || value < 0 || value > 100) return [];
+  return [
+    {
+      observedAt: normalizeEpoch(payload.data.updated_at, fallbackNow),
+      value,
+    },
+  ];
+}
+
+/** Parses DefiLlama's public total stablecoin history. */
+export function parseDefiLlamaStablecoinHistory(payload: unknown): MacroHistoryPoint[] {
+  if (!Array.isArray(payload)) return [];
+  return normalizeMacroPoints(
+    payload.flatMap((raw): MacroHistoryPoint[] => {
+      if (!isRecord(raw)) return [];
+      const totals = isRecord(raw.totalCirculatingUSD)
+        ? raw.totalCirculatingUSD
+        : isRecord(raw.totalCirculating)
+          ? raw.totalCirculating
+          : null;
+      const value = totals ? finiteOrNull(totals.peggedUSD) : null;
+      const observedAt = normalizeEpoch(raw.date, Number.NaN);
+      return value !== null && value >= 0 && Number.isFinite(observedAt)
+        ? [{ observedAt, value }]
+        : [];
+    })
+  );
+}
+
+/** Parses Alternative.me's Fear & Greed history. */
+export function parseAlternativeFearGreed(payload: unknown): MacroHistoryPoint[] {
+  if (!isRecord(payload) || !Array.isArray(payload.data)) return [];
+  return normalizeMacroPoints(
+    payload.data.flatMap((raw): MacroHistoryPoint[] => {
+      if (!isRecord(raw)) return [];
+      const value = finiteOrNull(raw.value);
+      const observedAt = normalizeEpoch(raw.timestamp, Number.NaN);
+      return value !== null && value >= 0 && value <= 100 && Number.isFinite(observedAt)
+        ? [{ observedAt, value }]
+        : [];
+    })
+  );
 }
 
 function buildEtfFunds(asset: InstitutionalAsset, flows: EtfDailyFlow[]): EtfFund[] {
@@ -1006,6 +1288,80 @@ function buildLiquidityRiskSignal(
   };
 }
 
+function buildBtcDominanceSignal(
+  asset: InstitutionalAsset,
+  series: MacroHistorySeries | null
+): ConfluenceSignal {
+  const latest = series?.latest?.value ?? null;
+  const previous = historicalValue(series, 7 * DAY_MS);
+  const change = latest !== null && previous !== null ? latest - previous : null;
+  const signedChange = (change ?? 0) * (asset === 'BTC' ? 1 : -1);
+  const score = clamp(50 + signedChange * 6, 0, 100);
+  return {
+    id: 'btcDominance',
+    label: 'BTC dominance',
+    score: Math.round(score),
+    direction:
+      change === null || Math.abs(change) < 0.5
+        ? 'neutral'
+        : signedChange > 0
+          ? 'bullish'
+          : 'bearish',
+    value: latest === null ? 'Unavailable' : `${latest.toFixed(2)}%`,
+    explanation:
+      change === null
+        ? 'CoinGecko dominance history is not yet deep enough for a seven-day comparison.'
+        : `${change >= 0 ? '+' : ''}${change.toFixed(2)} percentage points over seven days.`,
+    fresh: macroSeriesFresh(series),
+  };
+}
+
+function buildStablecoinLiquiditySignal(series: MacroHistorySeries | null): ConfluenceSignal {
+  const latest = series?.latest?.value ?? null;
+  const previous = historicalValue(series, 30 * DAY_MS);
+  const changePercent =
+    latest !== null && previous !== null && previous > 0
+      ? ((latest - previous) / previous) * 100
+      : null;
+  const score = clamp(50 + (changePercent ?? 0) * 4, 0, 100);
+  return {
+    id: 'stablecoinLiquidity',
+    label: 'Stablecoin liquidity',
+    score: Math.round(score),
+    direction:
+      changePercent === null || Math.abs(changePercent) < 0.5
+        ? 'neutral'
+        : changePercent > 0
+          ? 'bullish'
+          : 'bearish',
+    value: latest === null ? 'Unavailable' : formatUsd(latest),
+    explanation:
+      changePercent === null
+        ? 'DefiLlama stablecoin history is not yet deep enough for a 30-day comparison.'
+        : `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}% supply change over 30 days.`,
+    fresh: macroSeriesFresh(series),
+  };
+}
+
+function buildFearGreedSignal(series: MacroHistorySeries | null): ConfluenceSignal {
+  const latest = series?.latest?.value ?? null;
+  const score = clamp(latest ?? 50, 0, 100);
+  return {
+    id: 'fearGreed',
+    label: 'Fear & Greed',
+    score: Math.round(score),
+    direction:
+      latest === null || (latest >= 40 && latest <= 60)
+        ? 'neutral'
+        : latest > 60
+          ? 'bullish'
+          : 'bearish',
+    value: latest === null ? 'Unavailable' : `${Math.round(latest)}/100`,
+    explanation: 'Alternative.me market sentiment index; extremes are contextual, not forecasts.',
+    fresh: macroSeriesFresh(series),
+  };
+}
+
 function classifyRegime(
   signals: ConfluenceSignal[],
   score: number
@@ -1173,38 +1529,219 @@ function estimateAtmIv(instruments: OptionInstrument[], spot: number | null): nu
   );
 }
 
-function estimateSkew(instruments: OptionInstrument[], spot: number | null): number | null {
-  if (!spot) return null;
+function estimateSkew(instruments: OptionInstrument[], _spot: number | null): number | null {
+  return calculateObservedDeltaSkew(instruments);
+}
+
+function optionQuality(instrument: OptionInstrument | undefined): OptionIvQuality {
+  if (!instrument || instrument.impliedVolatility === null) return 'missing';
+  return instrument.openInterest > 0 ||
+    instrument.volume24h > 0 ||
+    instrument.bid !== null ||
+    instrument.ask !== null
+    ? 'observed'
+    : 'illiquid';
+}
+
+function calculateObservedDeltaSkew(instruments: OptionInstrument[]): number | null {
   const puts = instruments
     .filter(
-      (instrument) =>
+      (instrument): instrument is OptionInstrument & { delta: number; impliedVolatility: number } =>
         instrument.optionType === 'put' &&
-        instrument.strike < spot &&
-        instrument.impliedVolatility !== null
+        instrument.delta !== null &&
+        instrument.impliedVolatility !== null &&
+        optionQuality(instrument) === 'observed'
     )
-    .sort((a, b) => Math.abs(a.strike / spot - 0.9) - Math.abs(b.strike / spot - 0.9));
+    .sort((left, right) => Math.abs(left.delta + 0.25) - Math.abs(right.delta + 0.25));
   const calls = instruments
     .filter(
-      (instrument) =>
+      (instrument): instrument is OptionInstrument & { delta: number; impliedVolatility: number } =>
         instrument.optionType === 'call' &&
-        instrument.strike > spot &&
-        instrument.impliedVolatility !== null
+        instrument.delta !== null &&
+        instrument.impliedVolatility !== null &&
+        optionQuality(instrument) === 'observed'
     )
-    .sort((a, b) => Math.abs(a.strike / spot - 1.1) - Math.abs(b.strike / spot - 1.1));
-  const putIv = average(
-    puts
-      .slice(0, 3)
-      .map((instrument) => instrument.impliedVolatility)
-      .filter(isNumber)
-  );
-  const callIv = average(
-    calls
-      .slice(0, 3)
-      .map((instrument) => instrument.impliedVolatility)
-      .filter(isNumber)
-  );
-  if (putIv === null || callIv === null) return null;
-  return putIv - callIv;
+    .sort((left, right) => Math.abs(left.delta - 0.25) - Math.abs(right.delta - 0.25));
+  const put = puts[0];
+  const call = calls[0];
+  if (!put || !call || Math.abs(put.delta + 0.25) > 0.15 || Math.abs(call.delta - 0.25) > 0.15) {
+    return null;
+  }
+  return put.impliedVolatility - call.impliedVolatility;
+}
+
+async function loadMacroSeries(params: {
+  metric: MacroMetric;
+  unit: MacroHistorySeries['unit'];
+  providerName: string;
+  env?: Env;
+  since: number;
+  now: number;
+  fetchLive: () => Promise<MacroHistoryPoint[]>;
+}): Promise<MacroHistorySeries> {
+  const stored = await readMacroSnapshots(params.env, params.metric, params.since);
+  try {
+    const fetched = normalizeMacroPoints(await params.fetchLive()).filter(
+      (point) => point.observedAt >= params.since && point.observedAt <= params.now + DAY_MS
+    );
+    if (fetched.length === 0) throw new Error('Provider returned no valid macro observations');
+    const points = mergeMacroPoints(stored, fetched);
+    const latest = points[points.length - 1] ?? null;
+    const stale =
+      latest === null || params.now - latest.observedAt > macroFreshnessMs(params.metric);
+    await persistMacroSnapshots(params.env, params.metric, params.providerName, fetched);
+    return {
+      metric: params.metric,
+      unit: params.unit,
+      points,
+      latest,
+      provider: {
+        provider: params.providerName,
+        source: 'live',
+        ok: true,
+        updatedAt: latest?.observedAt ?? params.now,
+        stale,
+        ...(stale
+          ? { message: 'Latest provider observation is outside its freshness window' }
+          : {}),
+      },
+    };
+  } catch (error) {
+    const latest = stored[stored.length - 1] ?? null;
+    return {
+      metric: params.metric,
+      unit: params.unit,
+      points: stored,
+      latest,
+      provider: {
+        provider: params.providerName,
+        source: latest ? 'snapshot' : 'fallback',
+        ok: latest !== null,
+        updatedAt: latest?.observedAt ?? params.now,
+        stale: true,
+        message: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+async function readMacroSnapshots(
+  env: Env | undefined,
+  metric: MacroMetric,
+  since: number
+): Promise<MacroHistoryPoint[]> {
+  if (!env?.DB) return [];
+  try {
+    const result = await env.DB.prepare(
+      `SELECT metric, provider, observed_at, value, source_status, source_fresh_at
+       FROM macro_snapshots
+       WHERE metric = ?1 AND observed_at >= ?2 AND value IS NOT NULL
+       ORDER BY observed_at ASC`
+    )
+      .bind(metric, since)
+      .all<MacroSnapshotRow>();
+    return normalizeMacroPoints(
+      (result.results ?? []).flatMap((row): MacroHistoryPoint[] =>
+        row.value === null ? [] : [{ observedAt: row.observed_at, value: row.value }]
+      )
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function persistMacroSnapshots(
+  env: Env | undefined,
+  metric: MacroMetric,
+  provider: string,
+  points: MacroHistoryPoint[]
+): Promise<void> {
+  if (!env?.DB || points.length === 0) return;
+  try {
+    const statements = points.map((point) =>
+      env.DB.prepare(
+        `INSERT INTO macro_snapshots
+           (id, metric, provider, observed_at, value, payload_json, source_status, source_fresh_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'live', ?4)
+         ON CONFLICT(metric, provider, observed_at) DO UPDATE SET
+           value = excluded.value,
+           payload_json = excluded.payload_json,
+           source_status = 'live',
+           source_fresh_at = excluded.source_fresh_at`
+      ).bind(
+        `macro:${metric}:${provider}:${point.observedAt}`,
+        metric,
+        provider,
+        point.observedAt,
+        point.value,
+        JSON.stringify(point)
+      )
+    );
+    for (let index = 0; index < statements.length; index += 50) {
+      await env.DB.batch(statements.slice(index, index + 50));
+    }
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        module: 'institutional',
+        msg: 'macro snapshot write failed',
+        metric,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
+}
+
+function normalizeMacroPoints(points: MacroHistoryPoint[]): MacroHistoryPoint[] {
+  const byTimestamp = new Map<number, number>();
+  for (const point of points) {
+    if (Number.isFinite(point.observedAt) && point.observedAt > 0 && Number.isFinite(point.value)) {
+      byTimestamp.set(point.observedAt, point.value);
+    }
+  }
+  return [...byTimestamp.entries()]
+    .map(([observedAt, value]) => ({ observedAt, value }))
+    .sort((left, right) => left.observedAt - right.observedAt);
+}
+
+function mergeMacroPoints(
+  stored: MacroHistoryPoint[],
+  fetched: MacroHistoryPoint[]
+): MacroHistoryPoint[] {
+  return normalizeMacroPoints([...stored, ...fetched]);
+}
+
+function macroFreshnessMs(metric: MacroMetric): number {
+  return metric === 'btcDominance' ? 6 * 60 * 60 * 1000 : 2 * DAY_MS;
+}
+
+function macroRangeLimit(range: InstitutionalRange, now: number): number {
+  return rangeStartTimestamp(range, now);
+}
+
+function macroRangeDays(range: InstitutionalRange, now: number): number {
+  return Math.max(1, Math.ceil((now - macroRangeLimit(range, now)) / DAY_MS) + 1);
+}
+
+function historicalValue(series: MacroHistorySeries | null, ageMs: number): number | null {
+  if (!series?.latest) return null;
+  const target = series.latest.observedAt - ageMs;
+  return [...series.points].reverse().find((point) => point.observedAt <= target)?.value ?? null;
+}
+
+function macroSeriesFresh(series: MacroHistorySeries | null): boolean {
+  return !!series?.latest && series.provider.ok && !series.provider.stale;
+}
+
+function normalizeEpoch(value: unknown, fallback: number): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+  return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 async function writeSnapshot(env: Env | undefined, key: string, data: unknown): Promise<void> {

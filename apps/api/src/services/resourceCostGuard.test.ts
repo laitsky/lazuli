@@ -8,15 +8,19 @@ const servicesDirectory = (import.meta as ImportMeta & { dir: string }).dir;
 const apiDirectory = `${servicesDirectory}/../..`;
 
 describe('Cloudflare cost regression guards', () => {
-  test('Durable Object sources cannot use persistence or scheduled callbacks', async () => {
-    const sources = await Promise.all(
-      ['MarketDataCacheDO.ts', 'RealtimeHubDO.ts'].map((file) =>
-        Bun.file(`${servicesDirectory}/${file}`).text()
-      )
-    );
+  test('Durable Objects avoid scheduled callbacks and bound realtime persistence', async () => {
+    const marketCache = await Bun.file(`${servicesDirectory}/MarketDataCacheDO.ts`).text();
+    const realtimeHub = await Bun.file(`${servicesDirectory}/RealtimeHubDO.ts`).text();
 
-    for (const source of sources) {
-      expect(/\.storage\b/.test(source)).toBe(false);
+    expect(/\.storage\b/.test(marketCache)).toBe(false);
+    expect(realtimeHub.includes('MAX_DEDUPE_EVENTS')).toBe(true);
+    expect(realtimeHub.includes('MAX_SNAPSHOT_EVENTS')).toBe(true);
+    expect(realtimeHub.includes('MAX_COMPLETED_BATCHES')).toBe(true);
+    expect(realtimeHub.includes("url.pathname === '/publish-batch'")).toBe(true);
+    expect(realtimeHub.includes('await this.persistBatchCheckpoint(batchId)')).toBe(true);
+    expect(realtimeHub.includes('recent: this.recent')).toBe(false);
+    expect(realtimeHub.includes('eventSequences: this.eventSequences')).toBe(false);
+    for (const source of [marketCache, realtimeHub]) {
       expect(/\b(?:alarm|getAlarm|setAlarm|deleteAlarm)\s*\(/.test(source)).toBe(false);
     }
     expect(await Bun.file(`${servicesDirectory}/RateLimiterDO.ts`).exists()).toBe(false);
@@ -41,5 +45,10 @@ describe('Cloudflare cost regression guards', () => {
     );
     expect(migration.includes('idx_price_alerts_due')).toBe(true);
     expect(migration.includes('idx_api_keys_prefix_active')).toBe(true);
+  });
+
+  test('scheduled reconciliation uses an explicit internal rollout identity', async () => {
+    const index = await Bun.file(`${apiDirectory}/src/index.ts`).text();
+    expect(index.includes("subject: { kind: 'internal', id: 'scheduled-worker' }")).toBe(true);
   });
 });

@@ -28,6 +28,13 @@ import {
   type WebAuthnCredential,
 } from '@simplewebauthn/server';
 import type { Env } from '../types';
+import {
+  enqueueAlertDeliveries,
+  normalizeAlertDeliveryReferences,
+  notificationChannelIds,
+} from './notificationDeliveryService';
+import { sendAlertEmail, sendMagicLinkEmail } from './emailDeliveryService';
+import { createSecretRing, signWithCurrentSecret } from '../utils/rotatingSecrets';
 
 const MAGIC_LINK_TTL_SECONDS = 15 * 60;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -228,7 +235,7 @@ export async function createMagicLink(
   const expiresAt = unixNow() + MAGIC_LINK_TTL_SECONDS;
   const id = `ml_${crypto.randomUUID()}`;
   const baseUrl = env.APP_BASE_URL ?? env.PUBLIC_API_BASE_URL ?? 'http://localhost:8787';
-  const magicLink = `${baseUrl.replace(/\/$/, '')}/api/v1/auth/magic-link/verify?token=${encodeURIComponent(token)}`;
+  const magicLink = `${baseUrl.replace(/\/$/, '')}/account?token=${encodeURIComponent(token)}`;
 
   await env.DB.prepare(
     `INSERT INTO auth_magic_links (id, email, token_hash, expires_at, created_at)
@@ -238,7 +245,7 @@ export async function createMagicLink(
     .run();
 
   const delivered = await deliverMagicLink(env, email, magicLink, expiresAt);
-  const exposeLink = env.ENVIRONMENT !== 'production' || !env.MAGIC_LINK_DELIVERY_WEBHOOK_URL;
+  const exposeLink = env.ENVIRONMENT === 'local' || env.ENVIRONMENT === undefined;
   return {
     email,
     expiresAt: expiresAt * 1000,
@@ -251,24 +258,55 @@ export async function verifyMagicLink(env: Env, token: string): Promise<AuthSess
   assertD1(env);
   const tokenHash = await sha256Hex(token.trim());
   const now = unixNow();
-  const row = await env.DB.prepare(
-    `SELECT id, email
-     FROM auth_magic_links
+  const link = await env.DB.prepare(
+    `SELECT email FROM auth_magic_links
      WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?`
   )
     .bind(tokenHash, now)
-    .first<{ id: string; email: string }>();
-
-  if (!row) {
+    .first<{ email: string }>();
+  if (!link) {
     throw new Error('Magic link is invalid or expired');
   }
 
-  const user = await upsertUser(env, row.email);
-  await env.DB.prepare(`UPDATE auth_magic_links SET consumed_at = unixepoch() WHERE id = ?`)
-    .bind(row.id)
-    .run();
-
-  return createSessionForUser(env, user);
+  const userId = `usr_${crypto.randomUUID()}`;
+  const sessionToken = `ls_${randomToken(36)}`;
+  const sessionHash = await sha256Hex(sessionToken);
+  const sessionId = `sess_${crypto.randomUUID()}`;
+  const expiresAt = now + SESSION_TTL_SECONDS;
+  // D1 batch statements commit atomically. The conditional INSERT is the
+  // one-time claim: if session issuance or either follow-up update fails, D1
+  // rolls the entire batch back and the link remains usable.
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO users (id, email, created_at, updated_at)
+       VALUES (?, ?, unixepoch(), unixepoch())`
+    ).bind(userId, link.email),
+    env.DB.prepare(
+      `INSERT INTO user_sessions (id, user_id, token_hash, expires_at, created_at, last_seen_at)
+       SELECT ?, u.id, ?, ?, unixepoch(), unixepoch()
+       FROM auth_magic_links l JOIN users u ON u.email = l.email
+       WHERE l.token_hash = ? AND l.consumed_at IS NULL AND l.expires_at > ?`
+    ).bind(sessionId, sessionHash, expiresAt, tokenHash, now),
+    env.DB.prepare(
+      `UPDATE auth_magic_links SET consumed_at = ?
+       WHERE token_hash = ? AND consumed_at IS NULL AND expires_at > ?
+         AND EXISTS (SELECT 1 FROM user_sessions WHERE id = ?)`
+    ).bind(now, tokenHash, now, sessionId),
+    env.DB.prepare(
+      `UPDATE users SET last_login_at = unixepoch()
+       WHERE email = ? AND EXISTS (SELECT 1 FROM user_sessions WHERE id = ?)`
+    ).bind(link.email, sessionId),
+  ]);
+  if ((results[1]?.meta.changes ?? 0) !== 1 || (results[2]?.meta.changes ?? 0) !== 1) {
+    throw new Error('Magic link is invalid or expired');
+  }
+  const user = await getUserByEmail(env, link.email);
+  if (!user) throw new Error('Magic-link session user was not persisted');
+  return {
+    user: { ...user, lastLoginAt: Date.now() },
+    sessionToken,
+    expiresAt: expiresAt * 1000,
+  };
 }
 
 export async function readUserFromSession(
@@ -781,12 +819,38 @@ export async function listDuePriceAlerts(env: Env, limit = 500): Promise<PriceAl
   return results.map(mapAlert);
 }
 
+export async function listActivePriceAlertsForMarket(
+  env: Env,
+  exchange: string,
+  symbol: string,
+  marketType: 'spot' | 'perp',
+  limit = 1_000
+): Promise<PriceAlertRecord[]> {
+  assertD1(env);
+  const boundedLimit = Math.max(1, Math.min(1_000, Math.floor(limit)));
+  const { results } = await env.DB.prepare(
+    `SELECT *
+     FROM price_alerts
+     WHERE active = 1
+       AND user_id IS NOT NULL
+       AND exchange = ?
+       AND symbol = ?
+       AND market_type = ?
+     ORDER BY updated_at ASC
+     LIMIT ?`
+  )
+    .bind(exchange, symbol, marketType, boundedLimit)
+    .all<PriceAlertRow>();
+  return results.map(mapAlert);
+}
+
 export async function createPriceAlert(
   env: Env,
   userId: string,
   input: CreatePriceAlertInput
 ): Promise<PriceAlertRecord> {
-  const topic = `${DEFAULT_ALERT_TOPIC}:${userId}`;
+  const topic = `alerts:user:${userId}`;
+  const delivery = await normalizeAlertDeliveryReferences(env, userId, input.delivery ?? null);
   const result = await env.DB.prepare(
     `INSERT INTO price_alerts
       (user_id, symbol, exchange, market_type, price_target, condition, active, topic,
@@ -801,7 +865,7 @@ export async function createPriceAlert(
       input.priceTarget,
       input.condition,
       topic,
-      input.delivery ? encodeJson(input.delivery, 'delivery') : null,
+      encodeJson(delivery, 'delivery'),
       input.metadata ? encodeJson(input.metadata, 'metadata') : null
     )
     .run();
@@ -937,35 +1001,49 @@ export async function evaluateAlertTrigger(
     currentPrice: input.currentPrice,
     triggeredAt: Date.now(),
   };
-  await env.DB.batch([
+  // D1 batch() executes as one transaction. The unique alert_id index elects
+  // one concurrent evaluator; event durability and alert disabling commit or
+  // roll back together, leaving a queued outbox row for recovery.
+  const [eventInsert] = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO alert_events
+        (id, alert_id, user_id, symbol, exchange, trigger_price, target_price, condition,
+         status, topic, payload_json, created_at)
+       SELECT ?, id, ?, symbol, exchange, ?, price_target, condition,
+              'queued', ?, ?, unixepoch()
+       FROM price_alerts
+       WHERE id = ? AND active = 1 AND triggered_at IS NULL`
+    ).bind(
+      eventId,
+      input.alert.userId,
+      input.currentPrice,
+      topic,
+      JSON.stringify(payload),
+      input.alert.id
+    ),
     env.DB.prepare(
       `UPDATE price_alerts
        SET active = 0, triggered_at = unixepoch(), last_price = ?, last_evaluated_at = unixepoch()
-       WHERE id = ?`
-    ).bind(input.currentPrice, input.alert.id),
-    env.DB.prepare(
-      `INSERT INTO alert_events
-        (id, alert_id, user_id, symbol, exchange, trigger_price, target_price, condition,
-         status, topic, payload_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, unixepoch())`
-    ).bind(
-      eventId,
-      input.alert.id,
-      input.alert.userId,
-      input.alert.symbol,
-      input.alert.exchange,
-      input.currentPrice,
-      input.alert.priceTarget,
-      input.alert.condition,
-      topic,
-      JSON.stringify(payload)
-    ),
+       WHERE id = ? AND active = 1 AND triggered_at IS NULL
+         AND EXISTS (SELECT 1 FROM alert_events WHERE id = ?)`
+    ).bind(input.currentPrice, input.alert.id, eventId),
   ]);
+  if ((eventInsert.meta.changes ?? 0) !== 1) return { triggered: false, eventId: null };
 
   const published = await publishRealtime(env, topic, payload);
-  const delivered = await deliverAlertNotification(env, input.alert, payload);
+  let delivery = input.alert.delivery;
+  const deliveryUserId = input.alert.userId;
+  if (deliveryUserId && delivery && notificationChannelIds(delivery).length === 0) {
+    delivery = await normalizeAlertDeliveryReferences(env, deliveryUserId, delivery);
+    await env.DB.prepare(`UPDATE price_alerts SET delivery_json = ? WHERE id = ? AND user_id = ?`)
+      .bind(JSON.stringify(delivery), input.alert.id, deliveryUserId)
+      .run();
+  }
+  const queued = deliveryUserId
+    ? await enqueueAlertDeliveries(env, eventId, deliveryUserId, notificationChannelIds(delivery))
+    : 0;
   await env.DB.prepare(`UPDATE alert_events SET status = ? WHERE id = ?`)
-    .bind(published || delivered ? 'published' : 'failed', eventId)
+    .bind(published || queued > 0 ? 'published' : 'failed', eventId)
     .run();
   return { triggered: true, eventId };
 }
@@ -1030,28 +1108,23 @@ async function deliverAlertEmail(
   payload: Record<string, unknown>,
   delivery: Record<string, unknown>
 ): Promise<boolean> {
-  if (!env.ALERT_EMAIL_DELIVERY_WEBHOOK_URL) return false;
   const emailConfig = deliveryRecord(delivery.email);
   const to = deliveryString(delivery.email) ?? deliveryString(emailConfig?.to);
   if (!to) return false;
 
   const text = alertMessage(alert, payload);
-  return postJson(env.ALERT_EMAIL_DELIVERY_WEBHOOK_URL, {
-    body: {
-      kind: 'price-alert-email',
-      to,
-      subject: `Lazuli alert: ${alert.symbol} ${alert.condition} ${formatNumber(alert.priceTarget)}`,
-      text,
+  const result = await sendAlertEmail(env, {
+    to,
+    subject: `Lazuli alert: ${alert.symbol} ${alert.condition} ${formatNumber(alert.priceTarget)}`,
+    text,
+    payload: {
       alert: publicAlertSummary(alert),
-      payload,
+      ...payload,
       timestamp: Date.now(),
     },
-    headers: env.ALERT_EMAIL_DELIVERY_WEBHOOK_SECRET
-      ? { Authorization: `Bearer ${env.ALERT_EMAIL_DELIVERY_WEBHOOK_SECRET}` }
-      : {},
-    channel: 'email',
-    alertId: alert.id,
+    idempotencyKey: `legacy-alert:${alert.id}:${alert.triggeredAt ?? 'pending'}`,
   });
+  return result?.ok ?? false;
 }
 
 async function deliverAlertDiscord(
@@ -1105,8 +1178,23 @@ async function deliverAlertWebhook(
   const body = JSON.stringify(alertDeliveryEnvelope(alert, payload, delivery));
   const headers: Record<string, string> = {};
   if (env.ALERT_WEBHOOK_SIGNING_SECRET) {
-    headers['X-Lazuli-Signature'] =
-      `sha256=${await hmacSha256Hex(env.ALERT_WEBHOOK_SIGNING_SECRET, body)}`;
+    const rotationEnv = env as Env & {
+      ALERT_WEBHOOK_SIGNING_SECRET_ID?: string;
+      ALERT_WEBHOOK_SIGNING_SECRET_NEXT?: string;
+      ALERT_WEBHOOK_SIGNING_SECRET_NEXT_ID?: string;
+    };
+    const signed = await signWithCurrentSecret(
+      createSecretRing({
+        currentKeyId: rotationEnv.ALERT_WEBHOOK_SIGNING_SECRET_ID ?? 'current',
+        currentSecret: env.ALERT_WEBHOOK_SIGNING_SECRET,
+        nextKeyId: rotationEnv.ALERT_WEBHOOK_SIGNING_SECRET_NEXT_ID,
+        nextSecret: rotationEnv.ALERT_WEBHOOK_SIGNING_SECRET_NEXT,
+        label: 'Alert webhook signing',
+      }),
+      body
+    );
+    headers['X-Lazuli-Key-Id'] = signed.keyId;
+    headers['X-Lazuli-Signature'] = signed.signature;
   }
 
   return postJson(webhookUrl, {
@@ -1267,25 +1355,6 @@ export function buildMarketSnapshotSvg(params: {
   <text x="690" y="456" fill="#8ea0bd" font-family="Inter,Arial,sans-serif" font-size="28">24h volume</text>
   <text x="88" y="538" fill="#5f718d" font-family="Inter,Arial,sans-serif" font-size="22">Generated ${new Date(params.timestamp).toISOString()}</text>
 </svg>`;
-}
-
-async function upsertUser(env: Env, email: string): Promise<UserAccount> {
-  const existing = await env.DB.prepare(`SELECT * FROM users WHERE email = ?`)
-    .bind(email)
-    .first<UserRow>();
-  if (existing) return mapUser(existing);
-
-  const id = `usr_${crypto.randomUUID()}`;
-  await env.DB.prepare(
-    `INSERT INTO users (id, email, created_at, updated_at) VALUES (?, ?, unixepoch(), unixepoch())`
-  )
-    .bind(id, email)
-    .run();
-  const created = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`)
-    .bind(id)
-    .first<UserRow>();
-  if (!created) throw new Error('User was not persisted');
-  return mapUser(created);
 }
 
 async function getUserById(env: Env, id: string): Promise<UserAccount | null> {
@@ -1453,33 +1522,28 @@ async function deliverMagicLink(
   magicLink: string,
   expiresAt: number
 ): Promise<boolean> {
-  if (!env.MAGIC_LINK_DELIVERY_WEBHOOK_URL) {
+  const result = await sendMagicLinkEmail(env, {
+    to: email,
+    magicLink,
+    expiresAt: expiresAt * 1000,
+  });
+  if (!result) {
     if (env.ENVIRONMENT === 'production') {
-      throw new Error('MAGIC_LINK_DELIVERY_WEBHOOK_URL is required in production');
+      throw new Error('A magic-link email provider is required in production');
     }
     return false;
   }
-
-  const response = await fetch(env.MAGIC_LINK_DELIVERY_WEBHOOK_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(env.MAGIC_LINK_DELIVERY_WEBHOOK_SECRET
-        ? { Authorization: `Bearer ${env.MAGIC_LINK_DELIVERY_WEBHOOK_SECRET}` }
-        : {}),
-    },
-    body: JSON.stringify({ email, magicLink, expiresAt: expiresAt * 1000 }),
-  });
-  if (!response.ok) {
-    throw new Error(`Magic-link delivery failed with HTTP ${response.status}`);
+  if (!result.ok) {
+    throw new Error(`Magic-link delivery failed with HTTP ${result.status}`);
   }
   return true;
 }
 
 async function publishRealtime(env: Env, topic: string, payload: unknown): Promise<boolean> {
   if (!env.REALTIME_HUB || !env.ADMIN_API_KEY) return false;
-  const id = env.REALTIME_HUB.idFromName('global');
-  const url = new URL('https://realtime/publish');
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false;
+  const id = env.REALTIME_HUB.idFromName(topic);
+  const url = new URL('https://realtime/publish-batch');
   url.searchParams.set('topic', topic);
   const response = await env.REALTIME_HUB.get(id).fetch(url.toString(), {
     method: 'POST',
@@ -1487,7 +1551,7 @@ async function publishRealtime(env: Env, topic: string, payload: unknown): Promi
       'Content-Type': 'application/json',
       'X-Admin-API-Key': env.ADMIN_API_KEY,
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ batchId: crypto.randomUUID(), events: [payload] }),
   });
   return response.ok;
 }
@@ -1756,20 +1820,6 @@ async function sha256Hex(value: string): Promise<string> {
   const encoded = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest('SHA-256', encoded);
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-async function hmacSha256Hex(secret: string, value: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, '0')).join(
-    ''
-  );
 }
 
 function constantTimeEqual(left: string, right: string): boolean {

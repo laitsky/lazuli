@@ -21,7 +21,12 @@ import { Button } from '@/components/ui/button';
 import type { SortState } from '@/components/ui/data-table';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tag } from '@/components/ui/tag';
-import { useOptionsChain, useOptionsExpiries, useOptionsVolatility } from '@/lib/queries';
+import {
+  useOptionsChain,
+  useOptionsExpiries,
+  useOptionsSurface,
+  useOptionsVolatility,
+} from '@/lib/queries';
 import {
   AssetSwitch,
   ErrorPanel,
@@ -44,6 +49,7 @@ export default function OptionsPage() {
   const selectedExpiry = expiryParam ?? firstExpiry;
   const chain = useOptionsChain({ asset, expiry: selectedExpiry });
   const volatility = useOptionsVolatility({ asset, range });
+  const surface = useOptionsSurface({ asset });
 
   useEffect(() => {
     if (!expiryParam && firstExpiry) {
@@ -109,19 +115,21 @@ export default function OptionsPage() {
         freshnessMeta={chain.data?.meta ?? null}
       />
 
-      {(chain.isError || expiries.isError || volatility.isError) && (
+      {(chain.isError || expiries.isError || volatility.isError || surface.isError) && (
         <ErrorPanel
           title="Couldn't load options surface"
           message={
             chain.error?.message ??
             expiries.error?.message ??
             volatility.error?.message ??
+            surface.error?.message ??
             'Provider error'
           }
           onRetry={() => {
             expiries.refetch();
             chain.refetch();
             volatility.refetch();
+            surface.refetch();
           }}
         />
       )}
@@ -198,6 +206,64 @@ export default function OptionsPage() {
           <VolatilityPanel candles={volatility.data.data.candles} />
         )}
       </div>
+
+      <Panel>
+        <PanelHeader>
+          <div>
+            <PanelTitle>Observed IV Term Structure</PanelTitle>
+            <PanelDescription>
+              Nearest-strike ATM volatility and computed 25-delta skew. Missing or illiquid
+              observations are never interpolated.
+            </PanelDescription>
+          </div>
+          {surface.data?.data && (
+            <Tag variant={surface.data.data.quality.coveragePercent >= 70 ? 'up' : 'warning'}>
+              {surface.data.data.quality.coveragePercent.toFixed(0)}% coverage
+            </Tag>
+          )}
+        </PanelHeader>
+        {surface.isLoading ? (
+          <div className="grid gap-2 md:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-20" />
+            ))}
+          </div>
+        ) : surface.data?.data.termStructure.length ? (
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {surface.data.data.termStructure.map((point) => (
+              <div key={point.expiry} className="rounded-md border border-border bg-surface-1 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-xs text-foreground">{point.expiry}</span>
+                  <Tag variant={point.quality === 'observed' ? 'up' : 'warning'}>
+                    {point.quality}
+                  </Tag>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  <Metric
+                    label="ATM IV"
+                    value={
+                      point.atmImpliedVolatility === null
+                        ? '—'
+                        : `${point.atmImpliedVolatility.toFixed(1)}%`
+                    }
+                    size="sm"
+                  />
+                  <Metric
+                    label="25Δ Skew"
+                    value={point.skew25Delta === null ? '—' : point.skew25Delta.toFixed(1)}
+                    size="sm"
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyBlock
+            title="No observed surface"
+            text="The venue did not publish enough liquid strike observations for this asset."
+          />
+        )}
+      </Panel>
 
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <Panel>

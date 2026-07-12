@@ -22,7 +22,7 @@ This document mirrors the live Cloudflare-native implementation. Older Bun + Ely
 
 - [x] Passwordless magic-link accounts
 - [x] D1 sessions, users, saved workspaces, watchlists, alerts, backtests, and API keys
-- [x] Alert event records and realtime topic publish skeleton
+- [x] Event-driven alert evaluation, atomic trigger claims, and realtime topic publication
 - [x] Public Alpha Feed endpoint and page
 - [x] Shareable market snapshot SVG endpoint
 - [x] SEO-style web routes for exchange, symbol, and signal permalinks
@@ -45,6 +45,20 @@ This document mirrors the live Cloudflare-native implementation. Older Bun + Ely
 - [x] Browser visual verification snapshots for new web pages
 
 ## Verification
+
+Repository implementation is not the production completion gate. The following operational acceptance remains open until sanitized reports and live dashboard/flag evidence are attached to the strategy ledger:
+
+- [ ] Execute the 2,000-client/60-minute realtime load gate in staging.
+- [ ] Execute and review the reconnect-storm test with provider reconciliation.
+- [ ] Complete a continuous 72-hour staging soak with no unexplained gaps or unbounded memory growth.
+- [ ] Run provider, D1/R2, Queue/DLQ, secret-rotation, migration, restart, and rollback drills.
+- [ ] Verify every required SLO dashboard and alert is live and owned.
+- [ ] Roll independent production flags through internal, 5%, 25%, and 100% cohorts.
+- [ ] Reach 26/26 production-verified strategy ledger entries.
+
+See [operations and acceptance](./operations/README.md) for the executable harness and runbooks.
+
+## Local checks
 
 Run:
 

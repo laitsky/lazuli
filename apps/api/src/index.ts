@@ -9,6 +9,7 @@
 
 import { Hono, type Context, type Next } from 'hono';
 import { cors } from 'hono/cors';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import type {
   AltcoinPerformance,
@@ -30,6 +31,7 @@ import type {
   InstitutionalRange,
   IndexPerformancePoint,
   LiquidationRadarResponse,
+  LiquidationPrint,
   Market,
   MarketsResponse,
   OHLCVResponse,
@@ -37,7 +39,10 @@ import type {
   OrderBookResponse,
   OrderFlowResponse,
   PriceArbitrageResponse,
+  RealtimePublicChannel,
   BacktestResponse,
+  AsyncBacktestJobRequest,
+  AuthSessionResponse,
   SupportedExchange,
   StrategyDefinition,
   Ticker,
@@ -47,18 +52,47 @@ import type {
   TrendingVolumeSpike,
   UserAccount,
 } from '@lazuli/shared';
-import { DEFAULT_INDICATOR_PERIODS } from '@lazuli/shared';
-import type { BackfillQueueMessage, BackfillWorkflowParams, Env, OHLCV } from './types';
+import {
+  buildRealtimeTopic,
+  canonicalRealtimeSymbol,
+  DEFAULT_INDICATOR_PERIODS,
+} from '@lazuli/shared';
+import type {
+  AlertDeliveryQueueMessage,
+  AsyncBacktestQueueMessage,
+  BackfillWorkflowParams,
+  Env,
+  OHLCV,
+  WorkerQueueMessage,
+} from './types';
 import {
   ErrorCode,
   ExchangeError,
   invalidExchange,
   invalidMarketType,
   invalidParameter,
+  NotFoundError,
   tickerNotFound,
 } from './errors';
 import { handleError, successResponse } from './utils/response';
-import { featureDisabledEnvelope, featureEnabled } from './utils/features';
+import {
+  featureDisabledEnvelope,
+  invalidateReleaseControlCache,
+  releaseControlEnabled,
+} from './utils/features';
+import { OPENAPI_DOCUMENT } from './generated-openapi';
+import {
+  claimRealtimeIngestBatch,
+  completeRealtimeIngestBatch,
+  releaseRealtimeIngestBatch,
+} from './services/realtimeIngestService';
+import {
+  getOperationalDashboard,
+  listOperationalIncidents,
+  recordOperationalSli,
+  runOperationalMonitoring,
+  transitionOperationalIncident,
+} from './services/operationalObservabilityService';
 import {
   parseSymbol,
   validateBoolean,
@@ -86,6 +120,7 @@ import {
   requireProductionCors,
   resolveCorsOrigin,
 } from './utils/security';
+import { verifyOpsReadSecret } from './utils/opsAuth';
 import { ccxtService } from './services/ccxtService';
 import { calculateSelectedEMAs, calculateSuperEMA } from './services/emaService';
 import {
@@ -93,8 +128,10 @@ import {
   getEtfFunds,
   getInstitutionalConfluence,
   getInstitutionalOverview,
+  getMacroHistory,
   getOptionsChain,
   getOptionsExpiries,
+  getOptionsSurface,
   getOptionsVolatility,
 } from './services/institutionalService';
 import { buildPriceArbitrageResponse } from './services/priceArbitrageService';
@@ -109,10 +146,44 @@ import {
   TerminalBackfillError,
 } from './services/backfillService';
 import {
+  cancelAsyncBacktestJob,
+  createAsyncBacktestJob,
+  failAsyncBacktestJob,
+  getAsyncBacktestJob,
+  getAsyncBacktestResultObject,
+  processAsyncBacktestMessage,
+  TerminalAsyncBacktestError,
+} from './services/asyncBacktestService';
+import {
+  alertDeliveryRetryDelaySeconds,
+  createNotificationChannel,
+  deleteNotificationChannel,
+  listNotificationChannels,
+  listNotificationDeliveryAttempts,
+  markDeliveryDeadLetter,
+  NotificationDeliveryDisabledError,
+  processAlertDeliveryMessage,
+  reconcilePendingAlertDeliveries,
+  reencryptNotificationChannels,
+  replayIndeterminateNotificationDelivery,
+  retryNotificationDelivery,
+  updateNotificationChannel,
+  type NotificationChannelInput,
+  type NotificationChannelKind,
+} from './services/notificationDeliveryService';
+import {
+  loadFundingBasisHistory,
+  loadOpenInterestChangesForMarkets,
+  persistFundingBasisHistory,
+  persistOpenInterestObservation,
+} from './services/derivedRollupService';
+import { renderMarketOgPng } from './services/ogImageService';
+import {
   buildFundingArbitrage,
   buildFundingRadar,
   buildLiquidationRadar,
   buildOrderFlowResponse,
+  buildNativeOrderFlowResponse,
   calculateWilderRsi,
   defaultStrategyDefinition,
   normalizePerpSymbol,
@@ -133,6 +204,7 @@ import {
   deleteWorkspace,
   evaluateAlertTrigger,
   listApiKeys,
+  listActivePriceAlertsForMarket,
   listDuePriceAlerts,
   listPasskeys,
   listPriceAlerts,
@@ -161,6 +233,25 @@ import {
   type VerifyPasskeyAuthenticationInput,
   type VerifyPasskeyRegistrationInput,
 } from './services/growthRetentionService';
+import {
+  isReleaseControlFlag,
+  isReleaseControlState,
+  listReleaseControlAudit,
+  listReleaseControls,
+  ReleaseControlConflictError,
+  updateReleaseControl,
+} from './services/releaseControlService';
+import {
+  assertFaultNotInjected,
+  listFaultInjections,
+  requireFaultTarget,
+  setFaultInjection,
+} from './services/faultInjectionService';
+import {
+  createSecretRing,
+  signWithCurrentSecret,
+  verifyRotatingHmac,
+} from './utils/rotatingSecrets';
 
 export { MarketDataCacheV2DO } from './services/MarketDataCacheDO';
 export { RealtimeHubV2DO } from './services/RealtimeHubDO';
@@ -182,6 +273,31 @@ const exchanges = [
 ] as const;
 
 const publicFundingExchanges: SupportedExchange[] = ['binance', 'bybit', 'okx', 'hyperliquid'];
+
+const PRODUCT_METRICS = new Set([
+  'weekly_active_sessions',
+  'alert_subscribers',
+  'ws_peak_connections',
+  'api_keys_issued',
+  'seo_landings',
+  'backtest_runs',
+  'liquidation_latency_ms',
+]);
+
+const PRODUCT_METRIC_TARGETS = new Map<string, string | number>([
+  ['weekly_active_sessions', 'baseline x3'],
+  ['alert_subscribers', 5_000],
+  ['ws_peak_connections', 2_000],
+  ['api_keys_issued', 1_000],
+  ['seo_landings', 50_000],
+  ['backtest_runs', 10_000],
+  ['liquidation_latency_ms', 800],
+]);
+
+const LATENCY_D1_SAMPLE_INTERVAL_MS = 5_000;
+const latencyD1SampleTimes = new Map<string, number>();
+
+const SESSION_COOKIE = 'lazuli_session';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -223,10 +339,11 @@ app.use(
   '*',
   cors({
     origin: (origin, c) => resolveCorsOrigin(origin, c.env),
-    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowHeaders: [
       'Content-Type',
       'Authorization',
+      'Idempotency-Key',
       'X-Requested-With',
       'X-Admin-API-Key',
       'X-Admin-Key-Id',
@@ -239,17 +356,53 @@ app.use(
   })
 );
 
+app.use('/api/v1/*', async (c, next) => {
+  const explicitAuthorization = c.req.header('Authorization');
+  const cookieToken = getCookie(c, SESSION_COOKIE);
+  if (!explicitAuthorization && cookieToken) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
+      const origin = c.req.header('Origin');
+      if (!origin || !resolveCorsOrigin(origin, c.env)) {
+        return c.json(
+          {
+            success: false,
+            data: null,
+            error: 'Cookie-authenticated write rejected by origin policy',
+            timestamp: Date.now(),
+          },
+          403
+        );
+      }
+    }
+    c.req.raw.headers.set('Authorization', `Bearer ${cookieToken}`);
+  }
+  return next();
+});
+
 app.use('/api/v1/*', enforcePublicRateLimit);
 
+app.use('/api/v1/realtime/*', async (c, next) => {
+  const topic = c.req.query('topic');
+  if (
+    !(await releaseControlEnabled(c.env, 'realtime', {
+      ...releaseContext(c),
+      resource: topic ? { provider: topic.split(':')[1], topic } : undefined,
+    }))
+  ) {
+    return featureDisabled(c, 'Realtime features are temporarily disabled');
+  }
+  return next();
+});
+
 app.use('/api/v1/auth/*', async (c, next) => {
-  if (!featureEnabled(c.env, 'ACCOUNT_FEATURES_ENABLED')) {
+  if (!(await releaseControlEnabled(c.env, 'accounts', releaseContext(c)))) {
     return featureDisabled(c, 'Account features are temporarily disabled');
   }
   return next();
 });
 
 app.use('/api/v1/me/alerts/evaluate', async (c, next) => {
-  if (!featureEnabled(c.env, 'ALERT_EVALUATION_ENABLED')) {
+  if (!(await releaseControlEnabled(c.env, 'alerts', releaseContext(c)))) {
     return featureDisabled(c, 'Alert evaluation is temporarily disabled');
   }
   return next();
@@ -257,10 +410,40 @@ app.use('/api/v1/me/alerts/evaluate', async (c, next) => {
 
 app.use('/api/v1/me', requireAccountFeatures);
 app.use('/api/v1/me/*', requireAccountFeatures);
+app.use('/api/v1/backtests/*', requireAccountFeatures);
+app.use('/api/v1/me/alerts', requireAlerts);
+app.use('/api/v1/me/alerts/*', requireAlerts);
+
+app.use('/api/v1/backtests/jobs', requireAsyncBacktests);
+app.use('/api/v1/backtests/jobs/*', requireAsyncBacktests);
+app.use('/api/v1/me/notification-channels', requireDeliveryChannels);
+app.use('/api/v1/me/notification-channels/*', requireDeliveryChannels);
+app.use('/api/v1/me/alert-deliveries', requireDeliveryChannels);
+app.use('/api/v1/me/alert-deliveries/*', requireDeliveryChannels);
 
 app.use('/api/v1/admin/*', async (c, next) => {
-  if (!featureEnabled(c.env, 'ADMIN_ROUTES_ENABLED')) {
+  if (
+    c.req.path.startsWith('/api/v1/admin/release-controls') ||
+    c.req.path.startsWith('/api/v1/admin/fault-injections')
+  )
+    return next();
+  await requireAdminRequest(c);
+  if (
+    !(await releaseControlEnabled(c.env, 'admin_operations', {
+      subject: {
+        kind: 'internal',
+        id: c.req.header('X-Admin-Key-Id') ?? 'local-admin',
+      },
+    }))
+  ) {
     return featureDisabled(c, 'Admin routes are temporarily disabled');
+  }
+  return next();
+});
+
+app.use('/api/v1/*', async (c, next) => {
+  for (const target of routeFaultTargets(c.req.method, c.req.path)) {
+    await assertFaultNotInjected(c.env, target);
   }
   return next();
 });
@@ -269,7 +452,7 @@ app.get('/', (c) => c.redirect('/api/v1/docs'));
 
 app.get('/health', async (c) => ok(c, buildPublicHealth()));
 
-app.get('/ws', (c) => {
+const handleRealtimeSocket = async (c: Context<{ Bindings: Env }>): Promise<Response> => {
   if (!c.env.REALTIME_HUB) {
     return c.json(
       {
@@ -282,28 +465,319 @@ app.get('/ws', (c) => {
     );
   }
 
-  const id = c.env.REALTIME_HUB.idFromName('global');
+  const topic = sanitizeRealtimeTopic(c.req.query('topic'));
+  if (!topic) {
+    return c.json(
+      {
+        success: false,
+        data: null,
+        error: 'A valid realtime topic is required',
+        timestamp: Date.now(),
+      },
+      400
+    );
+  }
+  if (
+    !(await releaseControlEnabled(c.env, 'realtime', {
+      ...releaseContext(c),
+      resource: { provider: topic.split(':')[1], topic },
+    }))
+  ) {
+    return featureDisabled(c, 'Realtime subscriptions are temporarily disabled');
+  }
+  if (isPrivateRealtimeTopic(topic)) {
+    const token = c.req.query('token');
+    if (!token || !(await verifyRealtimeToken(c.env, token, topic))) {
+      return c.json(
+        {
+          success: false,
+          data: null,
+          error: 'A valid private-topic token is required',
+          timestamp: Date.now(),
+        },
+        401
+      );
+    }
+  }
+
+  const id = c.env.REALTIME_HUB.idFromName(topic);
   return c.env.REALTIME_HUB.get(id).fetch(c.req.raw);
+};
+
+app.get('/ws', handleRealtimeSocket);
+
+app.get('/internal/realtime/health', async (c) => {
+  await requireRealtimeIngestSignature(c.env, c.req.raw.headers, '');
+  return c.json({
+    status: 'ready',
+    environment: c.env.ENVIRONMENT,
+    signingKeyId: c.env.INGEST_SIGNING_SECRET_ID ?? 'ingest-current',
+    timestamp: Date.now(),
+  });
+});
+
+app.get('/internal/ops/dashboard', async (c) => {
+  if (!(await verifyOpsReadSecret(c.env, c.req.header('X-Ops-Read-Secret')))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const rawMinutes = Number(c.req.query('minutes') ?? 90);
+  const minutes =
+    Number.isInteger(rawMinutes) && rawMinutes >= 5 && rawMinutes <= 10_080 ? rawMinutes : 90;
+  return c.json(await getOperationalDashboard(c.env, minutes));
+});
+
+app.post('/internal/realtime/batch', async (c) => {
+  const rawBody = await c.req.text();
+  await requireRealtimeIngestSignature(c.env, c.req.raw.headers, rawBody);
+  if (rawBody.length > 512_000) throw invalidParameter('body', 'Realtime batch is too large');
+  const parsed = JSON.parse(rawBody) as unknown;
+  if (!isRecord(parsed) || !Array.isArray(parsed.events) || parsed.events.length > 500) {
+    throw invalidParameter('events', 'events must be an array with at most 500 entries');
+  }
+  const batchId = c.req.header('X-Lazuli-Ingest-Batch-ID')?.trim() ?? '';
+  if (typeof parsed.batchId !== 'string' || parsed.batchId !== batchId) {
+    throw invalidParameter('batchId', 'Signed batch ID header and body must match');
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(batchId)) {
+    throw invalidParameter('batchId', 'Realtime ingest batch ID is invalid');
+  }
+  const normalizedEvents = parsed.events.map((value) => {
+    if (!isRecord(value)) throw invalidParameter('events', 'Every event must be an object');
+    const normalized = normalizeRealtimeIngestEvent(value);
+    const topic = sanitizeRealtimeTopic(normalized.topic);
+    if (!topic || isPrivateRealtimeTopic(topic)) {
+      throw invalidParameter('topic', 'Ingest events require a valid public topic');
+    }
+    return { normalized, topic };
+  });
+  // Exchange batches contain many events for the same provider/topic. Evaluate
+  // each rollout resource once so a 500-event burst cannot fan out hundreds of
+  // identical D1 control reads.
+  const rolloutByResource = new Map<string, Promise<boolean>>();
+  const rolloutDecisions = await Promise.all(
+    normalizedEvents.map(({ normalized, topic }) => {
+      const provider =
+        isRecord(normalized.provenance) && typeof normalized.provenance.provider === 'string'
+          ? normalized.provenance.provider
+          : undefined;
+      const resourceKey = `${provider ?? ''}:${topic}`;
+      let decision = rolloutByResource.get(resourceKey);
+      if (!decision) {
+        decision = releaseControlEnabled(c.env, 'realtime', {
+          resource: { provider, topic },
+        });
+        rolloutByResource.set(resourceKey, decision);
+      }
+      return decision;
+    })
+  );
+  const enabledEvents = normalizedEvents.filter((_, index) => rolloutDecisions[index]);
+  const claim = await claimRealtimeIngestBatch(c.env, batchId);
+  if (claim === 'completed') {
+    return ok(c, { accepted: 0, delivered: 0, sequences: [], duplicate: true });
+  }
+  if (claim === 'processing') throw new Error('Realtime ingest batch is already processing');
+
+  try {
+    const eventsByTopic = new Map<string, Record<string, unknown>[]>();
+    for (const { normalized, topic } of enabledEvents) {
+      const topicEvents = eventsByTopic.get(topic) ?? [];
+      topicEvents.push(normalized);
+      eventsByTopic.set(topic, topicEvents);
+      const ticker = realtimeTickerInput(normalized);
+      if (ticker) c.executionCtx.waitUntil(evaluateRealtimeTickerAlerts(c.env, ticker));
+      const openInterest = realtimeOpenInterestInput(normalized);
+      if (openInterest)
+        c.executionCtx.waitUntil(persistOpenInterestObservation(c.env, openInterest));
+      if (
+        normalized.type === 'liquidation-print' &&
+        typeof normalized.exchangeTimestamp === 'number' &&
+        Number.isFinite(normalized.exchangeTimestamp)
+      ) {
+        const latencyMs = Math.max(0, Date.now() - normalized.exchangeTimestamp);
+        const provider =
+          isRecord(normalized.provenance) && typeof normalized.provenance.provider === 'string'
+            ? normalized.provenance.provider
+            : 'unknown';
+        const persistD1 = claimLatencyD1Sample('exchange-to-api', provider);
+        c.executionCtx.waitUntil(
+          Promise.all(
+            [
+              recordProductMetric(
+                c.env,
+                'liquidation_latency_ms',
+                latencyMs,
+                { provider, segment: 'exchange-to-api' },
+                { persistD1 }
+              ),
+              persistD1
+                ? recordOperationalSli(c.env, {
+                    sli: 'liquidation_latency_ms',
+                    value: latencyMs,
+                    source: 'realtime-ingest',
+                    dimensionKey: provider,
+                    details: { segment: 'exchange-to-api' },
+                  })
+                : null,
+            ].filter((task): task is Promise<void> => task !== null)
+          ).then(() => undefined)
+        );
+      }
+    }
+    const published = await Promise.all(
+      [...eventsByTopic].map(([topic, events]) =>
+        publishRealtimeTopicBatch(c.env, topic, batchId, events)
+      )
+    );
+    await persistLiquidationPrintCheckpoints(
+      c.env,
+      enabledEvents.map((item) => item.normalized)
+    );
+    await completeRealtimeIngestBatch(c.env, batchId);
+    return ok(c, {
+      accepted: enabledEvents.length,
+      skippedByRollout: normalizedEvents.length - enabledEvents.length,
+      delivered: published.reduce((sum, item) => sum + item.delivered, 0),
+      sequences: published.flatMap((item) =>
+        item.sequences.map((sequence) => ({ topic: item.topic, sequence }))
+      ),
+    });
+  } catch (error) {
+    await releaseRealtimeIngestBatch(c.env, batchId);
+    throw error;
+  }
+});
+
+app.post('/internal/metrics/event', async (c) => {
+  const rawBody = await c.req.text();
+  if (!(await verifyMetricsIngestRequest(c.env, c.req.raw.headers, rawBody))) {
+    return c.json({ success: false, error: 'Unauthorized', timestamp: Date.now() }, 401);
+  }
+  const body = parseJsonRecord(rawBody);
+  if (body.metric !== 'seo_landings') {
+    throw invalidParameter('metric', 'Unsupported service-origin metric');
+  }
+  await recordProductMetric(c.env, 'seo_landings', 1, sanitizeMetricDimensions(body.dimensions));
+  return ok(c, { accepted: true });
 });
 
 const api = new Hono<{ Bindings: Env }>();
 
+api.get('/ws', handleRealtimeSocket);
+
+api.post('/realtime/token', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const body = await readJsonRecord(c.req.raw);
+  const requested = Array.isArray(body.topics)
+    ? body.topics.filter((topic): topic is string => typeof topic === 'string')
+    : [`alerts:user:${user.id}`];
+  const allowed = new Set([`alerts:user:${user.id}`]);
+  const topics = requested.map((topic) => sanitizeRealtimeTopic(topic)).filter(Boolean) as string[];
+  if (topics.length === 0 || topics.some((topic) => !allowed.has(topic))) {
+    throw invalidParameter('topics', 'Only the current user alert topic may be requested');
+  }
+  return ok(c, await createRealtimeToken(c.env, user.id, topics));
+});
+
+api.get('/realtime/snapshot', async (c) => {
+  const topic = sanitizeRealtimeTopic(c.req.query('topic'));
+  if (!topic) throw invalidParameter('topic', 'A valid realtime topic is required');
+  if (isPrivateRealtimeTopic(topic)) {
+    const token = c.req.query('token');
+    if (!token || !(await verifyRealtimeToken(c.env, token, topic))) {
+      throw invalidParameter('token', 'A valid private-topic token is required');
+    }
+  }
+  const id = c.env.REALTIME_HUB.idFromName(topic);
+  const url = new URL('https://realtime/snapshot');
+  url.searchParams.set('topic', topic);
+  const after = c.req.query('after');
+  if (after) url.searchParams.set('after', after);
+  return c.env.REALTIME_HUB.get(id).fetch(url.toString());
+});
+
 api.get('/docs', (c) =>
   c.html(`<!doctype html>
 <html lang="en">
-  <head><meta charset="utf-8"><title>Lazuli API</title></head>
-  <body>
-    <h1>Lazuli API</h1>
-    <p>REST API for live cryptocurrency market data. OpenAPI source is tracked at apps/api/src/api-spec.yaml.</p>
-    <ul>
-      <li><a href="/api/v1/health">/api/v1/health</a></li>
-      <li><a href="/api/v1/exchanges">/api/v1/exchanges</a></li>
-    </ul>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Lazuli API Reference</title>
+  </head>
+  <body style="margin:0">
+    <script id="api-reference" data-url="/api/v1/openapi.json"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
   </body>
 </html>`)
 );
 
 api.get('/health', async (c) => ok(c, buildPublicHealth()));
+
+api.post('/metrics/events', async (c) => {
+  const body = await readJsonRecord(c.req.raw);
+  if (body.metric === 'liquidation_latency_ms') {
+    const value = body.value;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 300_000) {
+      throw invalidParameter('value', 'Client latency must be between 0 and 300000 milliseconds');
+    }
+    const dimensions = sanitizeMetricDimensions(body.dimensions);
+    const provider = /^[a-z0-9_-]{2,40}$/.test(dimensions.provider ?? '')
+      ? dimensions.provider
+      : 'unknown';
+    const persistD1 = claimLatencyD1Sample('exchange-to-client', provider);
+    await Promise.all(
+      [
+        recordProductMetric(
+          c.env,
+          'liquidation_latency_ms',
+          value,
+          { provider, segment: 'exchange-to-client' },
+          { persistD1 }
+        ),
+        persistD1
+          ? recordOperationalSli(c.env, {
+              sli: 'liquidation_latency_ms',
+              value,
+              source: 'browser-receipt',
+              dimensionKey: provider,
+              details: { segment: 'exchange-to-client' },
+            })
+          : null,
+      ].filter((task): task is Promise<void> => task !== null)
+    );
+    return ok(c, { accepted: true });
+  }
+  if (body.metric !== 'weekly_active_sessions') {
+    throw invalidParameter(
+      'metric',
+      'Only active-session and bounded liquidation-latency events are public'
+    );
+  }
+  const metricSecret = c.env.METRICS_INGEST_SECRET ?? c.env.REALTIME_TOKEN_SECRET;
+  if (!metricSecret) return ok(c, { accepted: false, reason: 'telemetry-unconfigured' });
+  const existingSubject = await verifyMetricSubjectCookie(
+    getCookie(c, 'lazuli_anon_subject'),
+    metricSecret
+  );
+  const subject =
+    existingSubject ??
+    (await hmacSha256Hex(
+      metricSecret,
+      `${c.req.header('CF-Connecting-IP') ?? 'local'}|${c.req.header('User-Agent') ?? 'unknown'}`
+    ));
+  if (!existingSubject) {
+    const signature = await hmacSha256Hex(metricSecret, subject);
+    setCookie(c, 'lazuli_anon_subject', `${subject}.${signature}`, {
+      httpOnly: true,
+      secure: c.env.ENVIRONMENT === 'production' || c.env.ENVIRONMENT === 'staging',
+      sameSite: 'Lax',
+      path: '/',
+      maxAge: 400 * 86_400,
+    });
+  }
+  const accepted = await recordUniqueProductMetric(c.env, 'weekly_active_sessions', subject);
+  return ok(c, { accepted });
+});
 
 api.get('/exchanges', (c) => c.json(successResponse(exchanges)));
 
@@ -585,6 +1059,20 @@ api.get('/orderflow/:exchange/:symbol', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
   const symbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
   const options = parseOhlcvQuery(c.req.query(), symbol, 240);
+  const nativeTrades = await loadRealtimeTrades(c.env, exchange, symbol);
+  if (nativeTrades.length > 0) {
+    return ok(
+      c,
+      buildNativeOrderFlowResponse({
+        exchange,
+        symbol,
+        type: options.type,
+        timeframe: options.timeframe,
+        trades: nativeTrades,
+      }),
+      { source: 'exchange-native', model: 'aggressor-trade-tape', coverage: nativeTrades.length }
+    );
+  }
   const candles = (await loadOhlcv(c.env, exchange, symbol, options)).candles;
   const response: OrderFlowResponse = buildOrderFlowResponse({
     exchange,
@@ -809,6 +1297,16 @@ api.get('/institutional/options/volatility', async (c) => {
   return ok(c, data, meta);
 });
 
+api.get('/institutional/options/surface', async (c) => {
+  const asset = parseInstitutionalAsset(c.req.query('asset'));
+  return ok(c, await getOptionsSurface(asset), { source: 'institutional-adapters' });
+});
+
+api.get('/institutional/macro/history', async (c) => {
+  const range = parseInstitutionalRange(c.req.query('range'));
+  return ok(c, await getMacroHistory(range, c.env), { source: 'macro-adapters' });
+});
+
 api.get('/institutional/confluence', async (c) => {
   const asset = parseInstitutionalAsset(c.req.query('asset'));
   const market = await loadInstitutionalMarketInputs(c.env, asset);
@@ -816,6 +1314,7 @@ api.get('/institutional/confluence', async (c) => {
     c,
     await getInstitutionalConfluence({
       asset,
+      env: c.env,
       fundingRates: market.fundingRates,
       spotTicker: market.spotTicker,
     }),
@@ -839,7 +1338,14 @@ api.get('/funding/radar', async (c) => {
       )
     )
   ).flat();
-  const response: FundingRadarResponse = buildFundingRadar(rates, limit);
+  const oiChanges = await loadOpenInterestChangesForMarkets(
+    c.env,
+    rates.flatMap((rate) => {
+      const exchange = validateExchange(rate.exchange);
+      return exchange ? [{ exchange, symbol: rate.symbol }] : [];
+    })
+  );
+  const response: FundingRadarResponse = buildFundingRadar(rates, limit, oiChanges);
   return ok(c, response, { source: 'live-cache', exchanges: selectedExchanges });
 });
 
@@ -858,7 +1364,28 @@ api.get('/funding/arbitrage', async (c) => {
     }))
   );
   const response: FundingArbitrageResponse = buildFundingArbitrage(inputs, limit, executionCostBps);
+  c.executionCtx.waitUntil(persistFundingBasisHistory(c.env, response.opportunities));
   return ok(c, response, { source: 'live-cache', executionCostBps });
+});
+
+api.get('/funding/basis/history', async (c) => {
+  const asset = (c.req.query('asset') ?? 'BTC').trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,15}$/.test(asset)) {
+    throw invalidParameter('asset', 'Asset must be a 2-15 character market symbol');
+  }
+  const until = validateTimestamp(c.req.query('until'), Date.now());
+  const since = validateTimestamp(c.req.query('since'), until - 30 * 86_400_000);
+  if (since >= until || until - since > 366 * 86_400_000) {
+    throw invalidParameter('range', 'Basis history must be an ascending range of at most 366 days');
+  }
+  return ok(c, {
+    asset,
+    points: await loadFundingBasisHistory(c.env, asset, since, until),
+    since,
+    until,
+    methodology: 'execution-cost-adjusted-funding-basis',
+    timestamp: Date.now(),
+  });
 });
 
 api.get('/funding/compare', async (c) => {
@@ -945,10 +1472,22 @@ api.get('/liquidations/:exchange/:symbol', async (c) => {
     funding,
     orderbook: orderbookResult.orderbook,
   });
+  const nativePrints = await loadRealtimeLiquidationPrints(c.env, exchange, symbol).catch(() => []);
+  response.nativePrints = nativePrints;
+  response.nativeCoverage = {
+    status: c.env.REALTIME_HUB ? (nativePrints.length > 0 ? 'live' : 'empty') : 'unavailable',
+    count: nativePrints.length,
+    latestExchangeTimestamp: nativePrints.at(-1)?.exchangeTimestamp ?? null,
+    sequence: nativePrints.at(-1)?.sequence ?? null,
+  };
   return ok(c, response, {
     source: 'live-cache',
     model: 'estimated-from-oi-mark-book',
-    warning: 'Estimated liquidation bands, not exchange-native liquidation prints',
+    nativePrints: response.nativeCoverage.status,
+    warning:
+      nativePrints.length > 0
+        ? 'Modeled bands and exchange-native prints are separate, provenance-labeled datasets'
+        : 'Modeled bands available; no exchange-native prints are currently retained',
   });
 });
 
@@ -978,7 +1517,73 @@ api.post('/backtest/:exchange/:symbol', async (c) => {
     candles,
     strategy,
   });
+  c.executionCtx.waitUntil(
+    recordProductMetric(c.env, 'backtest_runs', 1, {
+      exchange,
+      type: options.type,
+      timeframe: options.timeframe,
+    })
+  );
   return ok(c, response, { source: 'r2+exchange', candleCount: candles.length });
+});
+
+api.post('/backtests/jobs', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const body = await readJsonRecord(c.req.raw);
+  const request = parseAsyncBacktestJobRequest(body);
+  const idempotencyKey = (c.req.header('Idempotency-Key') ?? request.idempotencyKey)?.trim();
+  if (!idempotencyKey || idempotencyKey.length > 200) {
+    throw invalidParameter(
+      'idempotencyKey',
+      'Idempotency-Key header or idempotencyKey body field is required (maximum 200 characters)'
+    );
+  }
+  try {
+    const job = await createAsyncBacktestJob(c.env, user.id, request, idempotencyKey);
+    c.executionCtx.waitUntil(recordProductMetric(c.env, 'backtest_runs', 1, { mode: 'async' }));
+    return ok(c, job, { source: 'r2-archive', asynchronous: true });
+  } catch (error) {
+    if (error instanceof TerminalAsyncBacktestError) {
+      throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, error.message, 'OHLCV archive');
+    }
+    throw error;
+  }
+});
+
+api.get('/backtests/jobs/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const job = await getAsyncBacktestJob(c.env, user.id, c.req.param('id'));
+  if (!job) {
+    throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Backtest job not found', 'backtest job');
+  }
+  return ok(c, job);
+});
+
+api.post('/backtests/jobs/:id/cancel', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const job = await cancelAsyncBacktestJob(c.env, user.id, c.req.param('id'));
+  if (!job) {
+    throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Backtest job not found', 'backtest job');
+  }
+  return ok(c, job);
+});
+
+api.get('/backtests/jobs/:id/result', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const object = await getAsyncBacktestResultObject(c.env, user.id, c.req.param('id'));
+  if (!object) {
+    throw new NotFoundError(
+      ErrorCode.NOT_FOUND_DATA,
+      'Completed backtest result not found',
+      'backtest result'
+    );
+  }
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': object.httpMetadata?.contentType ?? 'application/json',
+      'Cache-Control': 'private, no-store',
+    },
+  });
 });
 
 api.post('/auth/magic-link', async (c) => {
@@ -990,12 +1595,16 @@ api.post('/auth/magic-link', async (c) => {
 api.get('/auth/magic-link/verify', async (c) => {
   const token = c.req.query('token');
   if (!token) throw invalidParameter('token', 'token is required');
-  return ok(c, await verifyMagicLink(c.env, token));
+  const session = await verifyMagicLink(c.env, token);
+  setSessionCookie(c, session.sessionToken, session.expiresAt);
+  return ok(c, sessionResponseForRequest(c, session));
 });
 
 api.post('/auth/magic-link/verify', async (c) => {
   const body = await readJsonRecord(c.req.raw);
-  return ok(c, await verifyMagicLink(c.env, readRequiredString(body, 'token')));
+  const session = await verifyMagicLink(c.env, readRequiredString(body, 'token'));
+  setSessionCookie(c, session.sessionToken, session.expiresAt);
+  return ok(c, sessionResponseForRequest(c, session));
 });
 
 api.post('/auth/passkeys/registration/options', async (c) => {
@@ -1019,14 +1628,21 @@ api.post('/auth/passkeys/authentication/options', async (c) => {
 
 api.post('/auth/passkeys/authentication/verify', async (c) => {
   const body = await readJsonRecord(c.req.raw);
-  return ok(c, await verifyPasskeyAuthentication(c.env, parsePasskeyAuthenticationInput(body)));
+  const session = await verifyPasskeyAuthentication(c.env, parsePasskeyAuthenticationInput(body));
+  setSessionCookie(c, session.sessionToken, session.expiresAt);
+  return ok(c, sessionResponseForRequest(c, session));
 });
 
-api.get('/me', async (c) => ok(c, await requireUser(c.env, c.req.header('Authorization') ?? null)));
+api.get('/me', async (c) => {
+  const authorization = c.req.header('Authorization') ?? null;
+  return ok(c, authorization ? await requireUser(c.env, authorization) : null);
+});
 
-api.post('/auth/logout', async (c) =>
-  ok(c, await revokeSession(c.env, c.req.header('Authorization') ?? null))
-);
+api.post('/auth/logout', async (c) => {
+  const result = await revokeSession(c.env, c.req.header('Authorization') ?? null);
+  deleteCookie(c, SESSION_COOKIE, { path: '/' });
+  return ok(c, result);
+});
 
 api.get('/me/passkeys', async (c) => {
   const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
@@ -1150,10 +1766,21 @@ api.get('/me/alerts', async (c) => {
 
 api.post('/me/alerts', async (c) => {
   const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
-  return ok(
-    c,
-    await createPriceAlert(c.env, user.id, parsePriceAlertInput(await readJsonRecord(c.req.raw)))
-  );
+  let created;
+  try {
+    created = await createPriceAlert(
+      c.env,
+      user.id,
+      parsePriceAlertInput(await readJsonRecord(c.req.raw))
+    );
+  } catch (error) {
+    if (error instanceof NotificationDeliveryDisabledError) {
+      return featureDisabled(c, error.message);
+    }
+    throw error;
+  }
+  c.executionCtx.waitUntil(recordProductMetric(c.env, 'alert_subscribers', 1));
+  return ok(c, created);
 });
 
 api.delete('/me/alerts/:id', async (c) => {
@@ -1167,6 +1794,56 @@ api.post('/me/alerts/evaluate', async (c) => {
   return ok(c, await evaluateUserAlerts(c.env, user.id));
 });
 
+api.get('/me/notification-channels', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await listNotificationChannels(c.env, user.id));
+});
+
+api.post('/me/notification-channels', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const input = parseNotificationChannelInput(await readJsonRecord(c.req.raw), false);
+  try {
+    return ok(c, await createNotificationChannel(c.env, user.id, input));
+  } catch (error) {
+    throwNotificationInputError(error);
+  }
+});
+
+api.patch('/me/notification-channels/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const input = parseNotificationChannelInput(await readJsonRecord(c.req.raw), true);
+  try {
+    const channel = await updateNotificationChannel(c.env, user.id, c.req.param('id'), input);
+    if (!channel) {
+      throw new NotFoundError(
+        ErrorCode.NOT_FOUND_DATA,
+        'Notification channel not found',
+        'notification channel'
+      );
+    }
+    return ok(c, channel);
+  } catch (error) {
+    if (error instanceof NotFoundError) throw error;
+    throwNotificationInputError(error);
+  }
+});
+
+api.delete('/me/notification-channels/:id', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await deleteNotificationChannel(c.env, user.id, c.req.param('id')));
+});
+
+api.get('/me/alert-deliveries', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const limit = validateInteger(c.req.query('limit'), 100, 1, 250);
+  return ok(c, await listNotificationDeliveryAttempts(c.env, user.id, limit));
+});
+
+api.post('/me/alert-deliveries/:id/retry', async (c) => {
+  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  return ok(c, await retryNotificationDelivery(c.env, user.id, c.req.param('id')));
+});
+
 api.get('/me/api-keys', async (c) => {
   const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
   return ok(c, await listApiKeys(c.env, user.id));
@@ -1178,7 +1855,9 @@ api.post('/me/api-keys', async (c) => {
   const scopes = Array.isArray(body.scopes)
     ? body.scopes.filter((scope): scope is string => typeof scope === 'string')
     : ['read:market-data'];
-  return ok(c, await createApiKey(c.env, user.id, readRequiredString(body, 'name'), scopes));
+  const created = await createApiKey(c.env, user.id, readRequiredString(body, 'name'), scopes);
+  c.executionCtx.waitUntil(recordProductMetric(c.env, 'api_keys_issued', 1));
+  return ok(c, created);
 });
 
 api.delete('/me/api-keys/:id', async (c) => {
@@ -1226,6 +1905,184 @@ api.get('/snapshots/market/:exchange/:symbol.svg', async (c) => {
   });
 });
 
+api.get('/snapshots/market/:exchange/:symbol/og.png', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const rawSymbol = c.req.param('symbol');
+  const symbol = parseOrThrow(symbolSchema, decodeURIComponent(rawSymbol), 'symbol');
+  const type = parseMarketType(c.req.query('type'), symbol);
+  const { data: tickers } = await cachedMarketData<Ticker[]>(c.env, 'tickers', exchange, type);
+  const ticker = tickers.find((item) => item.symbol === symbol);
+  if (!ticker) throw tickerNotFound(symbol, exchange);
+  const png = await renderMarketOgPng({
+    symbol,
+    exchange,
+    price: ticker.last,
+    changePercent: ticker.percentage24h,
+  });
+  return new Response(png, {
+    headers: {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=3600',
+      'Content-Disposition': `inline; filename="${snapshotFileName(symbol, exchange)}.png"`,
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+});
+
+api.get('/snapshots/signal/:id/og.png', async (c) => {
+  const id = decodeURIComponent(c.req.param('id'));
+  const item = await readAlphaFeedEvent(c.env, id);
+  if (!item) throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Signal was not found', 'signal');
+  const symbol =
+    typeof item.payload.symbol === 'string'
+      ? item.payload.symbol
+      : typeof item.payload.asset === 'string'
+        ? item.payload.asset
+        : item.kind;
+  const exchange =
+    typeof item.payload.exchange === 'string' ? item.payload.exchange : 'LAZULI SIGNAL';
+  const price =
+    typeof item.payload.price === 'number'
+      ? item.payload.price
+      : typeof item.payload.currentPrice === 'number'
+        ? item.payload.currentPrice
+        : null;
+  const png = await renderMarketOgPng({ symbol, exchange, price, changePercent: null });
+  return new Response(png, {
+    headers: {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=3600',
+      'Content-Disposition': `inline; filename="${slugify(item.id)}.png"`,
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+});
+
+api.get('/admin/release-controls', async (c) => {
+  await requireAdminRequest(c);
+  const requestedFlag = c.req.query('flag');
+  if (requestedFlag !== undefined && !isReleaseControlFlag(requestedFlag)) {
+    throw invalidParameter('flag', 'Unknown release control flag');
+  }
+  const limit = validateInteger(c.req.query('auditLimit'), 100, 1, 250);
+  const [controls, audit] = await Promise.all([
+    listReleaseControls(c.env),
+    listReleaseControlAudit(c.env, { flag: requestedFlag, limit }),
+  ]);
+  c.header('Cache-Control', 'private, no-store');
+  return ok(c, {
+    controls: requestedFlag ? controls.filter((item) => item.flag === requestedFlag) : controls,
+    audit,
+  });
+});
+
+api.put('/admin/release-controls/:flag', async (c) => {
+  await requireAdminRequest(c);
+  const flag = c.req.param('flag');
+  if (!isReleaseControlFlag(flag)) throw invalidParameter('flag', 'Unknown release control flag');
+  const body = await readJsonRecord(c.req.raw);
+  if (!isReleaseControlState(body.state)) {
+    throw invalidParameter('state', 'state must be off, internal, 5, 25, or 100');
+  }
+  const expectedRevision = readRequiredRevision(body, 'expectedRevision');
+  const actor =
+    c.req.header('X-Admin-Key-Id') ??
+    (c.env.ENVIRONMENT === 'local' || !c.env.ENVIRONMENT ? 'local-admin' : 'signed-admin');
+  try {
+    const control = await updateReleaseControl(c.env, {
+      flag,
+      state: body.state,
+      expectedRevision,
+      actor,
+      reason: readRequiredString(body, 'reason'),
+      subjectAllowlist: readReleaseControlAllowlist(body, 'subjectAllowlist'),
+      providerAllowlist: readReleaseControlAllowlist(body, 'providerAllowlist'),
+      topicAllowlist: readReleaseControlAllowlist(body, 'topicAllowlist'),
+      requestId: c.req.header('X-Admin-Nonce') ?? null,
+    });
+    invalidateReleaseControlCache(c.env, flag);
+    c.header('Cache-Control', 'private, no-store');
+    return ok(c, control);
+  } catch (error) {
+    if (error instanceof ReleaseControlConflictError) {
+      return c.json(
+        {
+          success: false,
+          data: null,
+          error: error.message,
+          code: 'REVISION_CONFLICT',
+          timestamp: Date.now(),
+          meta: { expectedRevision: error.expectedRevision, actualRevision: error.actualRevision },
+        },
+        409
+      );
+    }
+    if (error instanceof Error && /(allowlist|actor|reason)/i.test(error.message)) {
+      throw invalidParameter('releaseControl', error.message);
+    }
+    throw error;
+  }
+});
+
+api.get('/admin/fault-injections', async (c) => {
+  await requireAdminRequest(c);
+  c.header('Cache-Control', 'private, no-store');
+  return ok(c, { faults: await listFaultInjections(c.env) });
+});
+
+api.put('/admin/fault-injections', async (c) => {
+  await requireAdminRequest(c);
+  const body = await readJsonRecord(c.req.raw);
+  const durationSeconds = validateInteger(
+    typeof body.durationSeconds === 'number' ? String(body.durationSeconds) : undefined,
+    60,
+    5,
+    900
+  );
+  const actor = c.req.header('X-Admin-Key-Id') ?? 'local-admin';
+  const record = await setFaultInjection(c.env, {
+    target: requireFaultTarget(body.target),
+    enabled: body.enabled === true,
+    durationSeconds,
+    changeId: readRequiredString(body, 'changeId'),
+    actor,
+    config: isRecord(body.config) ? body.config : {},
+  });
+  c.header('Cache-Control', 'private, no-store');
+  return ok(c, record);
+});
+
+api.post('/admin/notification-channels/re-encrypt', async (c) => {
+  await requireAdminRequest(c);
+  const body = await readJsonRecord(c.req.raw);
+  const limit = validateInteger(
+    typeof body.limit === 'number' ? String(body.limit) : undefined,
+    50,
+    1,
+    100
+  );
+  const cursor = typeof body.cursor === 'string' && body.cursor.trim() ? body.cursor.trim() : null;
+  c.header('Cache-Control', 'private, no-store');
+  return ok(c, await reencryptNotificationChannels(c.env, { limit, cursor }));
+});
+
+api.post('/admin/alert-deliveries/:id/replay', async (c) => {
+  await requireAdminRequest(c);
+  const body = await readJsonRecord(c.req.raw);
+  const actor = c.req.header('X-Admin-Key-Id') ?? 'local-admin';
+  c.header('Cache-Control', 'private, no-store');
+  return ok(
+    c,
+    await replayIndeterminateNotificationDelivery(c.env, {
+      attemptId: c.req.param('id'),
+      actor,
+      reason: readRequiredString(body, 'reason'),
+      changeId: readRequiredString(body, 'changeId'),
+      confirmDuplicateRisk: body.confirmDuplicateRisk === true,
+    })
+  );
+});
+
 api.post('/admin/backfills', async (c) => {
   await requireAdminRequest(c);
   const body = await c.req.json().catch(() => ({}));
@@ -1238,6 +2095,89 @@ api.get('/admin/health', async (c) => {
   return ok(c, await buildDeepHealth(c.env));
 });
 
+api.get('/admin/metrics', async (c) => {
+  await requireAdminRequest(c);
+  const days = validateInteger(c.req.query('days'), 90, 1, 365);
+  const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  const rows = await c.env.DB.prepare(
+    `SELECT metric_date, metric,
+            CASE WHEN metric = 'liquidation_latency_ms'
+              THEN SUM(value) / MAX(SUM(sample_count), 1)
+              ELSE SUM(value)
+            END AS value,
+            SUM(sample_count) AS sample_count,
+            MIN(completeness) AS completeness
+     FROM daily_product_metrics
+     WHERE metric_date >= ?
+     GROUP BY metric_date, metric
+     ORDER BY metric_date ASC, metric ASC`
+  )
+    .bind(since)
+    .all<{
+      metric_date: string;
+      metric: string;
+      value: number;
+      sample_count: number;
+      completeness: number;
+    }>();
+  return ok(c, {
+    range: { since, days },
+    metrics: Array.from(PRODUCT_METRIC_TARGETS.entries()).map(([metric, target]) => {
+      const series = rows.results.filter((row) => row.metric === metric);
+      return {
+        metric,
+        target,
+        current: series[series.length - 1]?.value ?? null,
+        completeness: series[series.length - 1]?.completeness ?? 0,
+        samples: series.reduce((sum, row) => sum + row.sample_count, 0),
+        series: series.map((row) => ({ date: row.metric_date, value: row.value })),
+      };
+    }),
+    generatedAt: Date.now(),
+  });
+});
+
+api.get('/admin/observability', async (c) => {
+  await requireAdminRequest(c);
+  const minutes = validateInteger(c.req.query('minutes'), 90, 5, 10_080);
+  return ok(c, await getOperationalDashboard(c.env, minutes));
+});
+
+api.get('/admin/incidents', async (c) => {
+  await requireAdminRequest(c);
+  const state = c.req.query('state');
+  if (state && !['open', 'acknowledged', 'resolved'].includes(state)) {
+    throw invalidParameter('state', 'State must be open, acknowledged, or resolved');
+  }
+  return ok(
+    c,
+    await listOperationalIncidents(c.env, state as 'open' | 'acknowledged' | 'resolved' | undefined)
+  );
+});
+
+api.post('/admin/incidents/:id/ack', async (c) => {
+  await requireAdminRequest(c);
+  const actor = c.req.header('X-Admin-Key-Id') ?? 'local-admin';
+  return ok(
+    c,
+    await transitionOperationalIncident(c.env, c.req.param('id'), 'acknowledged', actor)
+  );
+});
+
+api.post('/admin/incidents/:id/resolve', async (c) => {
+  await requireAdminRequest(c);
+  const actor = c.req.header('X-Admin-Key-Id') ?? 'local-admin';
+  const body = (await c.req.json().catch(() => ({}))) as { resolution?: unknown };
+  const resolution =
+    typeof body.resolution === 'string' && body.resolution.trim()
+      ? body.resolution.trim().slice(0, 500)
+      : 'operator resolved';
+  return ok(
+    c,
+    await transitionOperationalIncident(c.env, c.req.param('id'), 'resolved', actor, resolution)
+  );
+});
+
 api.get('/admin/backfills/:id', async (c) => {
   await requireAdminRequest(c);
   return ok(c, await getBackfillJob(c.env, c.req.param('id')));
@@ -1248,6 +2188,8 @@ api.post('/admin/backfills/:id/retry', async (c) => {
   const enqueued = await enqueuePendingTasks(c.env, c.req.param('id'));
   return ok(c, { jobId: c.req.param('id'), enqueued });
 });
+
+api.get('/openapi.json', (c) => c.json(OPENAPI_DOCUMENT));
 
 app.route('/api/v1', api);
 
@@ -1301,14 +2243,67 @@ export default {
   },
 
   scheduled(controller: ScheduledController, env: Env, executionCtx: ExecutionContext) {
-    if (featureEnabled(env, 'ALERT_EVALUATION_ENABLED')) {
-      executionCtx.waitUntil(runScheduledAlertEvaluation(env, controller.scheduledTime));
-    }
+    executionCtx.waitUntil(runReleaseControlledScheduledWork(env, controller.scheduledTime));
   },
 
-  async queue(batch: MessageBatch<BackfillQueueMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<WorkerQueueMessage>, env: Env): Promise<void> {
     for (const message of batch.messages) {
+      if (isAlertDeliveryQueueMessage(message.body)) {
+        try {
+          await assertFaultNotInjected(env, 'queue');
+          await assertFaultNotInjected(env, 'delivery');
+          await processAlertDeliveryMessage(env, message.body);
+          message.ack();
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              module: 'queue',
+              msg: 'alert delivery message failed',
+              attemptId: message.body.attemptId,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          );
+          if (message.attempts >= 5) {
+            await markDeliveryDeadLetter(env, message.body.attemptId);
+            // Keep the final retry unacknowledged so Cloudflare moves it to the
+            // configured DLQ while D1 already exposes the dead-letter state.
+            message.retry({ delaySeconds: alertDeliveryRetryDelaySeconds(message.attempts) });
+          } else {
+            message.retry({ delaySeconds: alertDeliveryRetryDelaySeconds(message.attempts) });
+          }
+        }
+        continue;
+      }
+      if (isAsyncBacktestQueueMessage(message.body)) {
+        try {
+          await assertFaultNotInjected(env, 'queue');
+          await assertFaultNotInjected(env, 'r2');
+          await processAsyncBacktestMessage(env, message.body);
+          message.ack();
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              level: 'error',
+              module: 'queue',
+              msg: 'async backtest message failed',
+              jobId: message.body.jobId,
+              chunkIndex: message.body.chunkIndex,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          );
+          if (error instanceof TerminalAsyncBacktestError || message.attempts >= 5) {
+            await failAsyncBacktestJob(env, message.body.jobId, error);
+            message.ack();
+          } else {
+            message.retry({ delaySeconds: queueRetryDelaySeconds(message.attempts) });
+          }
+        }
+        continue;
+      }
       try {
+        await assertFaultNotInjected(env, 'queue');
+        await assertFaultNotInjected(env, 'r2');
         await processBackfillMessage(env, message.body);
         message.ack();
       } catch (error) {
@@ -1329,7 +2324,7 @@ export default {
       }
     }
   },
-} satisfies ExportedHandler<Env, BackfillQueueMessage>;
+} satisfies ExportedHandler<Env, WorkerQueueMessage>;
 
 function buildPublicHealth(): HealthResponse {
   return {
@@ -1365,6 +2360,613 @@ async function buildDeepHealth(env: Env): Promise<HealthResponse & Record<string
       backgroundJobs: env.BACKFILL_QUEUE && env.BACKFILL_WORKFLOW ? 'ready' : 'partial',
     },
   };
+}
+
+function sanitizeRealtimeTopic(value: string | undefined): string | null {
+  const topic = value?.trim().toLowerCase();
+  if (!topic || topic.length > 120) return null;
+  return /^[a-z0-9:._-]+$/.test(topic) ? topic : null;
+}
+
+function isPrivateRealtimeTopic(topic: string): boolean {
+  return topic.startsWith('alerts:user:');
+}
+
+function sanitizeMetricDimensions(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  const entries = Object.entries(value)
+    .filter(
+      ([key, item]) =>
+        /^[a-z][a-z0-9_]{0,31}$/.test(key) &&
+        (typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')
+    )
+    .slice(0, 8)
+    .map(([key, item]) => [key, String(item).slice(0, 80)] as const);
+  return Object.fromEntries(entries);
+}
+
+interface RealtimeTickerAlertInput {
+  exchange: SupportedExchange;
+  symbol: string;
+  marketType: 'spot' | 'perp';
+  last: number;
+}
+
+const REALTIME_PUBLIC_CHANNELS = new Set<RealtimePublicChannel>([
+  'ticker',
+  'liquidations',
+  'liquidation-bands',
+  'trades',
+  'cvd',
+  'orderbook',
+  'funding',
+  'open-interest',
+]);
+
+function normalizeRealtimeIngestEvent(
+  value: Record<string, unknown>
+): Record<string, unknown> & { topic: string } {
+  if (!isRecord(value.payload)) throw invalidParameter('payload', 'Realtime payload is required');
+  const payload = value.payload;
+  const exchange = validateExchange(payload.exchange);
+  if (!exchange) throw invalidParameter('exchange', 'Realtime payload exchange is invalid');
+  const rawSymbol = typeof payload.symbol === 'string' ? payload.symbol : '';
+  if (!rawSymbol) throw invalidParameter('symbol', 'Realtime payload symbol is required');
+  const rawChannel = typeof value.topic === 'string' ? value.topic.split(':')[0] : '';
+  if (!REALTIME_PUBLIC_CHANNELS.has(rawChannel as RealtimePublicChannel)) {
+    throw invalidParameter('topic', 'Realtime event channel is invalid');
+  }
+  const declaredMarketType = payload.marketType;
+  const marketType =
+    declaredMarketType === 'spot' || declaredMarketType === 'perp'
+      ? declaredMarketType
+      : exchange === 'upbit'
+        ? 'spot'
+        : 'perp';
+  const symbol = canonicalRealtimeSymbol(rawSymbol, marketType);
+  return {
+    ...value,
+    topic: buildRealtimeTopic(rawChannel as RealtimePublicChannel, exchange, symbol, marketType),
+    payload: { ...payload, exchange, symbol, ...(value.type === 'ticker' ? { marketType } : {}) },
+  };
+}
+
+function realtimeOpenInterestInput(value: Record<string, unknown>) {
+  if (value.type !== 'open-interest' || !isRecord(value.payload)) return null;
+  const payload = value.payload;
+  const exchange = validateExchange(payload.exchange);
+  const symbol = typeof payload.symbol === 'string' ? payload.symbol.trim() : '';
+  const openInterestUsd = payload.openInterestUsd;
+  const sourceTimestamp = value.exchangeTimestamp;
+  const provider = isRecord(value.provenance) ? value.provenance.provider : null;
+  if (
+    !exchange ||
+    !symbol ||
+    typeof openInterestUsd !== 'number' ||
+    !Number.isFinite(openInterestUsd) ||
+    openInterestUsd < 0 ||
+    typeof sourceTimestamp !== 'number' ||
+    !Number.isFinite(sourceTimestamp) ||
+    typeof provider !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    exchange,
+    symbol,
+    marketType: 'perp' as const,
+    openInterestUsd,
+    observedAt: Date.now(),
+    provider,
+    sourceTimestamp,
+  };
+}
+
+function realtimeTickerInput(value: Record<string, unknown>): RealtimeTickerAlertInput | null {
+  if (value.type !== 'ticker' || !isRecord(value.payload)) return null;
+  const payload = value.payload;
+  const exchange = validateExchange(payload.exchange);
+  const symbol = typeof payload.symbol === 'string' ? payload.symbol.trim() : '';
+  const marketType = payload.marketType;
+  const last = payload.last;
+  if (
+    !exchange ||
+    !symbol ||
+    (marketType !== 'spot' && marketType !== 'perp') ||
+    typeof last !== 'number' ||
+    !Number.isFinite(last) ||
+    last <= 0
+  ) {
+    return null;
+  }
+  return { exchange, symbol, marketType, last };
+}
+
+async function evaluateRealtimeTickerAlerts(
+  env: Env,
+  ticker: RealtimeTickerAlertInput
+): Promise<void> {
+  if (!env.DB) return;
+  const alerts = await listActivePriceAlertsForMarket(
+    env,
+    ticker.exchange,
+    ticker.symbol,
+    ticker.marketType
+  );
+  for (const alert of alerts) {
+    if (
+      !(await releaseControlEnabled(env, 'alerts', {
+        subject: alert.userId ? { kind: 'user', id: alert.userId } : null,
+      }))
+    ) {
+      continue;
+    }
+    await evaluateAlertTrigger(env, { alert, currentPrice: ticker.last });
+  }
+}
+
+async function loadRealtimeTrades(
+  env: Env,
+  exchange: SupportedExchange,
+  symbol: string
+): Promise<Array<{ timestamp: number; price: number; quantity: number; side: 'buy' | 'sell' }>> {
+  if (!env.REALTIME_HUB) return [];
+  const topic = buildRealtimeTopic(
+    'trades',
+    exchange,
+    symbol,
+    symbol.endsWith('.P') ? 'perp' : 'spot'
+  );
+  const id = env.REALTIME_HUB.idFromName(topic);
+  const url = new URL('https://realtime/snapshot');
+  url.searchParams.set('topic', topic);
+  const response = await env.REALTIME_HUB.get(id).fetch(url.toString());
+  if (!response.ok) return [];
+  const snapshot = (await response.json()) as { events?: unknown[] };
+  return (snapshot.events ?? []).flatMap((entry) => {
+    if (!isRecord(entry) || !isRecord(entry.event)) return [];
+    const event = entry.event;
+    if (event.type !== 'trade' || !isRecord(event.payload)) return [];
+    const payload = event.payload;
+    const timestamp = event.exchangeTimestamp;
+    const price = payload.price;
+    const quantity = payload.quantity;
+    const side = payload.side;
+    if (
+      typeof timestamp !== 'number' ||
+      typeof price !== 'number' ||
+      typeof quantity !== 'number' ||
+      (side !== 'buy' && side !== 'sell')
+    ) {
+      return [];
+    }
+    return [{ timestamp, price, quantity, side }];
+  });
+}
+
+async function loadRealtimeLiquidationPrints(
+  env: Env,
+  exchange: SupportedExchange,
+  symbol: string
+): Promise<LiquidationPrint[]> {
+  const topic = buildRealtimeTopic('liquidations', exchange, symbol, 'perp');
+  if (env.REALTIME_HUB) {
+    const id = env.REALTIME_HUB.idFromName(topic);
+    const url = new URL('https://realtime/snapshot');
+    url.searchParams.set('topic', topic);
+    const response = await env.REALTIME_HUB.get(id).fetch(url.toString());
+    if (response.ok) {
+      const snapshot = (await response.json()) as { events?: unknown[] };
+      const live = parseLiquidationPrints(snapshot.events ?? []);
+      if (live.length > 0) return live;
+    }
+  }
+  const checkpoint = await env.DB.prepare(
+    `SELECT checkpoint_json FROM ingestion_checkpoints
+     WHERE exchange = ? AND stream = 'liquidations' AND symbol = ? AND market_type = 'perp'
+     LIMIT 1`
+  )
+    .bind(exchange, canonicalRealtimeSymbol(symbol, 'perp'))
+    .first<{ checkpoint_json: string }>();
+  if (!checkpoint) return [];
+  const parsed = JSON.parse(checkpoint.checkpoint_json) as unknown;
+  return isRecord(parsed) && Array.isArray(parsed.events)
+    ? parseLiquidationPrints(parsed.events)
+    : [];
+}
+
+function parseLiquidationPrints(entries: unknown[]): LiquidationPrint[] {
+  return entries
+    .flatMap((entry): LiquidationPrint[] => {
+      if (!isRecord(entry)) return [];
+      const event = isRecord(entry.event) ? entry.event : entry;
+      if (event.type !== 'liquidation-print' || !isRecord(event.payload)) return [];
+      const payload = event.payload;
+      if (
+        typeof event.eventId !== 'string' ||
+        typeof event.sequence !== 'number' ||
+        typeof event.exchangeTimestamp !== 'number' ||
+        typeof event.ingestedAt !== 'number' ||
+        typeof event.publishedAt !== 'number' ||
+        (payload.side !== 'long' && payload.side !== 'short') ||
+        typeof payload.price !== 'number' ||
+        typeof payload.quantity !== 'number' ||
+        !isRecord(event.provenance)
+      ) {
+        return [];
+      }
+      const provenance = event.provenance;
+      if (
+        (provenance.kind !== 'exchange-native' &&
+          provenance.kind !== 'modeled' &&
+          provenance.kind !== 'derived' &&
+          provenance.kind !== 'system') ||
+        typeof provenance.provider !== 'string' ||
+        (provenance.quality !== 'live' &&
+          provenance.quality !== 'snapshot' &&
+          provenance.quality !== 'fallback')
+      ) {
+        return [];
+      }
+      return [
+        {
+          eventId: event.eventId,
+          sequence: event.sequence,
+          exchangeTimestamp: event.exchangeTimestamp,
+          ingestedAt: event.ingestedAt,
+          publishedAt: event.publishedAt,
+          side: payload.side,
+          price: payload.price,
+          quantity: payload.quantity,
+          notionalUsd: typeof payload.notionalUsd === 'number' ? payload.notionalUsd : null,
+          provenance: {
+            kind: provenance.kind,
+            provider: provenance.provider,
+            quality: provenance.quality,
+            ...(typeof provenance.upstreamSequence === 'string' ||
+            typeof provenance.upstreamSequence === 'number'
+              ? { upstreamSequence: provenance.upstreamSequence }
+              : {}),
+          },
+        },
+      ];
+    })
+    .sort((left, right) => left.exchangeTimestamp - right.exchangeTimestamp);
+}
+
+async function persistLiquidationPrintCheckpoints(
+  env: Env,
+  events: Array<Record<string, unknown>>
+): Promise<void> {
+  const groups = new Map<string, Array<Record<string, unknown>>>();
+  for (const event of events) {
+    if (event.type !== 'liquidation-print' || !isRecord(event.payload)) continue;
+    const topic = typeof event.topic === 'string' ? event.topic : '';
+    const current = groups.get(topic) ?? [];
+    current.push(event);
+    groups.set(topic, current.slice(-64));
+  }
+  await Promise.all(
+    [...groups.entries()].map(async ([topic, prints]) => {
+      const lastEvent = prints.at(-1);
+      const payload = lastEvent?.payload;
+      if (!isRecord(payload)) return;
+      const exchange = validateExchange(payload.exchange);
+      const symbol = typeof payload.symbol === 'string' ? payload.symbol : '';
+      const provenance = lastEvent?.provenance;
+      const provider =
+        isRecord(provenance) && typeof provenance.provider === 'string'
+          ? provenance.provider
+          : exchange;
+      if (!exchange || !symbol || !provider) return;
+      await env.DB.prepare(
+        `INSERT INTO ingestion_checkpoints
+          (id, provider, exchange, stream, symbol, market_type, last_sequence,
+           last_exchange_timestamp, checkpoint_json, status, created_at, updated_at)
+         VALUES (?, ?, ?, 'liquidations', ?, 'perp', ?, ?, ?, 'healthy', unixepoch(), unixepoch())
+         ON CONFLICT(id) DO UPDATE SET
+           provider = excluded.provider,
+           last_sequence = excluded.last_sequence,
+           last_exchange_timestamp = excluded.last_exchange_timestamp,
+           checkpoint_json = excluded.checkpoint_json,
+           status = 'healthy',
+           updated_at = unixepoch()`
+      )
+        .bind(
+          topic,
+          provider,
+          exchange,
+          symbol,
+          String(prints.at(-1)?.sequence ?? ''),
+          Number(prints.at(-1)?.exchangeTimestamp ?? Date.now()),
+          JSON.stringify({ events: prints })
+        )
+        .run();
+    })
+  );
+}
+
+async function recordProductMetric(
+  env: Env,
+  metric: string,
+  value: number,
+  dimensions: Record<string, string> = {},
+  options: { persistD1?: boolean } = {}
+): Promise<void> {
+  if (!PRODUCT_METRICS.has(metric)) return;
+  const sortedDimensions = Object.fromEntries(
+    Object.entries(dimensions).sort(([left], [right]) => left.localeCompare(right))
+  );
+  const dimensionsKey = Object.entries(sortedDimensions)
+    .map(([key, item]) => `${key}=${item}`)
+    .join('&');
+  env.API_ANALYTICS?.writeDataPoint({
+    blobs: [metric, dimensionsKey],
+    doubles: [value, Date.now()],
+    indexes: [metric],
+  });
+  if (!env.DB || options.persistD1 === false) return;
+  const metricDate = new Date().toISOString().slice(0, 10);
+  await env.DB.prepare(
+    `INSERT INTO daily_product_metrics
+      (metric_date, metric, dimensions_key, value, dimensions_json, source,
+       completeness, sample_count, calculated_at)
+     VALUES (?, ?, ?, ?, ?, 'worker-events', 1, 1, unixepoch())
+     ON CONFLICT(metric_date, metric, dimensions_key) DO UPDATE SET
+       value = daily_product_metrics.value + excluded.value,
+       sample_count = daily_product_metrics.sample_count + 1,
+       calculated_at = unixepoch()`
+  )
+    .bind(metricDate, metric, dimensionsKey, value, JSON.stringify(sortedDimensions))
+    .run();
+}
+
+function claimLatencyD1Sample(segment: string, provider: string, now = Date.now()): boolean {
+  const key = `${segment}:${provider}`;
+  const previous = latencyD1SampleTimes.get(key) ?? 0;
+  if (now - previous < LATENCY_D1_SAMPLE_INTERVAL_MS) return false;
+  latencyD1SampleTimes.set(key, now);
+  return true;
+}
+
+async function recordUniqueProductMetric(
+  env: Env,
+  metric: 'weekly_active_sessions',
+  subject: string
+): Promise<boolean> {
+  if (!env.DB) return false;
+  const now = new Date();
+  const weekStart = new Date(
+    Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate() - ((now.getUTCDay() + 6) % 7)
+    )
+  );
+  const period = weekStart.toISOString().slice(0, 10);
+  const subjectHash = await sha256Hex(`${period}:${metric}:${subject}`);
+  const result = await env.DB.prepare(
+    `INSERT OR IGNORE INTO product_metric_unique_subjects
+      (metric_period, metric, subject_hash, created_at)
+     VALUES (?, ?, ?, unixepoch())`
+  )
+    .bind(period, metric, subjectHash)
+    .run();
+  const accepted = (result.meta.changes ?? 0) === 1;
+  if (accepted) await recordProductMetric(env, metric, 1, { period });
+  return accepted;
+}
+
+async function publishRealtimeTopicBatch(
+  env: Env,
+  topic: string,
+  batchId: string,
+  events: Record<string, unknown>[]
+): Promise<{ topic: string; sequences: number[]; delivered: number }> {
+  if (!env.REALTIME_HUB || !env.ADMIN_API_KEY) {
+    throw new Error('Realtime publishing is not configured');
+  }
+  const id = env.REALTIME_HUB.idFromName(topic);
+  const url = new URL('https://realtime/publish-batch');
+  url.searchParams.set('topic', topic);
+  const response = await env.REALTIME_HUB.get(id).fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-API-Key': env.ADMIN_API_KEY,
+    },
+    body: JSON.stringify({ batchId, events }),
+  });
+  if (!response.ok) throw new Error(`Realtime publish failed with HTTP ${response.status}`);
+  const result = (await response.json()) as { sequences: number[]; delivered: number };
+  return { topic, sequences: result.sequences, delivered: result.delivered };
+}
+
+async function requireRealtimeIngestSignature(
+  env: Env,
+  headers: Headers,
+  rawBody: string
+): Promise<void> {
+  if (!env.INGEST_SIGNING_SECRET) throw new Error('Realtime ingest is not configured');
+  const timestamp = headers.get('X-Lazuli-Timestamp')?.trim() ?? '';
+  const signature = headers.get('X-Lazuli-Signature')?.trim() ?? '';
+  const keyId = headers.get('X-Lazuli-Key-Id')?.trim() || null;
+  const timestampMs = Number(timestamp);
+  if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 60_000) {
+    throw invalidParameter('timestamp', 'Realtime ingest timestamp is invalid or expired');
+  }
+  const verification = await verifyRotatingHmac({
+    ring: createSecretRing({
+      currentKeyId: env.INGEST_SIGNING_SECRET_ID ?? 'ingest-current',
+      currentSecret: env.INGEST_SIGNING_SECRET,
+      nextKeyId: env.INGEST_SIGNING_SECRET_NEXT_ID,
+      nextSecret: env.INGEST_SIGNING_SECRET_NEXT,
+      label: 'Realtime ingest signing',
+    }),
+    payload: `${timestamp}.${rawBody}`,
+    signature,
+    keyId,
+  });
+  if (!verification.ok) {
+    throw invalidParameter('signature', 'Realtime ingest signature is invalid');
+  }
+}
+
+async function createRealtimeToken(
+  env: Env,
+  userId: string,
+  topics: string[]
+): Promise<{ token: string; topics: string[]; expiresAt: number }> {
+  if (!env.REALTIME_TOKEN_SECRET) throw new Error('Realtime tokens are not configured');
+  const expiresAt = Date.now() + 5 * 60_000;
+  const ring = createSecretRing({
+    currentKeyId: env.REALTIME_TOKEN_SECRET_ID ?? 'realtime-current',
+    currentSecret: env.REALTIME_TOKEN_SECRET,
+    nextKeyId: env.REALTIME_TOKEN_SECRET_NEXT_ID,
+    nextSecret: env.REALTIME_TOKEN_SECRET_NEXT,
+    label: 'Realtime token signing',
+  });
+  const payload = base64UrlEncode(
+    JSON.stringify({
+      version: 2,
+      kid: ring.current.keyId,
+      userId,
+      topics,
+      expiresAt,
+      nonce: crypto.randomUUID(),
+    })
+  );
+  const { signature } = await signWithCurrentSecret(ring, payload, '');
+  return { token: `${payload}.${signature}`, topics, expiresAt };
+}
+
+async function verifyRealtimeToken(env: Env, token: string, topic: string): Promise<boolean> {
+  if (!env.REALTIME_TOKEN_SECRET) return false;
+  const [payload, signature, extra] = token.split('.');
+  if (!payload || !signature || extra) return false;
+  try {
+    const decoded = JSON.parse(base64UrlDecode(payload)) as {
+      version?: number;
+      kid?: string;
+      topics?: unknown;
+      expiresAt?: number;
+    };
+    const ring = createSecretRing({
+      currentKeyId: env.REALTIME_TOKEN_SECRET_ID ?? 'realtime-current',
+      currentSecret: env.REALTIME_TOKEN_SECRET,
+      nextKeyId: env.REALTIME_TOKEN_SECRET_NEXT_ID,
+      nextSecret: env.REALTIME_TOKEN_SECRET_NEXT,
+      label: 'Realtime token signing',
+    });
+    const verification = await verifyRotatingHmac({
+      ring,
+      payload,
+      signature,
+      signaturePrefix: '',
+      keyId: decoded.kid ?? null,
+    });
+    if (!verification.ok) return false;
+    return (
+      (decoded.version === 1 || decoded.version === 2) &&
+      typeof decoded.expiresAt === 'number' &&
+      decoded.expiresAt > Date.now() &&
+      Array.isArray(decoded.topics) &&
+      decoded.topics.includes(topic)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function verifyMetricsIngestRequest(
+  env: Env,
+  headers: Headers,
+  rawBody: string
+): Promise<boolean> {
+  if (!env.METRICS_INGEST_SECRET) return false;
+  const bearer = headers.get('Authorization')?.trim() ?? '';
+  if (
+    constantTimeTextEqual(bearer, `Bearer ${env.METRICS_INGEST_SECRET}`) ||
+    (env.METRICS_INGEST_SECRET_NEXT &&
+      constantTimeTextEqual(bearer, `Bearer ${env.METRICS_INGEST_SECRET_NEXT}`))
+  ) {
+    return true;
+  }
+
+  const timestamp = headers.get('X-Lazuli-Timestamp')?.trim() ?? '';
+  const timestampMs = Number(timestamp);
+  if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > 60_000) return false;
+  const verification = await verifyRotatingHmac({
+    ring: createSecretRing({
+      currentKeyId: env.METRICS_INGEST_SECRET_ID ?? 'metrics-current',
+      currentSecret: env.METRICS_INGEST_SECRET,
+      nextKeyId: env.METRICS_INGEST_SECRET_NEXT_ID,
+      nextSecret: env.METRICS_INGEST_SECRET_NEXT,
+      label: 'Metrics ingest signing',
+    }),
+    payload: `${timestamp}.${rawBody}`,
+    signature: headers.get('X-Lazuli-Signature')?.trim() ?? '',
+    keyId: headers.get('X-Lazuli-Key-Id')?.trim() || null,
+  });
+  return verification.ok;
+}
+
+function base64UrlEncode(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function base64UrlDecode(value: string): string {
+  const padded = value
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+    .padEnd(Math.ceil(value.length / 4) * 4, '=');
+  const binary = atob(padded);
+  return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function hmacSha256Hex(secret: string, value: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, '0')).join(
+    ''
+  );
+}
+
+async function verifyMetricSubjectCookie(
+  cookie: string | undefined,
+  secret: string
+): Promise<string | null> {
+  if (!cookie) return null;
+  const separator = cookie.lastIndexOf('.');
+  if (separator <= 0) return null;
+  const subject = cookie.slice(0, separator);
+  const signature = cookie.slice(separator + 1);
+  if (!/^[0-9a-f]{64}$/.test(subject) || !/^[0-9a-f]{64}$/.test(signature)) return null;
+  const expected = await hmacSha256Hex(secret, subject);
+  return constantTimeTextEqual(signature, expected) ? subject : null;
+}
+
+function constantTimeTextEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  let mismatch = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return mismatch === 0;
 }
 
 /**
@@ -1416,10 +3018,72 @@ async function requireAccountFeatures(
   c: Context<{ Bindings: Env }>,
   next: Next
 ): Promise<Response | void> {
-  if (!featureEnabled(c.env, 'ACCOUNT_FEATURES_ENABLED')) {
+  if (!(await releaseControlEnabled(c.env, 'accounts', releaseContext(c)))) {
     return featureDisabled(c, 'Account features are temporarily disabled');
   }
   return next();
+}
+
+async function requireAsyncBacktests(
+  c: Context<{ Bindings: Env }>,
+  next: Next
+): Promise<Response | void> {
+  if (!(await releaseControlEnabled(c.env, 'async_backtests', releaseContext(c)))) {
+    return featureDisabled(c, 'Asynchronous backtests are temporarily disabled');
+  }
+  return next();
+}
+
+async function requireAlerts(c: Context<{ Bindings: Env }>, next: Next): Promise<Response | void> {
+  if (!(await releaseControlEnabled(c.env, 'alerts', releaseContext(c)))) {
+    return featureDisabled(c, 'Alerts are temporarily disabled');
+  }
+  return next();
+}
+
+async function requireDeliveryChannels(
+  c: Context<{ Bindings: Env }>,
+  next: Next
+): Promise<Response | void> {
+  if (!(await releaseControlEnabled(c.env, 'delivery_channels', releaseContext(c)))) {
+    return featureDisabled(c, 'Notification delivery channels are temporarily disabled');
+  }
+  return next();
+}
+
+function releaseContext(c: Context<{ Bindings: Env }>) {
+  return {
+    authorization: c.req.header('Authorization') ?? null,
+    signedAnonymousSubject: getCookie(c, 'lazuli_anon_subject') ?? null,
+  };
+}
+
+function routeFaultTargets(method: string, path: string): Array<'d1' | 'r2' | 'queue'> {
+  if (path.startsWith('/api/v1/admin/fault-injections')) return [];
+  const targets = new Set<'d1' | 'r2' | 'queue'>();
+  if (
+    path.startsWith('/api/v1/auth/') ||
+    path.startsWith('/api/v1/me') ||
+    path.startsWith('/api/v1/alpha-feed') ||
+    path.startsWith('/api/v1/admin/metrics') ||
+    path.startsWith('/api/v1/admin/observability') ||
+    path.startsWith('/api/v1/admin/incidents') ||
+    path.startsWith('/api/v1/backtests/jobs')
+  ) {
+    targets.add('d1');
+  }
+  if (path.startsWith('/api/v1/ohlcv/') || path.startsWith('/api/v1/backtests/')) {
+    targets.add('r2');
+  }
+  if (
+    method === 'POST' &&
+    (path === '/api/v1/admin/backfills' ||
+      path === '/api/v1/backtests/jobs' ||
+      path === '/api/v1/me/alerts/evaluate')
+  ) {
+    targets.add('queue');
+  }
+  return [...targets];
 }
 
 function featureDisabled(c: Context<{ Bindings: Env }>, message: string): Response {
@@ -1798,6 +3462,19 @@ function parseInstitutionalAsset(value: string | undefined): InstitutionalAsset 
   const normalized = (value ?? 'BTC').trim().toUpperCase();
   if (normalized === 'BTC' || normalized === 'ETH') return normalized;
   throw invalidParameter('asset', 'asset must be BTC or ETH');
+}
+
+function validateTimestamp(value: string | undefined, fallback: number): number {
+  if (value === undefined || value.trim() === '') return fallback;
+  const timestamp = Number(value);
+  if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
+    throw invalidParameter('timestamp', 'Timestamp must be a non-negative Unix millisecond value');
+  }
+  return timestamp;
+}
+
+function snapshotFileName(symbol: string, exchange: SupportedExchange): string {
+  return `${symbol}-${exchange}-lazuli`.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
 }
 
 function parseInstitutionalRange(value: string | undefined): InstitutionalRange {
@@ -2382,6 +4059,50 @@ function parseStrategyDefinition(body: unknown): StrategyDefinition {
   return strategy;
 }
 
+function parseAsyncBacktestJobRequest(body: Record<string, unknown>): AsyncBacktestJobRequest {
+  const symbol = parseOrThrow(symbolSchema, readRequiredString(body, 'symbol'), 'symbol');
+  const startTime = readRequiredTimestamp(body, 'startTime');
+  const endTime = readRequiredTimestamp(body, 'endTime');
+  if (endTime <= startTime) {
+    throw invalidParameter('endTime', 'endTime must be later than startTime');
+  }
+  const idempotencyKey = readString(body, 'idempotencyKey')?.trim();
+  const strategyId = readString(body, 'strategyId')?.trim();
+  const savedBacktestId = readString(body, 'savedBacktestId')?.trim();
+  return {
+    exchange: requireExchange(readRequiredString(body, 'exchange')),
+    symbol,
+    marketType: parseMarketType(readRequiredString(body, 'marketType'), symbol),
+    timeframe: parseTimeframeString(readRequiredString(body, 'timeframe')),
+    startTime,
+    endTime,
+    strategy: parseStrategyDefinition(body),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+    ...(strategyId ? { strategyId } : {}),
+    ...(savedBacktestId ? { savedBacktestId } : {}),
+  };
+}
+
+function readRequiredTimestamp(body: Record<string, unknown>, key: string): number {
+  const value = body[key];
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw invalidParameter(key, `${key} must be a non-negative epoch timestamp in milliseconds`);
+  }
+  return value;
+}
+
+function isAsyncBacktestQueueMessage(
+  message: WorkerQueueMessage
+): message is AsyncBacktestQueueMessage {
+  return 'kind' in message && message.kind === 'async-backtest';
+}
+
+function isAlertDeliveryQueueMessage(
+  message: WorkerQueueMessage
+): message is AlertDeliveryQueueMessage {
+  return 'kind' in message && message.kind === 'alert-delivery';
+}
+
 function readString(value: unknown, key: string): string | undefined {
   if (!isRecord(value)) return undefined;
   const raw = value[key];
@@ -2411,7 +4132,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function readJsonRecord(request: Request): Promise<Record<string, unknown>> {
-  const body = (await request.json().catch(() => ({}))) as unknown;
+  return parseJsonRecord(await request.text());
+}
+
+function parseJsonRecord(rawBody: string): Record<string, unknown> {
+  let body: unknown;
+  try {
+    body = JSON.parse(rawBody) as unknown;
+  } catch {
+    throw invalidParameter('body', 'JSON object body is required');
+  }
   if (!isRecord(body)) {
     throw invalidParameter('body', 'JSON object body is required');
   }
@@ -2424,6 +4154,51 @@ function readRequiredString(value: Record<string, unknown>, key: string): string
     throw invalidParameter(key, `${key} is required`);
   }
   return raw.trim();
+}
+
+function readRequiredRevision(value: Record<string, unknown>, key: string): number {
+  const revision = value[key];
+  if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0) {
+    throw invalidParameter(key, `${key} must be a non-negative integer`);
+  }
+  return revision;
+}
+
+function readReleaseControlAllowlist(
+  value: Record<string, unknown>,
+  key: string
+): string[] | undefined {
+  const raw = value[key];
+  if (raw === undefined) return undefined;
+  if (!Array.isArray(raw) || raw.some((item) => typeof item !== 'string')) {
+    throw invalidParameter(key, `${key} must be an array of strings`);
+  }
+  return raw as string[];
+}
+
+function setSessionCookie(
+  c: Context<{ Bindings: Env }>,
+  sessionToken: string,
+  expiresAt: number
+): void {
+  setCookie(c, SESSION_COOKIE, sessionToken, {
+    httpOnly: true,
+    secure: c.env.ENVIRONMENT === 'production' || c.env.ENVIRONMENT === 'staging',
+    sameSite: 'Lax',
+    path: '/',
+    maxAge: Math.max(1, Math.floor((expiresAt - Date.now()) / 1000)),
+  });
+}
+
+function sessionResponseForRequest(
+  c: Context<{ Bindings: Env }>,
+  session: AuthSessionResponse
+): AuthSessionResponse | Omit<AuthSessionResponse, 'sessionToken'> {
+  // Browser navigation/fetch receives only the HttpOnly cookie. Non-browser
+  // API clients retain the legacy bearer response when they omit browser-only
+  // Origin and Fetch Metadata headers.
+  const isBrowserRequest = Boolean(c.req.header('Origin') || c.req.header('Sec-Fetch-Mode'));
+  return isBrowserRequest ? { user: session.user, expiresAt: session.expiresAt } : session;
 }
 
 async function requireUser(env: Env, authorization: string | null): Promise<UserAccount> {
@@ -2551,6 +4326,61 @@ function parsePriceAlertInput(body: Record<string, unknown>): CreatePriceAlertIn
   };
 }
 
+function parseNotificationChannelInput(
+  body: Record<string, unknown>,
+  partial: false
+): NotificationChannelInput;
+function parseNotificationChannelInput(
+  body: Record<string, unknown>,
+  partial: true
+): Partial<NotificationChannelInput>;
+function parseNotificationChannelInput(
+  body: Record<string, unknown>,
+  partial: boolean
+): NotificationChannelInput | Partial<NotificationChannelInput> {
+  const output: Partial<NotificationChannelInput> = {};
+  if (!partial || body.kind !== undefined) {
+    const kind = readRequiredString(body, 'kind');
+    if (!['email', 'discord', 'telegram', 'webhook'].includes(kind)) {
+      throw invalidParameter('kind', 'kind must be email, discord, telegram, or webhook');
+    }
+    output.kind = kind as NotificationChannelKind;
+  }
+  if (!partial || body.label !== undefined) output.label = readRequiredString(body, 'label');
+  if (!partial || body.endpoint !== undefined) {
+    output.endpoint = readRequiredString(body, 'endpoint');
+  }
+  if (body.secret !== undefined) {
+    if (body.secret !== null && typeof body.secret !== 'string') {
+      throw invalidParameter('secret', 'secret must be a string or null');
+    }
+    output.secret = typeof body.secret === 'string' ? body.secret : null;
+  }
+  if (body.config !== undefined) {
+    if (!isRecord(body.config)) throw invalidParameter('config', 'config must be an object');
+    output.config = body.config;
+  }
+  if (body.enabled !== undefined) {
+    if (typeof body.enabled !== 'boolean') {
+      throw invalidParameter('enabled', 'enabled must be a boolean');
+    }
+    output.enabled = body.enabled;
+  }
+  return output;
+}
+
+function throwNotificationInputError(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    /^(Unsupported notification|Channel label|Invalid (email|discord|telegram|webhook)|Channel secret|Email channels)/.test(
+      message
+    )
+  ) {
+    throw invalidParameter('channel', message);
+  }
+  throw error;
+}
+
 function parseTimeframeString(value: string): Timeframe {
   if (
     value === '1m' ||
@@ -2626,16 +4456,47 @@ async function runScheduledAlertEvaluation(
   return result;
 }
 
+async function runReleaseControlledScheduledWork(env: Env, scheduledTime: number): Promise<void> {
+  if (
+    await releaseControlEnabled(env, 'cron_reconciliation', {
+      subject: { kind: 'internal', id: 'scheduled-worker' },
+    })
+  ) {
+    await runScheduledAlertEvaluation(env, scheduledTime);
+  }
+  await reconcilePendingAlertDeliveries(env);
+  try {
+    await runOperationalMonitoring(env);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        module: 'operational-monitoring',
+        msg: 'operational monitoring cycle failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
+}
+
 async function evaluateActiveAlerts(
   env: Env,
   alerts: Array<Awaited<ReturnType<typeof listPriceAlerts>>[number]>
 ): Promise<{ evaluated: number; triggered: number; events: string[] }> {
+  const evaluationStartedAt = Date.now();
   const tickerCache = new Map<string, Ticker[]>();
   const events: string[] = [];
   let evaluated = 0;
 
   for (const alert of alerts) {
     if (!alert.active) continue;
+    if (
+      !(await releaseControlEnabled(env, 'alerts', {
+        subject: alert.userId ? { kind: 'user', id: alert.userId } : null,
+      }))
+    ) {
+      continue;
+    }
     const cacheKey = `${alert.exchange}:${alert.marketType}`;
     let tickers = tickerCache.get(cacheKey);
     if (!tickers) {
@@ -2657,6 +4518,13 @@ async function evaluateActiveAlerts(
     if (result.eventId) events.push(result.eventId);
   }
 
+  await recordOperationalSli(env, {
+    sli: 'alert_evaluation_latency_ms',
+    value: Date.now() - evaluationStartedAt,
+    success: Date.now() - evaluationStartedAt < 2_000,
+    source: 'alert-evaluator',
+    details: { evaluated, triggered: events.length },
+  });
   return { evaluated, triggered: events.length, events };
 }
 
@@ -2763,7 +4631,14 @@ async function persistAlphaFeedEvents(env: Env, items: AlphaFeedItem[]): Promise
   if (!env.DB || items.length === 0) return items;
   const persisted = items.map((item) => {
     const id = alphaFeedEventId(item);
-    return { ...item, id, timestamp: Date.now() };
+    const timestamp = Date.now();
+    return {
+      ...item,
+      id,
+      timestamp,
+      expiresAt: timestamp + alphaFeedTtlMs(item.kind),
+      expired: false,
+    };
   });
 
   try {
@@ -2784,7 +4659,8 @@ async function persistAlphaFeedEvents(env: Env, items: AlphaFeedItem[]): Promise
            title = excluded.title,
            summary = excluded.summary,
            score = excluded.score,
-           payload_json = excluded.payload_json
+           payload_json = excluded.payload_json,
+           created_at = excluded.created_at
          WHERE alpha_feed_events.kind <> excluded.kind
             OR alpha_feed_events.title <> excluded.title
             OR alpha_feed_events.summary <> excluded.summary
@@ -2825,6 +4701,8 @@ async function readAlphaFeedEvent(env: Env, id: string): Promise<AlphaFeedItem |
 
 function mapAlphaFeedEvent(row: AlphaFeedEventRow): AlphaFeedItem {
   const payload = parseAlphaFeedPayload(row.payload_json);
+  const timestamp = row.created_at * 1000;
+  const expiresAt = timestamp + alphaFeedTtlMs(row.kind);
   return {
     id: row.id,
     kind: row.kind,
@@ -2833,8 +4711,22 @@ function mapAlphaFeedEvent(row: AlphaFeedEventRow): AlphaFeedItem {
     score: row.score,
     href: typeof payload.href === 'string' ? payload.href : '/alpha-feed',
     payload: isRecord(payload.payload) ? payload.payload : payload,
-    timestamp: row.created_at * 1000,
+    timestamp,
+    expiresAt,
+    expired: expiresAt <= Date.now(),
   };
+}
+
+function alphaFeedTtlMs(kind: AlphaFeedItem['kind']): number {
+  switch (kind) {
+    case 'price-arbitrage':
+      return 15 * 60_000;
+    case 'funding-arbitrage':
+      return 8 * 60 * 60_000;
+    case 'trending':
+    case 'liquidation':
+      return 24 * 60 * 60_000;
+  }
 }
 
 function parseAlphaFeedPayload(value: string): Record<string, unknown> {

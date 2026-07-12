@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "refreshSeconds": 30,
+  "defaultWindowMinutes": 90,
+  "access": {
+    "path": "/ops",
+    "provider": "cloudflare-access",
+    "identity": "operational-owner-email",
+    "browserSecrets": false
+  },
+  "dashboards": [
+    {
+      "name": "realtime",
+      "path": "/ops?tab=realtime",
+      "panels": [
+        "ws_availability",
+        "liquidation_latency_p95_ms",
+        "provider_health_availability",
+        "provider_freshness_ms",
+        "realtime_unresolved_gaps",
+        "reconciliations",
+        "realtime_event_drops",
+        "ingestion_checkpoints"
+      ]
+    },
+    {
+      "name": "alerts",
+      "path": "/ops?tab=alerts",
+      "panels": [
+        "alert_evaluation_latency_p95_ms",
+        "alert_dispatch_latency_p95_ms",
+        "duplicate_alert_deliveries",
+        "delivery_queue_age_seconds",
+        "delivery_dlq_age_seconds",
+        "delivery_attempts",
+        "active_incidents"
+      ]
+    },
+    {
+      "name": "storage-jobs",
+      "path": "/ops?tab=storage",
+      "panels": [
+        "d1_availability",
+        "r2_availability",
+        "delivery_queue_age_seconds",
+        "archive_gap_count",
+        "backfill_jobs",
+        "async_backtest_jobs"
+      ]
+    },
+    {
+      "name": "product",
+      "path": "/ops?tab=product",
+      "panels": [
+        "weekly_active_sessions",
+        "alert_subscribers",
+        "ws_connections",
+        "api_keys_issued",
+        "api_keys_used",
+        "seo_landings",
+        "backtest_runs",
+        "telemetry_completeness"
+      ]
+    },
+    {
+      "name": "release",
+      "path": "/ops?tab=release",
+      "panels": [
+        "deployment_versions",
+        "release_controls",
+        "synthetic_probes",
+        "error_budget_incidents",
+        "rollout_audit",
+        "evidence_completeness"
+      ]
+    }
+  ],
+  "paging": {
+    "cadence": "*/5 * * * *",
+    "channel": "cloudflare-email-service",
+    "deduplication": "environment:policy-id",
+    "policies": [
+      "api-availability",
+      "ws-availability",
+      "liquidation-latency",
+      "provider-health",
+      "provider-freshness",
+      "realtime-drops",
+      "realtime-unresolved-gaps",
+      "alert-evaluation-latency",
+      "alert-dispatch-latency",
+      "duplicate-alerts",
+      "delivery-dlq-age",
+      "delivery-queue-lag",
+      "d1-availability",
+      "r2-availability",
+      "archive-gaps",
+      "telemetry-completeness"
+    ]
+  }
+}

@@ -23,6 +23,11 @@ interface CandidateQuote extends PriceArbitrageQuote {
   sellPrice: number;
 }
 
+// Identical tickers can represent unrelated newly listed assets on different
+// venues. A >50% executable gap is treated as an identity/data-quality conflict,
+// not a tradeable arbitrage opportunity.
+const MAX_CREDIBLE_SPREAD_BPS = 5_000;
+
 /**
  * Build cross-exchange price discrepancy opportunities from already-fetched
  * ticker snapshots. The service is pure so spread math and symbol
@@ -85,7 +90,11 @@ export function buildPriceArbitrageResponse(
       }
     }
 
-    if (!best || best.spreadBps < options.minSpreadBps) {
+    if (
+      !best ||
+      best.spreadBps < options.minSpreadBps ||
+      best.spreadBps > MAX_CREDIBLE_SPREAD_BPS
+    ) {
       continue;
     }
 

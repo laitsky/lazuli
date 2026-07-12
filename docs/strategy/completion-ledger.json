@@ -1,0 +1,357 @@
+{
+  "$schema": "./completion-ledger.schema.json",
+  "schemaVersion": 1,
+  "strategy": "PRODUCT-STRATEGY.md",
+  "updatedAt": "2026-07-11",
+  "completionPolicy": {
+    "requiredConditions": [
+      "endToEndFlow",
+      "automatedVerification",
+      "productionEnablement",
+      "sloObservability",
+      "recoveryRollback",
+      "strategyEvidence"
+    ],
+    "requiredEvidenceKindsForComplete": ["implementation", "test", "production"]
+  },
+  "items": [
+    {
+      "id": "A0",
+      "title": "WebSocket broker",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "A1",
+      "title": "Liquidation engine",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "A2",
+      "title": "Liquidation heatmap UI",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "A3",
+      "title": "Push alerts",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "A4",
+      "title": "Public WebSocket endpoints",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "A5",
+      "title": "OI-weighted funding and OI-spike radar",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "B1",
+      "title": "CVD, order flow, and footprint",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "B2",
+      "title": "Backtesting engine",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "B3",
+      "title": "Server-side Signal Lab",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "B4",
+      "title": "Options term structure and volatility surface",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "B5",
+      "title": "Macro confluence expansion",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "C1",
+      "title": "Multi-dimensional screener",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "C2",
+      "title": "Funding basis history and execution-cost yield",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "C3",
+      "title": "Market Workspace liquidation and CVD overlays",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "C4",
+      "title": "Trending and volume-spike detector",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "D1",
+      "title": "Accounts and authentication",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "D2",
+      "title": "Saved workspaces, watchlists, alerts, and backtests",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "D3",
+      "title": "Viral snapshots and Open Graph images",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "D4",
+      "title": "Public Alpha Feed",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "D5",
+      "title": "API keys and public API documentation",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "D6",
+      "title": "SEO landing pages",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "E1",
+      "title": "Source-of-truth documentation",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "E2",
+      "title": "Price alerts and event bus",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "E3",
+      "title": "Options Greeks",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "E4",
+      "title": "Full-history top-50 backfill",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    },
+    {
+      "id": "E5",
+      "title": "Binance availability and geo-handling",
+      "status": "partial",
+      "conditions": {
+        "endToEndFlow": { "state": "pending", "evidence": [] },
+        "automatedVerification": { "state": "pending", "evidence": [] },
+        "productionEnablement": { "state": "pending", "evidence": [] },
+        "sloObservability": { "state": "pending", "evidence": [] },
+        "recoveryRollback": { "state": "pending", "evidence": [] },
+        "strategyEvidence": { "state": "pending", "evidence": [] }
+      }
+    }
+  ]
+}

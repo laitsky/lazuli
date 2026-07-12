@@ -19,6 +19,8 @@
 
 **One-sentence strategy:** Ship the real-time liquidation radar + push alerts as the wedge, compound with free institutional depth (Greeks + backtesting), and grow via viral snapshots + SEO — all enabled by agent parallelization that lets one builder ship like a team.
 
+**Completion evidence:** The versioned [strategy completion ledger](docs/strategy/completion-ledger.json) tracks A0–E5 against the six production-completion conditions. An item is complete only when its implementation, tests, production enablement, observability, recovery, and strategy evidence pass the machine-checked gate documented in [the ledger guide](docs/strategy/README.md).
+
 ---
 
 ## 2. Success Metrics (90 days)
@@ -32,6 +34,8 @@
 | Organic SEO landings           | 50k visits/mo        | Free acquisition flywheel       |
 | Backtest runs / week           | 10,000               | Depth-feature engagement        |
 | Liquidation-feed latency (p95) | < 800 ms             | The explicit wedge vs Coinglass |
+
+These are measured product outcomes, not code-completion gates. A0–E5 completion requires working production instrumentation for the relevant metrics, but does not wait for adoption targets such as 5,000 subscribers or 50,000 monthly SEO visits to be reached.
 
 ---
 
@@ -161,25 +165,25 @@ Everything else parallelizes — that's where agent fan-out wins.
 | Liquidation accuracy questioned         | Med        | High   | **Transparency over black-box** (explicitly anti-Coinglass): document the model, show assumptions, label "estimated" |
 | Exchange rate limits during backfill    | High       | Med    | Queue-based backfill already exists; throttle + resume                                                               |
 | Data-provider outages (Farside/Deribit) | Med        | Med    | Already have snapshot/fallback degradation + provider-status flags                                                   |
-| Free-first = no revenue pressure        | Med        | Med    | Glide-path (§8); build API-tier monetization early                                                                   |
+| Free-first = no revenue pressure        | Med        | Med    | Complete the free milestone first; evaluate the post-90-day glide-path in §8 separately                              |
 | Agent parallelization = merge conflicts | Med        | Low    | Track ownership boundaries; atomic commits per feature                                                               |
 
 ---
 
-## 8. Monetization Glide-Path (free-first, revenue-ready)
+## 8. Post-90-Day Monetization Glide-Path
 
-**Now (free):** Everything retail — all features, all data, full UI.
+**This 90-day milestone is entirely free:** Everything retail — all features, all data, full UI. Monetization is explicitly outside the completion boundary for A0–E5 and cannot delay or restrict their production rollout.
 
-**Pro tier (introduce ~Wk 10, friction-free):**
+**Pro tier (evaluate only after the 90-day milestone is complete):**
 
 - Higher API rate limits & WS connection cap
 - Deeper backtest history (full archive vs 1yr)
 - Webhook/alert quota lift
 - Saved backtest portfolios, signal watch
 
-**B2B API (later):** Paid tiers for quants/builders embedding the data layer — your strongest asset, already production-grade.
+**B2B API (post-milestone):** Paid tiers for quants/builders embedding the data layer — your strongest asset, already production-grade.
 
-Keep retail 100% free; monetize power and programmatic use. This preserves the growth flywheel.
+Keep retail 100% free. Any later monetization of power and programmatic use requires a separate product decision and must preserve the free growth flywheel.
 
 ---
 

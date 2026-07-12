@@ -1,14 +1,182 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  createMagicLink,
   createPasskeyRegistrationOptions,
   deliverAlertNotification,
+  evaluateAlertTrigger,
   listDuePriceAlerts,
   verifyApiKey,
+  verifyMagicLink,
 } from './growthRetentionService';
 import type { Env } from '../types';
 import type { PriceAlertRecord } from '@lazuli/shared';
 
 describe('growth retention service', () => {
+  test('never exposes a magic-link credential in staging', async () => {
+    const env = {
+      ENVIRONMENT: 'staging',
+      APP_BASE_URL: 'https://staging.lazuli.now',
+      DB: {
+        prepare() {
+          return { bind: () => ({ run: async () => ({ meta: { changes: 1 } }) }) };
+        },
+      },
+    } as unknown as Env;
+
+    const result = await createMagicLink(env, 'user@example.com');
+    expect(result.magicLink).toBe(null);
+    expect(result.delivered).toBe(false);
+  });
+
+  test('atomically issues one session and consumes its magic link', async () => {
+    let claimAvailable = true;
+    let sessionsCreated = 0;
+    const statements: string[] = [];
+    const env = {
+      DB: {
+        prepare(statement: string) {
+          statements.push(statement);
+          return {
+            bind() {
+              return {
+                async first() {
+                  if (statement.includes('SELECT email FROM auth_magic_links')) {
+                    return claimAvailable ? { email: 'user@example.com' } : null;
+                  }
+                  if (statement.includes('SELECT * FROM users WHERE email')) {
+                    return {
+                      id: 'usr_1',
+                      email: 'user@example.com',
+                      display_name: null,
+                      created_at: 1_700_000_000,
+                      last_login_at: null,
+                    };
+                  }
+                  return null;
+                },
+                async run() {
+                  return { meta: { changes: 1 } };
+                },
+              };
+            },
+          };
+        },
+        async batch(batchStatements: Array<{ sql?: string }>) {
+          const claimed = claimAvailable;
+          claimAvailable = false;
+          if (claimed) sessionsCreated += 1;
+          return batchStatements.map((_, index) => ({
+            meta: { changes: claimed || index === 0 ? 1 : 0 },
+          }));
+        },
+      },
+    } as unknown as Env;
+
+    const session = await verifyMagicLink(env, 'ml_valid-token');
+    expect(session.user.id).toBe('usr_1');
+    await expect(verifyMagicLink(env, 'ml_valid-token')).rejects.toThrow(
+      'Magic link is invalid or expired'
+    );
+    expect(sessionsCreated).toBe(1);
+    expect(statements.some((statement) => statement.includes('INSERT INTO user_sessions'))).toBe(
+      true
+    );
+    expect(statements.some((statement) => statement.includes('UPDATE auth_magic_links'))).toBe(
+      true
+    );
+  });
+
+  test('does not burn a magic link when its transactional session batch fails', async () => {
+    const linkAvailable = true;
+    const env = {
+      DB: {
+        prepare(statement: string) {
+          return {
+            bind() {
+              return {
+                async first() {
+                  if (statement.includes('SELECT email FROM auth_magic_links')) {
+                    return linkAvailable ? { email: 'user@example.com' } : null;
+                  }
+                  return null;
+                },
+              };
+            },
+          };
+        },
+        async batch() {
+          throw new Error('transient D1 failure');
+        },
+      },
+    } as unknown as Env;
+    await expect(verifyMagicLink(env, 'ml_valid-token')).rejects.toThrow('transient D1 failure');
+    expect(linkAvailable).toBe(true);
+  });
+
+  test('claims a one-shot alert atomically before creating a delivery event', async () => {
+    const statements: string[] = [];
+    let claimAvailable = true;
+    let successfulClaims = 0;
+    const realtimeRequests: Array<{ url: string; init?: RequestInit }> = [];
+    const env = {
+      ADMIN_API_KEY: 'test-admin-key',
+      REALTIME_HUB: {
+        idFromName(topic: string) {
+          return topic;
+        },
+        get() {
+          return {
+            async fetch(url: string, init?: RequestInit) {
+              realtimeRequests.push({ url, init });
+              return Response.json({ ok: true, sequences: [1], delivered: 1 });
+            },
+          };
+        },
+      },
+      DB: {
+        prepare(statement: string) {
+          statements.push(statement);
+          return {
+            bind() {
+              return {
+                async run() {
+                  return { meta: { changes: 1 } };
+                },
+              };
+            },
+          };
+        },
+        async batch() {
+          const claimed = claimAvailable;
+          claimAvailable = false;
+          if (claimed) successfulClaims += 1;
+          return [{ meta: { changes: claimed ? 1 : 0 } }, { meta: { changes: claimed ? 1 : 0 } }];
+        },
+      },
+    } as unknown as Env;
+    const alert = alertRecord({ active: true, triggeredAt: null });
+
+    const first = await evaluateAlertTrigger(env, { alert, currentPrice: 101 });
+    const second = await evaluateAlertTrigger(env, { alert, currentPrice: 102 });
+
+    expect(first.triggered).toBe(true);
+    expect(second).toEqual({ triggered: false, eventId: null });
+    expect(successfulClaims).toBe(1);
+    expect(realtimeRequests).toHaveLength(1);
+    expect(realtimeRequests[0]?.url.includes('/publish-batch?topic=alerts%3Aprice%3Ausr_1')).toBe(
+      true
+    );
+    const realtimeBody = JSON.parse(String(realtimeRequests[0]?.init?.body)) as {
+      batchId?: unknown;
+      events?: Array<{ eventId?: unknown }>;
+    };
+    expect(typeof realtimeBody.batchId).toBe('string');
+    expect(realtimeBody.events?.[0]?.eventId).toBe(first.eventId);
+    expect(
+      statements.some((statement) => statement.includes('INSERT OR IGNORE INTO alert_events'))
+    ).toBe(true);
+  });
+
   test('creates WebAuthn registration options and stores a short-lived challenge', async () => {
     const statements: string[] = [];
     const boundValues: unknown[][] = [];
@@ -299,6 +467,9 @@ describe('growth retention service', () => {
           (requestInits[3]?.headers as Record<string, string>)['X-Lazuli-Signature'] ?? ''
         ).startsWith('sha256=')
       ).toBe(true);
+      expect((requestInits[3]?.headers as Record<string, string>)['X-Lazuli-Key-Id']).toBe(
+        'current'
+      );
 
       const emailBody = JSON.parse(String(requestInits[0]?.body)) as {
         to?: unknown;

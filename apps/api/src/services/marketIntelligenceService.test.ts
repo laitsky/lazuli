@@ -4,6 +4,7 @@ import {
   buildFundingArbitrage,
   buildFundingRadar,
   buildLiquidationRadar,
+  buildNativeOrderFlowResponse,
   buildOrderFlowResponse,
   defaultStrategyDefinition,
   runBacktest,
@@ -112,6 +113,25 @@ describe('market intelligence service', () => {
     expect(['ask', 'bid', 'balanced'].includes(flow.summary.absorption)).toBe(true);
   });
 
+  test('derives native CVD from aggressor-side trade tape', () => {
+    const flow = buildNativeOrderFlowResponse({
+      exchange: 'bybit',
+      symbol: 'BTC-USDT',
+      type: 'perp',
+      timeframe: '1m',
+      trades: [
+        { timestamp, price: 100, quantity: 4, side: 'buy' },
+        { timestamp: timestamp + 1, price: 101, quantity: 1, side: 'sell' },
+        { timestamp: timestamp + 2, price: 102, quantity: 2, side: 'buy' },
+      ],
+    });
+
+    expect(flow.points).toHaveLength(3);
+    expect(flow.summary.cumulativeDelta).toBe(5);
+    expect(Math.abs(flow.summary.deltaPercentOfVolume - (5 / 7) * 100) < 0.0001).toBe(true);
+    expect(flow.points[2]?.cumulativeDelta).toBe(5);
+  });
+
   test('cost-adjusts funding arbitrage yields by execution cost and basis', () => {
     const response = buildFundingArbitrage(
       [
@@ -169,6 +189,28 @@ describe('market intelligence service', () => {
     expect(radar.count).toBe(2);
     expect(radar.items[0]?.baseAsset).toBe('PEPE');
     expect(radar.items[1]?.baseAsset).toBe('BTC');
+  });
+
+  test('scores OI spikes from observed changes rather than current OI share', () => {
+    const rates = [funding('bybit', 0.0001, 100_000)];
+    const baseline = buildFundingRadar(rates, 10);
+    const observed = buildFundingRadar(
+      rates,
+      10,
+      new Map([
+        [
+          'bybit:BTCUSDT.P',
+          {
+            change5mPercent: 4,
+            change1hPercent: 12,
+            change24hPercent: 20,
+            observedAt: Date.now(),
+          },
+        ],
+      ])
+    );
+    expect((observed.items[0]?.spikeScore ?? 0) > (baseline.items[0]?.spikeScore ?? 0)).toBe(true);
+    expect(observed.items[0]?.change1hPercent).toBe(12);
   });
 
   test('keeps spikeScore within 0-100 for all funding radar items', () => {

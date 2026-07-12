@@ -29,7 +29,9 @@ import {
   InstitutionalRange,
   OptionsChainResponse,
   OptionsExpiriesResponse,
+  OptionsSurfaceResponse,
   OptionsVolatilityResponse,
+  MacroHistoryResponse,
   CrossExchangeFundingResponse,
   TechnicalIndicatorResponse,
   OrderBookResponse,
@@ -47,8 +49,17 @@ import {
   AuthMagicLinkResponse,
   AuthSessionResponse,
   PasskeyAuthenticationOptionsResponse,
+  ApiKeyRecord,
   PasskeyRecord,
   PasskeyRegistrationOptionsResponse,
+  PriceAlertRecord,
+  SavedBacktestRecord,
+  SavedWorkspaceRecord,
+  SignalLabStrategy,
+  UserAccount,
+  WatchlistRecord,
+  AsyncBacktestJob,
+  AsyncBacktestJobRequest,
 } from '@lazuli/shared';
 
 // API base URL - defaults to same-origin for Cloudflare Workers Static Assets.
@@ -68,6 +79,17 @@ export interface MultiTimeframeOHLCVResponse {
   timeframes: Timeframe[];
   candles: Record<string, OHLCV[]>;
   timestamp: number;
+}
+
+/** Authenticated immutable Signal Lab version input. */
+export interface SignalStrategyInput {
+  name: string;
+  exchange: SupportedExchange;
+  symbol: string;
+  marketType: 'spot' | 'perp';
+  timeframe: Timeframe;
+  strategy: StrategyDefinition;
+  autoBacktest?: boolean;
 }
 
 /**
@@ -381,6 +403,7 @@ async function apiFetch<T>(
     const response = await fetchWithTimeout(
       `${API_BASE_URL}${endpoint}${queryString}`,
       {
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -419,6 +442,7 @@ async function apiPost<T>(
       `${API_BASE_URL}${endpoint}`,
       {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -488,6 +512,14 @@ async function apiDeleteWithBearer<T>(
  * API Client class with methods for all endpoints
  */
 export class LazuliAPI {
+  static async getMe(): Promise<ApiResponse<UserAccount | null>> {
+    return apiFetch<UserAccount | null>(`${API_VERSION}/me`);
+  }
+
+  static async logout(): Promise<ApiResponse<{ revoked: boolean }>> {
+    return apiPost<{ revoked: boolean }>(`${API_VERSION}/auth/logout`, {});
+  }
+
   static async requestMagicLink(email: string): Promise<ApiResponse<AuthMagicLinkResponse>> {
     return apiPost<AuthMagicLinkResponse>(`${API_VERSION}/auth/magic-link`, { email });
   }
@@ -497,26 +529,34 @@ export class LazuliAPI {
   }
 
   static async createPasskeyRegistrationOptions(
-    sessionToken: string
+    sessionToken?: string
   ): Promise<ApiResponse<PasskeyRegistrationOptionsResponse>> {
-    return apiPostWithBearer<PasskeyRegistrationOptionsResponse>(
-      `${API_VERSION}/auth/passkeys/registration/options`,
-      sessionToken,
-      {}
-    );
+    return sessionToken
+      ? apiPostWithBearer<PasskeyRegistrationOptionsResponse>(
+          `${API_VERSION}/auth/passkeys/registration/options`,
+          sessionToken,
+          {}
+        )
+      : apiPost<PasskeyRegistrationOptionsResponse>(
+          `${API_VERSION}/auth/passkeys/registration/options`,
+          {}
+        );
   }
 
   static async verifyPasskeyRegistration(
-    sessionToken: string,
     challengeId: string,
     response: Record<string, unknown>,
-    name?: string
+    name?: string,
+    sessionToken?: string
   ): Promise<ApiResponse<PasskeyRecord>> {
-    return apiPostWithBearer<PasskeyRecord>(
-      `${API_VERSION}/auth/passkeys/registration/verify`,
-      sessionToken,
-      { challengeId, response, name }
-    );
+    const body = { challengeId, response, name };
+    return sessionToken
+      ? apiPostWithBearer<PasskeyRecord>(
+          `${API_VERSION}/auth/passkeys/registration/verify`,
+          sessionToken,
+          body
+        )
+      : apiPost<PasskeyRecord>(`${API_VERSION}/auth/passkeys/registration/verify`, body);
   }
 
   static async createPasskeyAuthenticationOptions(
@@ -538,17 +578,194 @@ export class LazuliAPI {
     });
   }
 
-  static async listPasskeys(sessionToken: string): Promise<ApiResponse<PasskeyRecord[]>> {
-    return apiGetWithBearer<PasskeyRecord[]>(`${API_VERSION}/me/passkeys`, sessionToken);
+  static async listPasskeys(sessionToken?: string): Promise<ApiResponse<PasskeyRecord[]>> {
+    return sessionToken
+      ? apiGetWithBearer<PasskeyRecord[]>(`${API_VERSION}/me/passkeys`, sessionToken)
+      : apiFetch<PasskeyRecord[]>(`${API_VERSION}/me/passkeys`);
   }
 
   static async deletePasskey(
-    sessionToken: string,
-    id: string
+    id: string,
+    sessionToken?: string
   ): Promise<ApiResponse<{ deleted: boolean }>> {
-    return apiDeleteWithBearer<{ deleted: boolean }>(
-      `${API_VERSION}/me/passkeys/${encodeURIComponent(id)}`,
-      sessionToken
+    const endpoint = `${API_VERSION}/me/passkeys/${encodeURIComponent(id)}`;
+    return sessionToken
+      ? apiDeleteWithBearer<{ deleted: boolean }>(endpoint, sessionToken)
+      : apiFetch<{ deleted: boolean }>(endpoint, undefined, undefined, { method: 'DELETE' });
+  }
+
+  static async listWorkspaces(): Promise<ApiResponse<SavedWorkspaceRecord[]>> {
+    return apiFetch<SavedWorkspaceRecord[]>(`${API_VERSION}/me/workspaces`);
+  }
+
+  static async saveWorkspace(input: {
+    name: string;
+    state: Record<string, unknown>;
+    isDefault?: boolean;
+  }): Promise<ApiResponse<SavedWorkspaceRecord>> {
+    return apiPost<SavedWorkspaceRecord>(`${API_VERSION}/me/workspaces`, input);
+  }
+
+  static async deleteWorkspace(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return apiFetch<{ deleted: boolean }>(
+      `${API_VERSION}/me/workspaces/${encodeURIComponent(id)}`,
+      undefined,
+      undefined,
+      { method: 'DELETE' }
+    );
+  }
+
+  static async listWatchlists(): Promise<ApiResponse<WatchlistRecord[]>> {
+    return apiFetch<WatchlistRecord[]>(`${API_VERSION}/me/watchlists`);
+  }
+
+  static async saveWatchlist(input: {
+    name: string;
+    items: string[];
+  }): Promise<ApiResponse<WatchlistRecord>> {
+    return apiPost<WatchlistRecord>(`${API_VERSION}/me/watchlists`, input);
+  }
+
+  static async deleteWatchlist(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return apiFetch<{ deleted: boolean }>(
+      `${API_VERSION}/me/watchlists/${encodeURIComponent(id)}`,
+      undefined,
+      undefined,
+      { method: 'DELETE' }
+    );
+  }
+
+  static async listSavedBacktests(): Promise<ApiResponse<SavedBacktestRecord[]>> {
+    return apiFetch<SavedBacktestRecord[]>(`${API_VERSION}/me/backtests`);
+  }
+
+  static async saveBacktest(input: {
+    name: string;
+    exchange: string;
+    symbol: string;
+    timeframe: string;
+    strategy: Record<string, unknown>;
+    result?: Record<string, unknown> | null;
+  }): Promise<ApiResponse<SavedBacktestRecord>> {
+    return apiPost<SavedBacktestRecord>(`${API_VERSION}/me/backtests`, input);
+  }
+
+  static async deleteSavedBacktest(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return apiFetch<{ deleted: boolean }>(
+      `${API_VERSION}/me/backtests/${encodeURIComponent(id)}`,
+      undefined,
+      undefined,
+      { method: 'DELETE' }
+    );
+  }
+
+  static async listSignalStrategies(): Promise<ApiResponse<SignalLabStrategy[]>> {
+    return apiFetch<SignalLabStrategy[]>(`${API_VERSION}/me/signal-strategies`);
+  }
+
+  static async createSignalStrategy(
+    input: SignalStrategyInput
+  ): Promise<ApiResponse<SignalLabStrategy>> {
+    return apiPost<SignalLabStrategy>(`${API_VERSION}/me/signal-strategies`, input);
+  }
+
+  static async createSignalStrategyVersion(
+    id: string,
+    input: SignalStrategyInput
+  ): Promise<ApiResponse<SignalLabStrategy>> {
+    return apiPost<SignalLabStrategy>(
+      `${API_VERSION}/me/signal-strategies/${encodeURIComponent(id)}/versions`,
+      input
+    );
+  }
+
+  static async runSignalStrategyBacktest(
+    id: string,
+    input: SignalStrategyInput
+  ): Promise<ApiResponse<SignalLabStrategy>> {
+    return apiPost<SignalLabStrategy>(
+      `${API_VERSION}/me/signal-strategies/${encodeURIComponent(id)}/backtest`,
+      input
+    );
+  }
+
+  static async deleteSignalStrategy(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return apiFetch<{ deleted: boolean }>(
+      `${API_VERSION}/me/signal-strategies/${encodeURIComponent(id)}`,
+      undefined,
+      undefined,
+      { method: 'DELETE' }
+    );
+  }
+
+  static async createAsyncBacktestJob(
+    input: AsyncBacktestJobRequest,
+    idempotencyKey: string
+  ): Promise<ApiResponse<AsyncBacktestJob>> {
+    return apiFetch<AsyncBacktestJob>(`${API_VERSION}/backtests/jobs`, undefined, undefined, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: JSON.stringify(input),
+    });
+  }
+
+  static async getAsyncBacktestJob(id: string): Promise<ApiResponse<AsyncBacktestJob>> {
+    return apiFetch<AsyncBacktestJob>(`${API_VERSION}/backtests/jobs/${encodeURIComponent(id)}`);
+  }
+
+  static async cancelAsyncBacktestJob(id: string): Promise<ApiResponse<AsyncBacktestJob>> {
+    return apiPost<AsyncBacktestJob>(
+      `${API_VERSION}/backtests/jobs/${encodeURIComponent(id)}/cancel`,
+      {}
+    );
+  }
+
+  static async listAlerts(): Promise<ApiResponse<PriceAlertRecord[]>> {
+    return apiFetch<PriceAlertRecord[]>(`${API_VERSION}/me/alerts`);
+  }
+
+  static async createAlert(input: {
+    symbol: string;
+    exchange: string;
+    marketType: 'spot' | 'perp';
+    priceTarget: number;
+    condition: 'above' | 'below';
+    delivery?: Record<string, unknown> | null;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<ApiResponse<PriceAlertRecord>> {
+    return apiPost<PriceAlertRecord>(`${API_VERSION}/me/alerts`, input);
+  }
+
+  static async deleteAlert(id: number): Promise<ApiResponse<{ deleted: boolean }>> {
+    return apiFetch<{ deleted: boolean }>(`${API_VERSION}/me/alerts/${id}`, undefined, undefined, {
+      method: 'DELETE',
+    });
+  }
+
+  static async evaluateAlerts(): Promise<ApiResponse<unknown>> {
+    return apiPost<unknown>(`${API_VERSION}/me/alerts/evaluate`, {});
+  }
+
+  static async listApiKeys(): Promise<ApiResponse<ApiKeyRecord[]>> {
+    return apiFetch<ApiKeyRecord[]>(`${API_VERSION}/me/api-keys`);
+  }
+
+  static async createApiKey(input: {
+    name: string;
+    scopes?: string[];
+  }): Promise<ApiResponse<ApiKeyRecord & { secret: string }>> {
+    return apiPost<ApiKeyRecord & { secret: string }>(`${API_VERSION}/me/api-keys`, input);
+  }
+
+  static async revokeApiKey(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return apiFetch<{ deleted: boolean }>(
+      `${API_VERSION}/me/api-keys/${encodeURIComponent(id)}`,
+      undefined,
+      undefined,
+      { method: 'DELETE' }
     );
   }
 
@@ -1044,6 +1261,32 @@ export class LazuliAPI {
   ): Promise<ApiResponse<OptionsVolatilityResponse>> {
     return apiFetch<OptionsVolatilityResponse>(
       `${API_VERSION}/institutional/options/volatility`,
+      queryParams,
+      60000
+    );
+  }
+
+  /**
+   * Get the observed-only strike/maturity IV surface and ATM term structure.
+   */
+  static async getOptionsSurface(
+    queryParams?: InstitutionalAssetQueryParams
+  ): Promise<ApiResponse<OptionsSurfaceResponse>> {
+    return apiFetch<OptionsSurfaceResponse>(
+      `${API_VERSION}/institutional/options/surface`,
+      queryParams,
+      60000
+    );
+  }
+
+  /**
+   * Get independently stale-aware BTC dominance, stablecoin supply, and sentiment history.
+   */
+  static async getMacroHistory(
+    queryParams?: InstitutionalRangeQueryParams
+  ): Promise<ApiResponse<MacroHistoryResponse>> {
+    return apiFetch<MacroHistoryResponse>(
+      `${API_VERSION}/institutional/macro/history`,
       queryParams,
       60000
     );

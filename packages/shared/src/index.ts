@@ -121,8 +121,8 @@ export interface UserAccount {
 }
 
 /**
- * Magic-link request response. Production deployments omit `magicLink` after
- * handing the link to the configured delivery webhook.
+ * Magic-link request response. Only explicit local development exposes
+ * `magicLink`; staging and production always deliver it out of band.
  */
 export interface AuthMagicLinkResponse {
   email: string;
@@ -260,6 +260,9 @@ export interface AlphaFeedItem {
   href: string;
   payload: Record<string, unknown>;
   timestamp: number;
+  /** Public signal lifecycle metadata used by feeds, SEO, and stable permalinks. */
+  expiresAt?: number;
+  expired?: boolean;
 }
 
 export interface AlphaFeedResponse {
@@ -807,6 +810,260 @@ export interface CrossExchangeFundingResponse {
 // Real-time Engine, Order-flow, Backtesting, and Signal Lab Types
 // ============================================================================
 
+/** Current realtime wire-contract version. */
+export const REALTIME_SCHEMA_VERSION = 1 as const;
+
+export type RealtimeMarketType = 'spot' | 'perp';
+export type RealtimePublicChannel =
+  | 'ticker'
+  | 'liquidations'
+  | 'liquidation-bands'
+  | 'trades'
+  | 'cvd'
+  | 'orderbook'
+  | 'funding'
+  | 'open-interest';
+
+/**
+ * Convert provider, CCXT, and Lazuli symbols into the single market identity
+ * used by REST records, realtime topics, alert lookup, and persisted rollups.
+ */
+export function canonicalRealtimeSymbol(value: string, marketType: RealtimeMarketType): string {
+  const upper = value.trim().toUpperCase();
+  const withoutSettlement = upper.split(':')[0] ?? upper;
+  const compact = withoutSettlement.replace(/\.P$/, '').replace(/[-_/]/g, '');
+  if (!compact) return '';
+  if (marketType === 'perp') return `${compact}.P`;
+
+  const separated = withoutSettlement.replace(/\.P$/, '').match(/^([A-Z0-9]+)[-_/]([A-Z0-9]+)$/);
+  if (separated?.[1] && separated[2]) return `${separated[1]}-${separated[2]}`;
+  for (const quote of ['USDT', 'USDC', 'USD', 'KRW', 'BTC', 'ETH', 'EUR']) {
+    if (compact.length > quote.length && compact.endsWith(quote)) {
+      return `${compact.slice(0, -quote.length)}-${quote}`;
+    }
+  }
+  return compact;
+}
+
+export function buildRealtimeTopic(
+  channel: RealtimePublicChannel,
+  exchange: SupportedExchange,
+  symbol: string,
+  marketType: RealtimeMarketType
+): RealtimeTopic {
+  return `${channel}:${exchange}:${canonicalRealtimeSymbol(symbol, marketType).toLowerCase()}` as RealtimeTopic;
+}
+
+/** Public and account-scoped topics accepted by the realtime broker. */
+export type RealtimeTopic =
+  | `ticker:${SupportedExchange}:${string}`
+  | `liquidations:${SupportedExchange}:${string}`
+  | `liquidation-bands:${SupportedExchange}:${string}`
+  | `trades:${SupportedExchange}:${string}`
+  | `cvd:${SupportedExchange}:${string}`
+  | `orderbook:${SupportedExchange}:${string}`
+  | `funding:${SupportedExchange}:${string}`
+  | `open-interest:${SupportedExchange}:${string}`
+  | `alerts:user:${string}`;
+
+/** Provenance travels with every event so native, modeled, and fallback data cannot be confused. */
+export interface RealtimeProvenance {
+  kind: 'exchange-native' | 'modeled' | 'derived' | 'system';
+  provider: string;
+  quality: 'live' | 'snapshot' | 'fallback';
+  upstreamSequence?: string | number;
+}
+
+/** Fields shared by all server-published realtime events. Timestamps are Unix milliseconds. */
+export interface RealtimeEventBase<TType extends string, TTopic extends RealtimeTopic, TPayload> {
+  schemaVersion: typeof REALTIME_SCHEMA_VERSION;
+  type: TType;
+  eventId: string;
+  sequence: number;
+  topic: TTopic;
+  exchangeTimestamp: number;
+  ingestedAt: number;
+  publishedAt: number;
+  provenance: RealtimeProvenance;
+  payload: TPayload;
+}
+
+export interface RealtimeTickerPayload {
+  exchange: SupportedExchange;
+  symbol: string;
+  marketType: 'spot' | 'perp';
+  bid: number | null;
+  ask: number | null;
+  last: number | null;
+  volume24h: number | null;
+  change24hPercent: number | null;
+}
+
+export interface RealtimeLiquidationPrintPayload {
+  exchange: SupportedExchange;
+  symbol: string;
+  side: 'long' | 'short';
+  price: number;
+  quantity: number;
+  notionalUsd: number | null;
+  orderId?: string;
+}
+
+export interface LiquidationPrint {
+  eventId: string;
+  sequence: number;
+  exchangeTimestamp: number;
+  ingestedAt: number;
+  publishedAt: number;
+  side: 'long' | 'short';
+  price: number;
+  quantity: number;
+  notionalUsd: number | null;
+  provenance: RealtimeProvenance;
+}
+
+export interface RealtimeLiquidationBandPayload {
+  exchange: SupportedExchange;
+  symbol: string;
+  markPrice: number | null;
+  levels: LiquidationLevel[];
+}
+
+export interface RealtimeTradePayload {
+  exchange: SupportedExchange;
+  symbol: string;
+  tradeId: string;
+  price: number;
+  quantity: number;
+  side: 'buy' | 'sell';
+}
+
+export interface RealtimeCvdPayload {
+  exchange: SupportedExchange;
+  symbol: string;
+  windowStart: number;
+  windowEnd: number;
+  buyVolume: number;
+  sellVolume: number;
+  delta: number;
+  cumulativeDelta: number;
+}
+
+export interface RealtimeOrderBookDeltaPayload {
+  exchange: SupportedExchange;
+  symbol: string;
+  firstSequence: string | number | null;
+  lastSequence: string | number | null;
+  bids: Array<[price: number, quantity: number]>;
+  asks: Array<[price: number, quantity: number]>;
+  reset: boolean;
+}
+
+export interface RealtimeFundingPayload {
+  exchange: SupportedExchange;
+  symbol: string;
+  fundingRate: number;
+  nextFundingAt: number | null;
+}
+
+export interface RealtimeOpenInterestPayload {
+  exchange: SupportedExchange;
+  symbol: string;
+  openInterest: number;
+  openInterestUsd: number | null;
+  change5mPercent: number | null;
+  change1hPercent: number | null;
+  change24hPercent: number | null;
+}
+
+export interface RealtimeAlertPayload {
+  alertId: string | number;
+  userId: string;
+  exchange: SupportedExchange;
+  symbol: string;
+  condition: 'above' | 'below';
+  targetPrice: number;
+  triggerPrice: number;
+  triggeredAt: number;
+}
+
+/**
+ * Versioned discriminated event union used by ingestion, Durable Objects, and
+ * browser consumers. Narrow on `type`; `topic` remains independently useful
+ * for broker routing and sequence recovery.
+ */
+export type RealtimeEvent =
+  | RealtimeEventBase<'ticker', `ticker:${SupportedExchange}:${string}`, RealtimeTickerPayload>
+  | RealtimeEventBase<
+      'liquidation-print',
+      `liquidations:${SupportedExchange}:${string}`,
+      RealtimeLiquidationPrintPayload
+    >
+  | RealtimeEventBase<
+      'liquidation-bands',
+      `liquidation-bands:${SupportedExchange}:${string}`,
+      RealtimeLiquidationBandPayload
+    >
+  | RealtimeEventBase<'trade', `trades:${SupportedExchange}:${string}`, RealtimeTradePayload>
+  | RealtimeEventBase<'cvd', `cvd:${SupportedExchange}:${string}`, RealtimeCvdPayload>
+  | RealtimeEventBase<
+      'orderbook-delta',
+      `orderbook:${SupportedExchange}:${string}`,
+      RealtimeOrderBookDeltaPayload
+    >
+  | RealtimeEventBase<'funding', `funding:${SupportedExchange}:${string}`, RealtimeFundingPayload>
+  | RealtimeEventBase<
+      'open-interest',
+      `open-interest:${SupportedExchange}:${string}`,
+      RealtimeOpenInterestPayload
+    >
+  | RealtimeEventBase<'alert', `alerts:user:${string}`, RealtimeAlertPayload>;
+
+/** Browser-to-broker protocol messages. */
+export type RealtimeClientMessage =
+  | {
+      type: 'subscribe';
+      requestId: string;
+      topics: RealtimeTopic[];
+      token?: string;
+      resumeFrom?: Partial<Record<RealtimeTopic, number>>;
+    }
+  | { type: 'unsubscribe'; requestId: string; topics: RealtimeTopic[] }
+  | { type: 'ping'; requestId?: string; sentAt: number };
+
+/** Broker-to-browser protocol messages. */
+export type RealtimeServerMessage =
+  | {
+      type: 'ready';
+      schemaVersion: typeof REALTIME_SCHEMA_VERSION;
+      connectionId: string;
+      heartbeatIntervalMs: number;
+      serverTime: number;
+    }
+  | { type: 'subscribed'; requestId: string; topics: RealtimeTopic[] }
+  | { type: 'unsubscribed'; requestId: string; topics: RealtimeTopic[] }
+  | { type: 'event'; event: RealtimeEvent }
+  | { type: 'heartbeat'; serverTime: number }
+  | { type: 'pong'; requestId?: string; sentAt: number; serverTime: number }
+  | {
+      type: 'snapshot-required';
+      topic: RealtimeTopic;
+      expectedSequence: number;
+      availableSequence: number;
+    }
+  | {
+      type: 'error';
+      requestId?: string;
+      code:
+        | 'invalid-message'
+        | 'invalid-topic'
+        | 'unauthorized'
+        | 'rate-limited'
+        | 'internal-error';
+      message: string;
+      retryable: boolean;
+    };
+
 /**
  * One modeled liquidation band around the current mark price.
  *
@@ -834,6 +1091,14 @@ export interface LiquidationRadarResponse {
   markPrice: number | null;
   openInterestUsd: number | null;
   levels: LiquidationLevel[];
+  /** Exchange-native observations kept separate from modeled bands. */
+  nativePrints: LiquidationPrint[];
+  nativeCoverage: {
+    status: 'live' | 'empty' | 'unavailable';
+    count: number;
+    latestExchangeTimestamp: number | null;
+    sequence: number | null;
+  };
   heatmap: Array<{
     price: number;
     longIntensity: number;
@@ -902,6 +1167,11 @@ export interface FundingRadarItem {
   oiWeightedCarryUsd: number | null;
   pressure: 'longs-pay' | 'shorts-pay' | 'neutral';
   spikeScore: number;
+  /** Observed open-interest changes from persisted venue samples; null until enough history exists. */
+  change5mPercent: number | null;
+  change1hPercent: number | null;
+  change24hPercent: number | null;
+  oiHistoryObservedAt: number | null;
 }
 
 /**
@@ -990,6 +1260,55 @@ export interface BacktestResponse {
   equityCurve: Array<{ timestamp: number; equity: number; drawdownPercent: number }>;
   trades: BacktestTrade[];
   timestamp: number;
+}
+
+/** Lifecycle state for a queued full-archive backtest. */
+export type AsyncBacktestJobStatus = 'queued' | 'running' | 'complete' | 'failed' | 'cancelled';
+
+/** Request body accepted by the authenticated full-archive backtest endpoint. */
+export interface AsyncBacktestJobRequest {
+  exchange: SupportedExchange;
+  symbol: string;
+  marketType: 'spot' | 'perp';
+  timeframe: Timeframe;
+  startTime: number;
+  endTime: number;
+  strategy: StrategyDefinition;
+  strategyId?: string;
+  savedBacktestId?: string;
+  /** May also be supplied through the Idempotency-Key request header. */
+  idempotencyKey?: string;
+}
+
+/** Compact result retained in D1; the complete curves and trades remain in R2. */
+export interface AsyncBacktestResultSummary {
+  metrics: BacktestResponse['metrics'];
+  candleCount: number;
+  equityPointCount: number;
+  tradeCount: number;
+  resultUrl: string;
+}
+
+/** Authenticated async backtest job state returned to its owner. */
+export interface AsyncBacktestJob {
+  id: string;
+  status: AsyncBacktestJobStatus;
+  exchange: SupportedExchange;
+  symbol: string;
+  marketType: 'spot' | 'perp';
+  timeframe: Timeframe;
+  startTime: number;
+  endTime: number;
+  progress: number;
+  processedRows: number;
+  totalRows: number | null;
+  result: AsyncBacktestResultSummary | null;
+  error: string | null;
+  cancelRequestedAt: number | null;
+  startedAt: number | null;
+  completedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
 }
 
 /**
@@ -1285,11 +1604,105 @@ export interface OptionsVolatilityResponse {
   timestamp: number;
 }
 
+/** Quality state for one observed side of an options IV surface cell. */
+export type OptionIvQuality = 'observed' | 'illiquid' | 'missing';
+
+/**
+ * One strike/expiry cell in the observed implied-volatility surface. Values are
+ * never interpolated: a null value and `missing` mask means the venue did not
+ * publish a usable observation for that side.
+ */
+export interface OptionIvSurfacePoint {
+  expiry: string;
+  expiryTimestamp: number;
+  daysToExpiry: number;
+  strike: number;
+  callIv: number | null;
+  putIv: number | null;
+  callDelta: number | null;
+  putDelta: number | null;
+  callOpenInterest: number;
+  putOpenInterest: number;
+  qualityMask: {
+    call: OptionIvQuality;
+    put: OptionIvQuality;
+  };
+}
+
+/** Observed ATM term-structure point derived from the nearest listed strike. */
+export interface OptionIvTermStructurePoint {
+  expiry: string;
+  expiryTimestamp: number;
+  daysToExpiry: number;
+  atmImpliedVolatility: number | null;
+  sourceStrike: number | null;
+  strikeDistancePercent: number | null;
+  skew25Delta: number | null;
+  quality: OptionIvQuality;
+}
+
+/** Full observed IV surface with explicit coverage and data-quality metadata. */
+export interface OptionsSurfaceResponse {
+  asset: InstitutionalAsset;
+  underlyingPrice: number | null;
+  points: OptionIvSurfacePoint[];
+  termStructure: OptionIvTermStructurePoint[];
+  expiries: OptionExpirySummary[];
+  quality: {
+    observedSides: number;
+    illiquidSides: number;
+    missingSides: number;
+    coveragePercent: number;
+    methodology: 'observed-only';
+  };
+  provider: InstitutionalProviderStatus;
+  timestamp: number;
+}
+
+/** Macro series identifiers used by the confluence engine. */
+export type MacroMetric = 'btcDominance' | 'stablecoinSupplyUsd' | 'fearGreedIndex';
+
+/** One normalized macro observation. */
+export interface MacroHistoryPoint {
+  observedAt: number;
+  value: number;
+}
+
+/** A macro series whose provider health degrades independently of its peers. */
+export interface MacroHistorySeries {
+  metric: MacroMetric;
+  unit: 'percent' | 'usd' | 'index';
+  points: MacroHistoryPoint[];
+  latest: MacroHistoryPoint | null;
+  provider: InstitutionalProviderStatus;
+}
+
+/** BTC dominance, stablecoin supply, and sentiment history for confluence. */
+export interface MacroHistoryResponse {
+  range: InstitutionalRange;
+  series: {
+    btcDominance: MacroHistorySeries;
+    stablecoinSupplyUsd: MacroHistorySeries;
+    fearGreedIndex: MacroHistorySeries;
+  };
+  providers: InstitutionalProviderStatus[];
+  timestamp: number;
+}
+
 /**
  * Single transparent signal feeding the institutional regime score.
  */
 export interface ConfluenceSignal {
-  id: 'etfDemand' | 'optionsSkew' | 'perpLeverage' | 'basisStress' | 'spotTrend' | 'liquidityRisk';
+  id:
+    | 'etfDemand'
+    | 'optionsSkew'
+    | 'perpLeverage'
+    | 'basisStress'
+    | 'spotTrend'
+    | 'liquidityRisk'
+    | 'btcDominance'
+    | 'stablecoinLiquidity'
+    | 'fearGreed';
   label: string;
   score: number;
   direction: 'bullish' | 'bearish' | 'neutral' | 'risk';

@@ -1,0 +1,29 @@
+{
+  "name": "@lazuli/ingest",
+  "version": "0.1.0-alpha",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "dev:container": "bun --watch src/container/main.ts",
+    "build": "wrangler deploy --dry-run --containers-rollout=none",
+    "build:image": "docker build --pull --tag lazuli-ingest:verify .",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "deploy:production": "wrangler deploy --env production",
+    "type-check": "tsc --noEmit",
+    "test": "bun test src",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist .turbo .wrangler"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7",
+    "@lazuli/shared": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260711.1",
+    "@types/bun": "^1.2.19",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.103.0"
+  }
+}

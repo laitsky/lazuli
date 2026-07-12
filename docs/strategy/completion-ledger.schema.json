@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lazuli.dev/schemas/strategy-completion-ledger-v1.json",
+  "title": "Lazuli strategy completion ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "strategy", "updatedAt", "completionPolicy", "items"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "strategy": { "const": "PRODUCT-STRATEGY.md" },
+    "updatedAt": { "type": "string", "format": "date" },
+    "completionPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredConditions", "requiredEvidenceKindsForComplete"],
+      "properties": {
+        "requiredConditions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/conditionName" }
+        },
+        "requiredEvidenceKindsForComplete": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "enum": ["implementation", "test", "production"] }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 26,
+      "maxItems": 26,
+      "items": { "$ref": "#/$defs/item" }
+    }
+  },
+  "$defs": {
+    "conditionName": {
+      "enum": [
+        "endToEndFlow",
+        "automatedVerification",
+        "productionEnablement",
+        "sloObservability",
+        "recoveryRollback",
+        "strategyEvidence"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "ref", "description"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "implementation",
+            "test",
+            "production",
+            "observability",
+            "runbook",
+            "documentation"
+          ]
+        },
+        "ref": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "evidence"],
+      "properties": {
+        "state": { "enum": ["pending", "verified"] },
+        "evidence": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/evidence" }
+        }
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status", "conditions"],
+      "properties": {
+        "id": { "pattern": "^[A-E][0-9]$" },
+        "title": { "type": "string", "minLength": 1 },
+        "status": {
+          "enum": ["planned", "in_progress", "partial", "blocked", "complete"]
+        },
+        "completedAt": { "type": "string", "format": "date-time" },
+        "conditions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "endToEndFlow",
+            "automatedVerification",
+            "productionEnablement",
+            "sloObservability",
+            "recoveryRollback",
+            "strategyEvidence"
+          ],
+          "properties": {
+            "endToEndFlow": { "$ref": "#/$defs/condition" },
+            "automatedVerification": { "$ref": "#/$defs/condition" },
+            "productionEnablement": { "$ref": "#/$defs/condition" },
+            "sloObservability": { "$ref": "#/$defs/condition" },
+            "recoveryRollback": { "$ref": "#/$defs/condition" },
+            "strategyEvidence": { "$ref": "#/$defs/condition" }
+          }
+        }
+      }
+    }
+  }
+}

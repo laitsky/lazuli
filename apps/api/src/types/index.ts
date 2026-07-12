@@ -171,7 +171,8 @@ export interface CustomIndexResponse {
 export interface Env {
   DB: D1Database;
   OHLCV_ARCHIVE: R2Bucket;
-  BACKFILL_QUEUE: Queue<BackfillQueueMessage>;
+  BACKFILL_QUEUE: Queue<WorkerQueueMessage>;
+  ALERT_DELIVERY_QUEUE?: Queue<AlertDeliveryQueueMessage>;
   BACKFILL_WORKFLOW?: Workflow<BackfillWorkflowParams>;
   API_ANALYTICS?: AnalyticsEngineDataset;
   MARKET_DATA_CACHE: DurableObjectNamespace;
@@ -184,7 +185,30 @@ export interface Env {
   ADMIN_RATE_LIMITER: RateLimit;
   ADMIN_API_KEY?: string;
   ADMIN_API_KEY_ID?: string;
+  ADMIN_API_KEY_NEXT?: string;
+  ADMIN_API_KEY_ID_NEXT?: string;
   ADMIN_SIGNING_SECRET?: string;
+  ADMIN_SIGNING_SECRET_NEXT?: string;
+  INGEST_SIGNING_SECRET?: string;
+  INGEST_SIGNING_SECRET_ID?: string;
+  INGEST_SIGNING_SECRET_NEXT?: string;
+  INGEST_SIGNING_SECRET_NEXT_ID?: string;
+  METRICS_INGEST_SECRET?: string;
+  METRICS_INGEST_SECRET_ID?: string;
+  METRICS_INGEST_SECRET_NEXT?: string;
+  METRICS_INGEST_SECRET_NEXT_ID?: string;
+  REALTIME_TOKEN_SECRET?: string;
+  REALTIME_TOKEN_SECRET_ID?: string;
+  REALTIME_TOKEN_SECRET_NEXT?: string;
+  REALTIME_TOKEN_SECRET_NEXT_ID?: string;
+  NOTIFICATION_ENCRYPTION_KEY?: string;
+  NOTIFICATION_ENCRYPTION_KEY_ID?: string;
+  NOTIFICATION_ENCRYPTION_KEY_NEXT?: string;
+  NOTIFICATION_ENCRYPTION_KEY_NEXT_ID?: string;
+  MAGIC_LINK_EMAIL?: SendEmail;
+  ALERT_EMAIL?: SendEmail;
+  MAGIC_LINK_EMAIL_FROM?: string;
+  ALERT_EMAIL_FROM?: string;
   APP_BASE_URL?: string;
   CORS_ORIGIN?: string;
   ENVIRONMENT?: 'local' | 'staging' | 'production';
@@ -201,6 +225,14 @@ export interface Env {
   ALERT_TELEGRAM_BOT_TOKEN?: string;
   ALERT_USER_WEBHOOKS_ENABLED?: string;
   ALERT_WEBHOOK_SIGNING_SECRET?: string;
+  ALERT_WEBHOOK_SIGNING_SECRET_ID?: string;
+  ALERT_WEBHOOK_SIGNING_SECRET_NEXT?: string;
+  ALERT_WEBHOOK_SIGNING_SECRET_NEXT_ID?: string;
+  OPERATIONAL_OWNER?: string;
+  OPERATIONAL_ALERT_EMAIL?: string;
+  OPS_READ_SECRET?: string;
+  OPS_READ_SECRET_NEXT?: string;
+  INGEST_HEALTH_URL?: string;
   PUBLIC_API_BASE_URL?: string;
 }
 
@@ -220,6 +252,25 @@ export interface BackfillQueueMessage {
   endTime: number;
   attempt?: number;
 }
+
+/** One bounded, sequential archive partition for an asynchronous backtest. */
+export interface AsyncBacktestQueueMessage {
+  kind: 'async-backtest';
+  jobId: string;
+  chunkIndex: number;
+}
+
+/** One idempotent notification delivery attempt owned by the alert queue. */
+export interface AlertDeliveryQueueMessage {
+  kind: 'alert-delivery';
+  attemptId: string;
+}
+
+/** Shared Queue payload union; legacy backfill payloads intentionally remain unchanged. */
+export type WorkerQueueMessage =
+  | BackfillQueueMessage
+  | AsyncBacktestQueueMessage
+  | AlertDeliveryQueueMessage;
 
 /**
  * Parameters passed to the durable Cloudflare Workflow that fans a backfill job

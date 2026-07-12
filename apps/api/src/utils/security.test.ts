@@ -8,6 +8,7 @@ import {
   shouldResolvePublicApiKey,
   signAdminRequest,
   verifyAdminSignature,
+  verifyAdminSignatureWithRotation,
 } from './security';
 import type { Env } from '../types';
 
@@ -124,6 +125,29 @@ describe('admin request signing', () => {
     });
     expect(wrongKeyId.ok).toBe(false);
     if (!wrongKeyId.ok) expect(wrongKeyId.reason).toBe('key_id_mismatch');
+  });
+
+  test('accepts a staged next admin signing key during rotation', async () => {
+    const request = {
+      method: 'GET',
+      url: 'https://api.lazuli.now/api/v1/admin/health',
+      timestamp,
+      nonce,
+      body: '',
+    };
+    const signature = await signAdminRequest('next-signing-secret', request);
+    expect(
+      await verifyAdminSignatureWithRotation({
+        ring: {
+          current: { keyId, secret: signingSecret },
+          next: { keyId: 'ops-key-2', secret: 'next-signing-secret' },
+        },
+        keyId: 'ops-key-2',
+        signature,
+        nowMs,
+        request,
+      })
+    ).toEqual({ ok: true, keyId: 'ops-key-2' });
   });
 });
 
