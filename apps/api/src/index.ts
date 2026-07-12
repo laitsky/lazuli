@@ -87,6 +87,13 @@ import {
   releaseRealtimeIngestBatch,
 } from './services/realtimeIngestService';
 import {
+  getOperationalDashboard,
+  listOperationalIncidents,
+  recordOperationalSli,
+  runOperationalMonitoring,
+  transitionOperationalIncident,
+} from './services/operationalObservabilityService';
+import {
   parseSymbol,
   validateBoolean,
   validateExchange,
@@ -113,6 +120,7 @@ import {
   requireProductionCors,
   resolveCorsOrigin,
 } from './utils/security';
+import { verifyOpsReadSecret } from './utils/opsAuth';
 import { ccxtService } from './services/ccxtService';
 import { calculateSelectedEMAs, calculateSuperEMA } from './services/emaService';
 import {
@@ -285,6 +293,9 @@ const PRODUCT_METRIC_TARGETS = new Map<string, string | number>([
   ['backtest_runs', 10_000],
   ['liquidation_latency_ms', 800],
 ]);
+
+const LATENCY_D1_SAMPLE_INTERVAL_MS = 5_000;
+const latencyD1SampleTimes = new Map<string, number>();
 
 const SESSION_COOKIE = 'lazuli_session';
 
@@ -495,6 +506,26 @@ const handleRealtimeSocket = async (c: Context<{ Bindings: Env }>): Promise<Resp
 
 app.get('/ws', handleRealtimeSocket);
 
+app.get('/internal/realtime/health', async (c) => {
+  await requireRealtimeIngestSignature(c.env, c.req.raw.headers, '');
+  return c.json({
+    status: 'ready',
+    environment: c.env.ENVIRONMENT,
+    signingKeyId: c.env.INGEST_SIGNING_SECRET_ID ?? 'ingest-current',
+    timestamp: Date.now(),
+  });
+});
+
+app.get('/internal/ops/dashboard', async (c) => {
+  if (!(await verifyOpsReadSecret(c.env, c.req.header('X-Ops-Read-Secret')))) {
+    return c.json({ error: 'unauthorized' }, 401);
+  }
+  const rawMinutes = Number(c.req.query('minutes') ?? 90);
+  const minutes =
+    Number.isInteger(rawMinutes) && rawMinutes >= 5 && rawMinutes <= 10_080 ? rawMinutes : 90;
+  return c.json(await getOperationalDashboard(c.env, minutes));
+});
+
 app.post('/internal/realtime/batch', async (c) => {
   const rawBody = await c.req.text();
   await requireRealtimeIngestSignature(c.env, c.req.raw.headers, rawBody);
@@ -558,6 +589,40 @@ app.post('/internal/realtime/batch', async (c) => {
       const openInterest = realtimeOpenInterestInput(normalized);
       if (openInterest)
         c.executionCtx.waitUntil(persistOpenInterestObservation(c.env, openInterest));
+      if (
+        normalized.type === 'liquidation-print' &&
+        typeof normalized.exchangeTimestamp === 'number' &&
+        Number.isFinite(normalized.exchangeTimestamp)
+      ) {
+        const latencyMs = Math.max(0, Date.now() - normalized.exchangeTimestamp);
+        const provider =
+          isRecord(normalized.provenance) && typeof normalized.provenance.provider === 'string'
+            ? normalized.provenance.provider
+            : 'unknown';
+        const persistD1 = claimLatencyD1Sample('exchange-to-api', provider);
+        c.executionCtx.waitUntil(
+          Promise.all(
+            [
+              recordProductMetric(
+                c.env,
+                'liquidation_latency_ms',
+                latencyMs,
+                { provider, segment: 'exchange-to-api' },
+                { persistD1 }
+              ),
+              persistD1
+                ? recordOperationalSli(c.env, {
+                    sli: 'liquidation_latency_ms',
+                    value: latencyMs,
+                    source: 'realtime-ingest',
+                    dimensionKey: provider,
+                    details: { segment: 'exchange-to-api' },
+                  })
+                : null,
+            ].filter((task): task is Promise<void> => task !== null)
+          ).then(() => undefined)
+        );
+      }
     }
     const published = await Promise.all(
       [...eventsByTopic].map(([topic, events]) =>
@@ -650,8 +715,43 @@ api.get('/health', async (c) => ok(c, buildPublicHealth()));
 
 api.post('/metrics/events', async (c) => {
   const body = await readJsonRecord(c.req.raw);
+  if (body.metric === 'liquidation_latency_ms') {
+    const value = body.value;
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 300_000) {
+      throw invalidParameter('value', 'Client latency must be between 0 and 300000 milliseconds');
+    }
+    const dimensions = sanitizeMetricDimensions(body.dimensions);
+    const provider = /^[a-z0-9_-]{2,40}$/.test(dimensions.provider ?? '')
+      ? dimensions.provider
+      : 'unknown';
+    const persistD1 = claimLatencyD1Sample('exchange-to-client', provider);
+    await Promise.all(
+      [
+        recordProductMetric(
+          c.env,
+          'liquidation_latency_ms',
+          value,
+          { provider, segment: 'exchange-to-client' },
+          { persistD1 }
+        ),
+        persistD1
+          ? recordOperationalSli(c.env, {
+              sli: 'liquidation_latency_ms',
+              value,
+              source: 'browser-receipt',
+              dimensionKey: provider,
+              details: { segment: 'exchange-to-client' },
+            })
+          : null,
+      ].filter((task): task is Promise<void> => task !== null)
+    );
+    return ok(c, { accepted: true });
+  }
   if (body.metric !== 'weekly_active_sessions') {
-    throw invalidParameter('metric', 'Only the privacy-minimized active-session event is public');
+    throw invalidParameter(
+      'metric',
+      'Only active-session and bounded liquidation-latency events are public'
+    );
   }
   const metricSecret = c.env.METRICS_INGEST_SECRET ?? c.env.REALTIME_TOKEN_SECRET;
   if (!metricSecret) return ok(c, { accepted: false, reason: 'telemetry-unconfigured' });
@@ -2000,7 +2100,12 @@ api.get('/admin/metrics', async (c) => {
   const days = validateInteger(c.req.query('days'), 90, 1, 365);
   const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
   const rows = await c.env.DB.prepare(
-    `SELECT metric_date, metric, SUM(value) AS value, SUM(sample_count) AS sample_count,
+    `SELECT metric_date, metric,
+            CASE WHEN metric = 'liquidation_latency_ms'
+              THEN SUM(value) / MAX(SUM(sample_count), 1)
+              ELSE SUM(value)
+            END AS value,
+            SUM(sample_count) AS sample_count,
             MIN(completeness) AS completeness
      FROM daily_product_metrics
      WHERE metric_date >= ?
@@ -2030,6 +2135,47 @@ api.get('/admin/metrics', async (c) => {
     }),
     generatedAt: Date.now(),
   });
+});
+
+api.get('/admin/observability', async (c) => {
+  await requireAdminRequest(c);
+  const minutes = validateInteger(c.req.query('minutes'), 90, 5, 10_080);
+  return ok(c, await getOperationalDashboard(c.env, minutes));
+});
+
+api.get('/admin/incidents', async (c) => {
+  await requireAdminRequest(c);
+  const state = c.req.query('state');
+  if (state && !['open', 'acknowledged', 'resolved'].includes(state)) {
+    throw invalidParameter('state', 'State must be open, acknowledged, or resolved');
+  }
+  return ok(
+    c,
+    await listOperationalIncidents(c.env, state as 'open' | 'acknowledged' | 'resolved' | undefined)
+  );
+});
+
+api.post('/admin/incidents/:id/ack', async (c) => {
+  await requireAdminRequest(c);
+  const actor = c.req.header('X-Admin-Key-Id') ?? 'local-admin';
+  return ok(
+    c,
+    await transitionOperationalIncident(c.env, c.req.param('id'), 'acknowledged', actor)
+  );
+});
+
+api.post('/admin/incidents/:id/resolve', async (c) => {
+  await requireAdminRequest(c);
+  const actor = c.req.header('X-Admin-Key-Id') ?? 'local-admin';
+  const body = (await c.req.json().catch(() => ({}))) as { resolution?: unknown };
+  const resolution =
+    typeof body.resolution === 'string' && body.resolution.trim()
+      ? body.resolution.trim().slice(0, 500)
+      : 'operator resolved';
+  return ok(
+    c,
+    await transitionOperationalIncident(c.env, c.req.param('id'), 'resolved', actor, resolution)
+  );
 });
 
 api.get('/admin/backfills/:id', async (c) => {
@@ -2544,7 +2690,8 @@ async function recordProductMetric(
   env: Env,
   metric: string,
   value: number,
-  dimensions: Record<string, string> = {}
+  dimensions: Record<string, string> = {},
+  options: { persistD1?: boolean } = {}
 ): Promise<void> {
   if (!PRODUCT_METRICS.has(metric)) return;
   const sortedDimensions = Object.fromEntries(
@@ -2558,7 +2705,7 @@ async function recordProductMetric(
     doubles: [value, Date.now()],
     indexes: [metric],
   });
-  if (!env.DB) return;
+  if (!env.DB || options.persistD1 === false) return;
   const metricDate = new Date().toISOString().slice(0, 10);
   await env.DB.prepare(
     `INSERT INTO daily_product_metrics
@@ -2572,6 +2719,14 @@ async function recordProductMetric(
   )
     .bind(metricDate, metric, dimensionsKey, value, JSON.stringify(sortedDimensions))
     .run();
+}
+
+function claimLatencyD1Sample(segment: string, provider: string, now = Date.now()): boolean {
+  const key = `${segment}:${provider}`;
+  const previous = latencyD1SampleTimes.get(key) ?? 0;
+  if (now - previous < LATENCY_D1_SAMPLE_INTERVAL_MS) return false;
+  latencyD1SampleTimes.set(key, now);
+  return true;
 }
 
 async function recordUniqueProductMetric(
@@ -2911,6 +3066,8 @@ function routeFaultTargets(method: string, path: string): Array<'d1' | 'r2' | 'q
     path.startsWith('/api/v1/me') ||
     path.startsWith('/api/v1/alpha-feed') ||
     path.startsWith('/api/v1/admin/metrics') ||
+    path.startsWith('/api/v1/admin/observability') ||
+    path.startsWith('/api/v1/admin/incidents') ||
     path.startsWith('/api/v1/backtests/jobs')
   ) {
     targets.add('d1');
@@ -4308,12 +4465,25 @@ async function runReleaseControlledScheduledWork(env: Env, scheduledTime: number
     await runScheduledAlertEvaluation(env, scheduledTime);
   }
   await reconcilePendingAlertDeliveries(env);
+  try {
+    await runOperationalMonitoring(env);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        module: 'operational-monitoring',
+        msg: 'operational monitoring cycle failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
 }
 
 async function evaluateActiveAlerts(
   env: Env,
   alerts: Array<Awaited<ReturnType<typeof listPriceAlerts>>[number]>
 ): Promise<{ evaluated: number; triggered: number; events: string[] }> {
+  const evaluationStartedAt = Date.now();
   const tickerCache = new Map<string, Ticker[]>();
   const events: string[] = [];
   let evaluated = 0;
@@ -4348,6 +4518,13 @@ async function evaluateActiveAlerts(
     if (result.eventId) events.push(result.eventId);
   }
 
+  await recordOperationalSli(env, {
+    sli: 'alert_evaluation_latency_ms',
+    value: Date.now() - evaluationStartedAt,
+    success: Date.now() - evaluationStartedAt < 2_000,
+    source: 'alert-evaluator',
+    details: { evaluated, triggered: events.length },
+  });
   return { evaluated, triggered: events.length, events };
 }
 

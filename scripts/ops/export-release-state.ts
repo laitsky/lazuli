@@ -30,7 +30,7 @@ export async function exportReleaseState(input: {
   const env = input.environment;
   const suffix = env === 'staging' ? 'staging' : 'production';
   const database = env === 'staging' ? 'lazuli-db-staging' : 'lazuli-db-prod';
-  const [commit, api, web, ingest, migrations, queues, controls] = await Promise.all([
+  const [commit, api, web, ingest, migrations, queues, controls, operations] = await Promise.all([
     run(['git', 'rev-parse', 'HEAD']),
     run([
       'bunx',
@@ -80,6 +80,7 @@ export async function exportReleaseState(input: {
     ]),
     run(['bunx', 'wrangler', 'queues', 'list', '--config', 'apps/api/wrangler.jsonc']),
     fetchReleaseControls(env),
+    fetchOperationalState(env),
   ]);
 
   const report = {
@@ -95,6 +96,7 @@ export async function exportReleaseState(input: {
     migrations: sanitizeTextResult(migrations),
     queues: sanitizeQueueResult(queues),
     releaseControls: controls,
+    operations,
     sloQueries: SLO_QUERIES,
   };
   await mkdir(dirname(input.outputPath), { recursive: true });
@@ -123,12 +125,39 @@ export function sanitizeReleaseControls(value: unknown): unknown {
 }
 
 async function fetchReleaseControls(environment: ReleaseStateEnvironment): Promise<unknown> {
+  const result = await fetchSignedAdmin(environment, '/api/v1/admin/release-controls');
+  return isRecord(result) && result.status ? result : sanitizeReleaseControls(result);
+}
+
+async function fetchOperationalState(environment: ReleaseStateEnvironment): Promise<unknown> {
+  const [incidents, dashboard] = await Promise.all([
+    fetchSignedAdmin(environment, '/api/v1/admin/incidents?state=open'),
+    fetchSignedAdmin(environment, '/api/v1/admin/observability?minutes=90'),
+  ]);
+  const incidentData = isRecord(incidents) && Array.isArray(incidents.data) ? incidents.data : [];
+  const dashboardData = isRecord(dashboard) && isRecord(dashboard.data) ? dashboard.data : null;
+  const dashboards =
+    dashboardData && isRecord(dashboardData.dashboards) ? dashboardData.dashboards : {};
+  return {
+    activeIncidentCount: incidentData.length,
+    dashboardNames: Object.keys(dashboards).sort(),
+    generatedAt:
+      dashboardData && typeof dashboardData.generatedAt === 'number'
+        ? dashboardData.generatedAt
+        : null,
+  };
+}
+
+async function fetchSignedAdmin(
+  environment: ReleaseStateEnvironment,
+  path: string
+): Promise<unknown> {
   const baseUrl =
     environment === 'staging' ? 'https://api-staging.lazuli.now' : 'https://api.lazuli.now';
   const keyId = Bun.env.ADMIN_API_KEY_ID;
   const secret = Bun.env.ADMIN_SIGNING_SECRET;
   if (!keyId || !secret) return { status: 'credentials-not-supplied' };
-  const url = new URL('/api/v1/admin/release-controls', baseUrl);
+  const url = new URL(path, baseUrl);
   const timestamp = String(Date.now());
   const nonce = randomUUID();
   const canonical = ['GET', `${url.pathname}${url.search}`, timestamp, nonce, sha256('')].join(
@@ -146,7 +175,7 @@ async function fetchReleaseControls(environment: ReleaseStateEnvironment): Promi
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) return { status: `http-${response.status}` };
-    return sanitizeReleaseControls(await response.json());
+    return await response.json();
   } catch (error) {
     return { status: 'unavailable', error: safeError(error) };
   }

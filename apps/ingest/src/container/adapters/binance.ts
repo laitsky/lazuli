@@ -3,9 +3,27 @@ import type { RealtimeEvent, RealtimeTopic } from '@lazuli/shared';
 import type { EmitEvent } from '../types.ts';
 import { ExchangeAdapter } from './base.ts';
 import { canonicalSymbol, createEvent, record, requiredNumber, rows } from './event.ts';
+import {
+  binanceDepthIsContinuous,
+  findBinanceSnapshotBridge,
+  validSequence,
+  type BinanceDepthSequence,
+} from './sequence.ts';
+
+interface BufferedDepth extends BinanceDepthSequence {
+  symbol: string;
+  timestamp: number;
+  bids: unknown[][];
+  asks: unknown[][];
+}
+
+const MAX_DEPTH_BUFFER = 5_000;
 
 export class BinanceAdapter extends ExchangeAdapter {
   readonly #depthSequences = new Map<string, number>();
+  readonly #depthBuffers = new Map<string, BufferedDepth[]>();
+  readonly #readySymbols = new Set<string>();
+  readonly #frozenSymbols = new Set<string>();
 
   constructor(symbols: string[], emit: EmitEvent) {
     super('binance', symbols, emit);
@@ -16,6 +34,11 @@ export class BinanceAdapter extends ExchangeAdapter {
   }
 
   protected subscribe(socket: WebSocket): void {
+    this.#depthSequences.clear();
+    this.#depthBuffers.clear();
+    this.#readySymbols.clear();
+    this.#frozenSymbols.clear();
+    this.health.pendingSnapshots = this.symbols.length;
     const streams = this.symbols.flatMap((symbol) => {
       const id = canonicalSymbol(symbol).toLowerCase();
       return [
@@ -120,34 +143,36 @@ export class BinanceAdapter extends ExchangeAdapter {
       const previous = this.#depthSequences.get(symbol) ?? null;
       const first = Number(data.U);
       const last = Number(data.u);
-      this.detectGap(`binance:${symbol}:depth`, previous, first);
-      this.#depthSequences.set(symbol, last);
-      const topic = `orderbook:binance:${symbol}` as const;
-      this.publish(
-        createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
-          type: 'orderbook-delta',
-          topic,
-          sequence: this.nextSequence(topic),
-          exchangeTimestamp: timestamp,
-          provider: 'binance',
-          upstreamSequence: last,
-          payload: {
-            exchange: 'binance',
-            symbol,
-            firstSequence: first,
-            lastSequence: last,
-            bids: rows(data.b).map((row) => [
-              requiredNumber(row[0], 'bid price'),
-              requiredNumber(row[1], 'bid quantity'),
-            ]),
-            asks: rows(data.a).map((row) => [
-              requiredNumber(row[0], 'ask price'),
-              requiredNumber(row[1], 'ask quantity'),
-            ]),
-            reset: false,
-          },
-        })
-      );
+      const previousFinal = validSequence(Number(data.pu)) ? Number(data.pu) : null;
+      if (!validSequence(first) || !validSequence(last) || first > last) {
+        throw new Error(`invalid Binance depth sequence for ${symbol}`);
+      }
+      const depth: BufferedDepth = {
+        symbol,
+        timestamp,
+        first,
+        last,
+        previousFinal,
+        bids: rows(data.b),
+        asks: rows(data.a),
+      };
+      if (!this.#readySymbols.has(symbol)) {
+        this.bufferDepth(depth);
+        return;
+      }
+      if (!binanceDepthIsContinuous(previous, depth)) {
+        this.#readySymbols.delete(symbol);
+        this.health.pendingSnapshots = this.symbols.length - this.#readySymbols.size;
+        this.#frozenSymbols.add(symbol);
+        this.bufferDepth(depth);
+        this.reportSequenceGap(
+          `binance:${symbol}:depth`,
+          previous ?? first,
+          previousFinal ?? first
+        );
+        return;
+      }
+      this.publishDepth(depth);
       return;
     }
 
@@ -194,6 +219,9 @@ export class BinanceAdapter extends ExchangeAdapter {
 
   protected async reconcileAll(): Promise<void> {
     await Promise.all(this.symbols.map((symbol) => this.reconcile(symbol)));
+    if (this.#frozenSymbols.size > 0) {
+      throw new Error('A new Binance gap appeared while reconciliation was in progress');
+    }
   }
 
   private async reconcile(symbol: string): Promise<void> {
@@ -204,7 +232,7 @@ export class BinanceAdapter extends ExchangeAdapter {
     if (!response.ok) throw new Error(`Binance depth snapshot failed: ${response.status}`);
     const data = record(await response.json());
     const last = Number(data.lastUpdateId);
-    this.#depthSequences.set(id, last);
+    if (!validSequence(last)) throw new Error(`Binance depth snapshot sequence invalid for ${id}`);
     const topic = `orderbook:binance:${id}` as RealtimeTopic & `orderbook:binance:${string}`;
     this.publish(
       createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
@@ -229,6 +257,76 @@ export class BinanceAdapter extends ExchangeAdapter {
             requiredNumber(row[1], 'ask quantity'),
           ]),
           reset: true,
+        },
+      })
+    );
+    this.#depthSequences.set(id, last);
+
+    const buffered = this.#depthBuffers.get(id) ?? [];
+    this.#depthBuffers.set(id, []);
+    const bridge = findBinanceSnapshotBridge(last, buffered);
+    let previous = last;
+    if (bridge >= 0) {
+      const bridged = buffered.slice(bridge);
+      const firstDepth = bridged.shift();
+      if (firstDepth) {
+        this.publishDepth(firstDepth);
+        previous = firstDepth.last;
+      }
+      for (const depth of bridged) {
+        if (!binanceDepthIsContinuous(previous, depth)) {
+          this.#frozenSymbols.add(id);
+          throw new Error(
+            `Binance buffered depth discontinuity for ${id}: expected predecessor ${previous}, received ${depth.previousFinal ?? depth.first}`
+          );
+        }
+        this.publishDepth(depth);
+        previous = depth.last;
+      }
+    }
+    this.#frozenSymbols.delete(id);
+    this.#readySymbols.add(id);
+    this.health.pendingSnapshots = this.symbols.length - this.#readySymbols.size;
+  }
+
+  private bufferDepth(depth: BufferedDepth): void {
+    const buffered = this.#depthBuffers.get(depth.symbol) ?? [];
+    if (buffered.length >= MAX_DEPTH_BUFFER) {
+      buffered.shift();
+      if (!this.#frozenSymbols.has(depth.symbol)) {
+        this.#frozenSymbols.add(depth.symbol);
+        this.reportSequenceGap(`binance:${depth.symbol}:bootstrap-buffer`, depth.first, depth.last);
+      }
+    }
+    buffered.push(depth);
+    this.#depthBuffers.set(depth.symbol, buffered);
+  }
+
+  private publishDepth(depth: BufferedDepth): void {
+    this.#depthSequences.set(depth.symbol, depth.last);
+    const topic = `orderbook:binance:${depth.symbol}` as const;
+    this.publish(
+      createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
+        type: 'orderbook-delta',
+        topic,
+        sequence: this.nextSequence(topic),
+        exchangeTimestamp: depth.timestamp,
+        provider: 'binance',
+        upstreamSequence: depth.last,
+        payload: {
+          exchange: 'binance',
+          symbol: depth.symbol,
+          firstSequence: depth.first,
+          lastSequence: depth.last,
+          bids: depth.bids.map((row) => [
+            requiredNumber(row[0], 'bid price'),
+            requiredNumber(row[1], 'bid quantity'),
+          ]),
+          asks: depth.asks.map((row) => [
+            requiredNumber(row[0], 'ask price'),
+            requiredNumber(row[1], 'ask quantity'),
+          ]),
+          reset: false,
         },
       })
     );

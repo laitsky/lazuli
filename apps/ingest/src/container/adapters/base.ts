@@ -15,6 +15,7 @@ export abstract class ExchangeAdapter {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconciling = false;
+  protected reconcileOnConnect = true;
 
   protected constructor(
     readonly provider: ProviderName,
@@ -27,8 +28,15 @@ export abstract class ExchangeAdapter {
       connectedAt: null,
       lastMessageAt: null,
       lastEventAt: null,
+      freshnessMs: null,
       reconnects: 0,
       sequenceGaps: 0,
+      unresolvedGaps: 0,
+      pendingSnapshots: 0,
+      reconciliations: 0,
+      reconciliationFailures: 0,
+      lastReconciledAt: null,
+      lastRecoveredAt: null,
       parseErrors: 0,
       eventsEmitted: 0,
       lastError: null,
@@ -76,11 +84,35 @@ export abstract class ExchangeAdapter {
 
   protected detectGap(key: string, previous: number | null, current: number): void {
     if (previous !== null && current > previous + 1) {
-      this.health.sequenceGaps += 1;
-      this.health.state = 'degraded';
-      this.health.lastError = `sequence gap on ${key}: expected ${previous + 1}, received ${current}`;
-      void this.reconcileSafely();
+      this.reportSequenceGap(key, previous + 1, current);
     }
+  }
+
+  protected reportSequenceGap(key: string, expected: number, received: number): void {
+    this.health.sequenceGaps += 1;
+    this.health.unresolvedGaps += 1;
+    this.health.state = 'degraded';
+    this.health.lastError = `sequence gap on ${key}: expected ${expected}, received ${received}`;
+    this.requestReconciliation();
+  }
+
+  protected requestReconciliation(): void {
+    void this.reconcileSafely();
+  }
+
+  protected markProtocolRecovery(): void {
+    const hadGap = this.health.unresolvedGaps > 0;
+    this.health.unresolvedGaps = 0;
+    this.health.lastReconciledAt = Date.now();
+    if (hadGap) this.health.lastRecoveredAt = Date.now();
+    if (this.health.state === 'degraded') this.health.state = 'connected';
+    this.health.lastError = null;
+  }
+
+  protected reconnectForSnapshot(reason: string): void {
+    this.health.state = 'degraded';
+    this.health.lastError = reason;
+    this.socket?.close(4001, 'snapshot reconciliation required');
   }
 
   protected parseError(error: unknown): void {
@@ -110,7 +142,7 @@ export abstract class ExchangeAdapter {
       this.health.lastError = null;
       try {
         this.subscribe(socket);
-        void this.reconcileSafely();
+        if (this.reconcileOnConnect) void this.reconcileSafely();
       } catch (error) {
         this.parseError(error);
         socket.close(1011, 'subscription failed');
@@ -172,10 +204,12 @@ export abstract class ExchangeAdapter {
   private async reconcileSafely(): Promise<void> {
     if (this.reconciling || this.stopped) return;
     this.reconciling = true;
+    this.health.reconciliations += 1;
     try {
       await this.reconcileAll();
-      if (this.health.state === 'degraded') this.health.state = 'connected';
+      this.markProtocolRecovery();
     } catch (error) {
+      this.health.reconciliationFailures += 1;
       this.health.state = 'degraded';
       this.parseError(error);
       await delay(250);

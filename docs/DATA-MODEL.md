@@ -2,13 +2,14 @@
 
 ## Storage boundaries
 
-| Store                 | Owns                                                                                                                                                 | Must not own                                                                           |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Durable Object memory | Bounded topic recovery window, live socket state, short-lived market cache                                                                           | Unbounded event history or canonical user state                                        |
-| D1                    | Accounts/sessions, saved objects, alert/channel/job state, ingestion checkpoints, derived rollups, macro snapshots, daily metrics, archive manifests | Every high-frequency trade/book/liquidation event                                      |
-| R2                    | Compressed OHLCV archive, streamed backtest results, compressed realtime partitions where enabled                                                    | Mutable job state or secrets                                                           |
-| Queues                | Asynchronous delivery, archive, and backfill messages                                                                                                | Canonical state without an idempotency key                                             |
-| Analytics Engine      | Privacy-minimized operational/product events and latency distributions                                                                               | Credentials, message bodies, email addresses, webhook URLs, or durable source of truth |
+| Store                 | Owns                                                                                                                                                 | Must not own                                                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Durable Object memory | Bounded topic recovery window, live socket state, short-lived market cache                                                                           | Unbounded event history or canonical user state                                              |
+| D1                    | Accounts/sessions, saved objects, alert/channel/job state, ingestion checkpoints, derived rollups, macro snapshots, daily metrics, archive manifests | Every high-frequency trade/book/liquidation event                                            |
+| R2                    | Compressed OHLCV archive, streamed backtest results, compressed realtime partitions where enabled                                                    | Mutable job state or secrets                                                                 |
+| Queues                | Asynchronous delivery, archive, and backfill messages                                                                                                | Canonical state without an idempotency key                                                   |
+| Analytics Engine      | Privacy-minimized operational/product events and latency distributions                                                                               | Credentials, message bodies, email addresses, webhook URLs, or durable source of truth       |
+| D1 operational state  | Five-minute SLI rollups, bounded SLI samples, SLO incidents, synthetic probes, paging history, and immutable release-evidence references             | High-frequency market events, browser/admin secrets, Access tokens, or raw provider payloads |
 
 Migration `0007_realtime_intelligence_operations.sql` adds the strategy control-plane entities: `ingestion_checkpoints`, `derived_metric_rollups`, `notification_channels`, `notification_delivery_attempts`, `async_backtest_jobs`, `macro_snapshots`, and `daily_product_metrics`.
 

@@ -2,6 +2,7 @@ import type { RealtimeEvent } from '@lazuli/shared';
 
 import type { EmitEvent } from '../types.ts';
 import { ExchangeAdapter } from './base.ts';
+import { fetchBybitOrderbook } from './bybit-rest.ts';
 import {
   canonicalSymbol,
   createEvent,
@@ -10,9 +11,13 @@ import {
   requiredNumber,
   rows,
 } from './event.ts';
+import { bybitDepthDecision, validSequence } from './sequence.ts';
 
 export class BybitAdapter extends ExchangeAdapter {
   readonly #depthSequences = new Map<string, number>();
+  readonly #frozenSymbols = new Set<string>();
+  readonly #awaitingSnapshotSymbols = new Set<string>();
+  protected override reconcileOnConnect = false;
 
   constructor(symbols: string[], emit: EmitEvent) {
     super('bybit', symbols, emit);
@@ -23,6 +28,13 @@ export class BybitAdapter extends ExchangeAdapter {
   }
 
   protected subscribe(socket: WebSocket): void {
+    this.#depthSequences.clear();
+    this.#frozenSymbols.clear();
+    this.#awaitingSnapshotSymbols.clear();
+    for (const symbol of this.symbols) {
+      this.#awaitingSnapshotSymbols.add(canonicalSymbol(symbol));
+    }
+    this.health.pendingSnapshots = this.#awaitingSnapshotSymbols.size;
     const topics = this.symbols.flatMap((symbol) => {
       const id = canonicalSymbol(symbol);
       return [`publicTrade.${id}`, `tickers.${id}`, `allLiquidation.${id}`, `orderbook.50.${id}`];
@@ -175,8 +187,32 @@ export class BybitAdapter extends ExchangeAdapter {
       const symbol = canonicalSymbol(String(book.s ?? topicName.split('.').at(-1) ?? ''));
       const current = Number(book.u);
       const previous = this.#depthSequences.get(symbol) ?? null;
-      if (String(envelope.type) === 'delta')
-        this.detectGap(`bybit:${symbol}:depth`, previous, current);
+      const messageType = String(envelope.type);
+      if (!validSequence(current)) throw new Error(`invalid Bybit depth sequence for ${symbol}`);
+      const decision = bybitDepthDecision({
+        previous,
+        current,
+        messageType,
+        awaitingSnapshot: this.#awaitingSnapshotSymbols.has(symbol),
+        frozen: this.#frozenSymbols.has(symbol),
+      });
+      if (decision === 'reset') {
+        this.#awaitingSnapshotSymbols.delete(symbol);
+        this.health.pendingSnapshots = this.#awaitingSnapshotSymbols.size;
+        this.#frozenSymbols.delete(symbol);
+        this.#depthSequences.set(symbol, current);
+        if (this.#frozenSymbols.size === 0 && this.#awaitingSnapshotSymbols.size === 0) {
+          this.markProtocolRecovery();
+        }
+      } else if (decision === 'freeze') {
+        if (!this.#frozenSymbols.has(symbol)) {
+          this.#frozenSymbols.add(symbol);
+          this.reportSequenceGap(`bybit:${symbol}:depth`, (previous ?? current) + 1, current);
+        }
+        return;
+      } else if (decision === 'ignore-until-reset') {
+        return;
+      }
       this.#depthSequences.set(symbol, current);
       const topic = `orderbook:bybit:${symbol}` as const;
       this.publish(
@@ -200,7 +236,7 @@ export class BybitAdapter extends ExchangeAdapter {
               requiredNumber(row[0], 'ask price'),
               requiredNumber(row[1], 'ask quantity'),
             ]),
-            reset: String(envelope.type) === 'snapshot',
+            reset: messageType === 'snapshot' || current === 1,
           },
         })
       );
@@ -208,46 +244,59 @@ export class BybitAdapter extends ExchangeAdapter {
   }
 
   protected async reconcileAll(): Promise<void> {
-    await Promise.all(
-      this.symbols.map(async (symbol) => {
-        const id = canonicalSymbol(symbol);
-        const response = await fetch(
-          `https://api.bybit.com/v5/market/orderbook?category=linear&symbol=${id}&limit=50`,
-          { signal: AbortSignal.timeout(5_000) }
-        );
-        if (!response.ok) throw new Error(`Bybit depth snapshot failed: ${response.status}`);
-        const envelope = record(await response.json());
-        const result = record(envelope.result);
-        const sequence = Number(result.u);
-        this.#depthSequences.set(id, sequence);
-        const topic = `orderbook:bybit:${id}` as const;
-        this.publish(
-          createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
-            type: 'orderbook-delta',
-            topic,
-            sequence: this.nextSequence(topic),
-            exchangeTimestamp: Number(envelope.time ?? Date.now()),
-            provider: 'bybit',
-            upstreamSequence: sequence,
-            quality: 'snapshot',
-            payload: {
-              exchange: 'bybit',
-              symbol: id,
-              firstSequence: sequence,
-              lastSequence: sequence,
-              bids: rows(result.b).map((row) => [
-                requiredNumber(row[0], 'bid price'),
-                requiredNumber(row[1], 'bid quantity'),
-              ]),
-              asks: rows(result.a).map((row) => [
-                requiredNumber(row[0], 'ask price'),
-                requiredNumber(row[1], 'ask quantity'),
-              ]),
-              reset: true,
-            },
-          })
-        );
+    const targets =
+      this.#frozenSymbols.size > 0
+        ? [...this.#frozenSymbols]
+        : this.symbols.map((symbol) => canonicalSymbol(symbol));
+    try {
+      await Promise.all(targets.map((symbol) => this.reconcile(symbol)));
+      if (this.#frozenSymbols.size > 0) {
+        throw new Error('A new Bybit gap appeared while reconciliation was in progress');
+      }
+    } catch (error) {
+      this.reconnectForSnapshot(
+        `Bybit REST reconciliation unavailable; reconnecting for authoritative WebSocket snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
+      throw error;
+    }
+  }
+
+  private async reconcile(id: string): Promise<void> {
+    const { envelope, result } = await fetchBybitOrderbook(id);
+    if (!this.#frozenSymbols.has(id)) return;
+    const sequence = Number(result.u);
+    if (!validSequence(sequence))
+      throw new Error(`Bybit depth snapshot sequence invalid for ${id}`);
+    const topic = `orderbook:bybit:${id}` as const;
+    this.publish(
+      createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
+        type: 'orderbook-delta',
+        topic,
+        sequence: this.nextSequence(topic),
+        exchangeTimestamp: Number(envelope.time ?? result.ts ?? Date.now()),
+        provider: 'bybit',
+        upstreamSequence: sequence,
+        quality: 'snapshot',
+        payload: {
+          exchange: 'bybit',
+          symbol: id,
+          firstSequence: sequence,
+          lastSequence: sequence,
+          bids: rows(result.b).map((row) => [
+            requiredNumber(row[0], 'bid price'),
+            requiredNumber(row[1], 'bid quantity'),
+          ]),
+          asks: rows(result.a).map((row) => [
+            requiredNumber(row[0], 'ask price'),
+            requiredNumber(row[1], 'ask quantity'),
+          ]),
+          reset: true,
+        },
       })
     );
+    // REST update IDs correspond to the 1000-level feed, not this 50-level stream.
+    // The snapshot is authoritative state; accept the next live delta as the new baseline.
+    this.#depthSequences.delete(id);
+    this.#frozenSymbols.delete(id);
   }
 }

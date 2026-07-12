@@ -117,6 +117,7 @@ describe('OpenAPI route contract', () => {
             '/me/alerts/evaluate',
             '/me/alert-deliveries/{id}/retry',
             '/admin/backfills/{id}/retry',
+            '/admin/incidents/{id}/ack',
           ]).has(path);
           expect(hasRequestBody || explicitlyBodyless).toBe(true);
         }

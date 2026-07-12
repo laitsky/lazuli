@@ -11,6 +11,10 @@
 | Alert dispatch latency        | p95 < 10 s                                  | First provider request minus alert event creation                                                           |
 | Duplicate alert deliveries    | 0                                           | Count delivered attempts grouped by event/channel idempotency key beyond one                                |
 | DLQ age                       | No untriaged item > 15 min                  | Oldest unacknowledged DLQ item timestamp                                                                    |
+| Provider freshness            | Every configured shard < 2 min              | Active signed ingest health, reported independently by provider                                             |
+| Realtime drops/gaps           | 0                                           | New dropped events and unresolved sequence gaps from clean acceptance counters                              |
+| D1/R2 availability            | 100% during release windows                 | Five-minute D1 control query and bounded R2 list probe                                                      |
+| Archive gaps                  | 0 unresolved                                | Failed manifests plus explicit gap counts in completed archive manifests                                    |
 
 The 800 ms objective cannot be used to hide provider cadence. Show upstream exchange-to-ingest and Lazuli ingest-to-client separately. A Binance stream that batches at approximately 1,000 ms is marked source-limited; the internal segment still has its own target.
 
@@ -23,6 +27,12 @@ The 800 ms objective cannot be used to hide provider cadence. Show upstream exch
 5. **Release:** version/flags by environment, synthetic checks, error-budget burn, deployment markers, open incidents.
 
 Dashboard queries/configuration must be exported or linked from the strategy ledger without credentials. A dashboard existing is insufficient; it needs current data, owner, and alert links.
+
+The protected `/ops` dashboard implements these five views from signed D1
+rollups and synthetic probes. Its machine-readable panel and paging contract is
+checked in as [`dashboard-definitions.json`](./dashboard-definitions.json).
+Cloudflare Access validates the operational owner before the Web Worker uses a
+read-only service binding; admin credentials are never sent to the browser.
 
 ## Paging and ticket alerts
 

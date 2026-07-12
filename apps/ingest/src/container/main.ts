@@ -12,7 +12,14 @@ const config = loadConfig(Bun.env);
 const adapters: ExchangeAdapter[] = [];
 const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-const providerHealth = (): ProviderHealth[] => adapters.map((adapter) => ({ ...adapter.health }));
+const providerHealth = (): ProviderHealth[] =>
+  adapters.map((adapter) => ({
+    ...adapter.health,
+    freshnessMs:
+      adapter.health.lastEventAt === null
+        ? null
+        : Math.max(0, Date.now() - adapter.health.lastEventAt),
+  }));
 const sink = new BatchSink(config, providerHealth);
 const emit = sink.enqueue.bind(sink);
 
@@ -43,7 +50,14 @@ function healthResponse(): Response {
   const providers = providerHealth();
   const ready =
     providers.length > 0 &&
-    providers.every((provider) => provider.state === 'connected' || provider.state === 'degraded');
+    providers.every(
+      (provider) =>
+        provider.state === 'connected' &&
+        provider.unresolvedGaps === 0 &&
+        provider.pendingSnapshots === 0 &&
+        provider.freshnessMs !== null &&
+        provider.freshnessMs < 45_000
+    );
   const live = providers.some((provider) => provider.state === 'connected');
   return Response.json(
     {
@@ -56,7 +70,7 @@ function healthResponse(): Response {
       batching: sink.getHealth(),
     },
     {
-      status: live || ready ? 200 : 503,
+      status: ready ? 200 : 503,
       headers: { 'cache-control': 'no-store' },
     }
   );

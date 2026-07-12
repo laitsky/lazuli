@@ -19,3 +19,17 @@ export function parseFaultDuration(value: string | null): number {
 export function faultInjectionAllowed(environment: string): boolean {
   return environment === 'local' || environment === 'staging';
 }
+
+export function healthRequestAuthorized(
+  authorization: string | null,
+  environment: string,
+  controlToken?: string,
+  operationsReadSecret?: string
+): boolean {
+  if (!controlToken && environment === 'local') return true;
+  return Boolean(
+    authorization &&
+    ((controlToken && authorization === `Bearer ${controlToken}`) ||
+      (operationsReadSecret && authorization === `Bearer ${operationsReadSecret}`))
+  );
+}

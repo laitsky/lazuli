@@ -1,10 +1,17 @@
 import { Container, getContainer } from '@cloudflare/containers';
-import { faultInjectionAllowed, parseFaultDuration, parseProviderFaultPath } from './control';
+import {
+  faultInjectionAllowed,
+  healthRequestAuthorized,
+  parseFaultDuration,
+  parseProviderFaultPath,
+} from './control';
 import { withTimeout } from './timeout';
 
 const CONTAINER_PORT = 8080;
 const SHARD_HEALTH_TIMEOUT_MS = 40_000;
+const SHARD_START_STAGGER_MS = 2_000;
 const SUPPORTED_PROVIDERS = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'] as const;
+const encoder = new TextEncoder();
 
 interface Env {
   INGEST_CONTAINER: DurableObjectNamespace<IngestContainer>;
@@ -16,6 +23,7 @@ interface Env {
   INGEST_SIGNING_SECRET?: string;
   INGEST_SIGNING_SECRET_ID?: string;
   CONTROL_API_TOKEN?: string;
+  OPS_READ_SECRET?: string;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -28,6 +36,15 @@ function json(data: unknown, status = 200): Response {
 function isAuthorized(request: Request, env: Env): boolean {
   if (!env.CONTROL_API_TOKEN) return env.ENVIRONMENT === 'local';
   return request.headers.get('authorization') === `Bearer ${env.CONTROL_API_TOKEN}`;
+}
+
+function isHealthAuthorized(request: Request, env: Env): boolean {
+  return healthRequestAuthorized(
+    request.headers.get('authorization'),
+    env.ENVIRONMENT,
+    env.CONTROL_API_TOKEN,
+    env.OPS_READ_SECRET
+  );
 }
 
 function configuredProviders(env: Env): string[] {
@@ -95,12 +112,44 @@ async function ensureStarted(
   return container;
 }
 
+async function signedApiReady(env: Env): Promise<void> {
+  if (!env.INGEST_SIGNING_SECRET) throw new Error('INGEST_SIGNING_SECRET is not configured');
+  const timestamp = Date.now();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(env.INGEST_SIGNING_SECRET),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const bytes = await crypto.subtle.sign('HMAC', key, encoder.encode(`${timestamp}.`));
+  const signature = [...new Uint8Array(bytes)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+  const response = await fetch(new URL('/internal/realtime/health', env.API_BASE_URL), {
+    headers: {
+      'x-lazuli-timestamp': String(timestamp),
+      'x-lazuli-key-id': env.INGEST_SIGNING_SECRET_ID ?? 'ingest-current',
+      'x-lazuli-signature': `sha256=${signature}`,
+    },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`signed ingest API readiness returned ${response.status}`);
+}
+
+function delayedProvider<T>(index: number, operation: () => Promise<T>): Promise<T> {
+  return new Promise((resolve) => setTimeout(resolve, index * SHARD_START_STAGGER_MS)).then(
+    operation
+  );
+}
+
 async function aggregateHealth(env: Env): Promise<Response> {
+  await signedApiReady(env);
   const providers = configuredProviders(env);
   const results = await Promise.allSettled(
-    providers.map((provider) =>
+    providers.map((provider, index) =>
       withTimeout(
-        (async () => {
+        delayedProvider(index, async () => {
           const container = await ensureStarted(env, provider);
           const response = await container.fetch(
             new Request('http://container/health', { signal: AbortSignal.timeout(10_000) })
@@ -108,8 +157,8 @@ async function aggregateHealth(env: Env): Promise<Response> {
           const data = (await response.json()) as Record<string, unknown>;
           if (!response.ok) throw new Error(`${provider} health returned ${response.status}`);
           return data;
-        })(),
-        SHARD_HEALTH_TIMEOUT_MS,
+        }),
+        SHARD_HEALTH_TIMEOUT_MS + index * SHARD_START_STAGGER_MS,
         `${provider} shard health`
       )
     )
@@ -174,7 +223,7 @@ export default {
     }
 
     if (url.pathname === '/control/health' && request.method === 'GET') {
-      if (!isAuthorized(request, env)) return json({ error: 'unauthorized' }, 401);
+      if (!isHealthAuthorized(request, env)) return json({ error: 'unauthorized' }, 401);
       if (!env.INGEST_SIGNING_SECRET) {
         return json(
           { status: 'unavailable', error: 'INGEST_SIGNING_SECRET is not configured' },
@@ -239,12 +288,17 @@ export default {
         return json({ error: 'fault injection is disabled in production' }, 404);
       }
       const providers = configuredProviders(env);
+      await signedApiReady(env);
       await Promise.all(
         providers.map(async (provider) => {
           const container = getContainer(env.INGEST_CONTAINER, containerName(provider));
           await container.stop('SIGTERM');
-          await container.startAndWaitForPorts(startOptions(env, provider));
         })
+      );
+      await Promise.all(
+        providers.map((provider, index) =>
+          delayedProvider(index, () => ensureStarted(env, provider))
+        )
       );
       return json({ status: 'restarted', shards: providers.length, timestamp: Date.now() });
     }
@@ -257,7 +311,12 @@ export default {
       console.error('skipping ingest keepalive: signing secret is not configured');
       return;
     }
-    await Promise.all(configuredProviders(env).map((provider) => ensureStarted(env, provider)));
+    await signedApiReady(env);
+    await Promise.all(
+      configuredProviders(env).map((provider, index) =>
+        delayedProvider(index, () => ensureStarted(env, provider))
+      )
+    );
   },
 } satisfies ExportedHandler<Env>;
 

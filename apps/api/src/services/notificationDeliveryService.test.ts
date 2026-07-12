@@ -313,7 +313,8 @@ describe('notification delivery service', () => {
           };
         },
         async batch(statements: Array<{ values?: unknown[] }>) {
-          recordedState = String(statements[0]?.values?.[0]);
+          const candidate = String(statements[0]?.values?.[0]);
+          if (candidate === 'retry' || candidate === 'failed') recordedState = candidate;
           return statements.map(() => ({ meta: { changes: 1 } }));
         },
       },

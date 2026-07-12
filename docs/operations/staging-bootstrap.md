@@ -7,7 +7,7 @@ This procedure is authorized for staging only. It does not authorize a productio
 1. Confirm the release commit and draft PR are current and CI/review are green.
 2. Confirm Workers Paid, Container capacity, Email Service domain onboarding, verified staging recipient, and live account usage. The staging Workers use Custom Domains so deployment creates and manages the proxied `api-staging` and `staging` DNS records through Workers route permissions.
 3. Record only secret names and version IDs. Generate independent staging values for admin, ingest, metrics, realtime token, notification encryption, alert webhook signing, and ingest control.
-4. Export D1 and record a Time Travel bookmark before applying additive migrations `0007` through `0011`.
+4. Export D1 and record a Time Travel bookmark before applying additive migrations `0007` through `0012`.
 
 ## Deploy dark
 

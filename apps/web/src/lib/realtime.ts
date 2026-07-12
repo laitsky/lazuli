@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { BoundedEventIds } from './event-dedupe';
+import { extractRealtimeLatencySample } from './realtime-latency';
 
 export type RealtimeStatus = 'connecting' | 'open' | 'degraded' | 'closed';
 
@@ -19,6 +20,10 @@ interface TopicSubscription {
 
 const subscriptions = new Map<string, TopicSubscription>();
 const MAX_SEEN_EVENT_IDS = 4096;
+const LATENCY_REPORT_INTERVAL_MS = 10_000;
+const LATENCY_REPORT_SAMPLE_PERCENT = 10;
+const latencyReportTimes = new Map<string, number>();
+const latencySamplerSeed = crypto.randomUUID();
 
 function realtimeApiOrigin(): URL {
   const configured = import.meta.env.VITE_API_URL as string | undefined;
@@ -113,6 +118,7 @@ class TopicClient {
     if (message.sequence <= this.lastSequence) return;
     this.lastSequence = message.sequence;
     if (!this.rememberEvent(message)) return;
+    reportRealtimeLatency(message);
     this.emit(message);
   }
 
@@ -135,7 +141,10 @@ class TopicClient {
       for (const event of snapshot.events ?? []) {
         if (isRealtimeEnvelope(event) && event.sequence > this.lastSequence) {
           this.lastSequence = event.sequence;
-          if (this.rememberEvent(event)) this.emit(event);
+          if (this.rememberEvent(event)) {
+            reportRealtimeLatency(event);
+            this.emit(event);
+          }
         }
       }
     } catch {
@@ -258,4 +267,38 @@ function realtimeEventId(envelope: RealtimeEnvelope): string | null {
     if (typeof eventId === 'string' && eventId.length >= 8) return eventId;
   }
   return null;
+}
+
+function reportRealtimeLatency(envelope: RealtimeEnvelope): void {
+  const sample = extractRealtimeLatencySample(envelope);
+  if (!sample) return;
+  if (
+    stableSamplePercent(`${latencySamplerSeed}:${sample.eventId}`) >= LATENCY_REPORT_SAMPLE_PERCENT
+  )
+    return;
+  const now = Date.now();
+  const lastReportedAt = latencyReportTimes.get(sample.provider) ?? 0;
+  if (now - lastReportedAt < LATENCY_REPORT_INTERVAL_MS) return;
+  latencyReportTimes.set(sample.provider, now);
+  const url = new URL('/api/v1/metrics/events', realtimeApiOrigin());
+  void fetch(url, {
+    method: 'POST',
+    credentials: 'include',
+    keepalive: true,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      metric: 'liquidation_latency_ms',
+      value: sample.latencyMs,
+      dimensions: { provider: sample.provider, segment: 'exchange-to-client' },
+    }),
+  }).catch(() => undefined);
+}
+
+function stableSamplePercent(value: string): number {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0) % 100;
 }

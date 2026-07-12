@@ -12,6 +12,7 @@
     "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
     "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
     "UPBIT_QUOTE": "KRW",
+    "OPS_READ_SECRET": "local-ops",
   },
   "triggers": {
     "crons": ["*/2 * * * *"],
@@ -85,6 +86,12 @@
     "production": {
       "name": "lazuli-ingest",
       "workers_dev": true,
+      "routes": [
+        {
+          "pattern": "ingest.lazuli.now",
+          "custom_domain": true,
+        },
+      ],
       "vars": {
         "ENVIRONMENT": "production",
         "API_BASE_URL": "https://api.lazuli.now",

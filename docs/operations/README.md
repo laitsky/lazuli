@@ -6,6 +6,7 @@ This directory is the operational source of truth for the 90-day strategy progra
 
 - [Provider registry](./provider-registry.md)
 - [SLOs, dashboards, and alerts](./SLOS-AND-OBSERVABILITY.md)
+- [Machine-readable dashboard definitions](./dashboard-definitions.json)
 - [Realtime load, reconnect, and soak acceptance](./realtime-acceptance.md)
 - [Staging bootstrap and release boundary](./staging-bootstrap.md)
 - [Architecture decision](../architecture/adr-0001-realtime-ingest-and-fanout.md)
@@ -20,6 +21,7 @@ This directory is the operational source of truth for the 90-day strategy progra
 - [Secret rotation](../runbooks/secret-rotation.md)
 - [Migration roll-forward and rollback limits](../runbooks/migration-roll-forward.md)
 - [Feature-flag rollout and rollback](../runbooks/feature-flag-rollout.md)
+- [Operational dashboard and SLO incidents](../runbooks/operational-dashboard.md)
 
 ## Evidence handling
 

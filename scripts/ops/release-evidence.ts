@@ -27,7 +27,7 @@ export interface EvidenceResult {
 }
 
 const REQUIRED_DASHBOARDS = ['realtime', 'alerts', 'storage-jobs', 'product', 'release'];
-const REQUIRED_MIGRATIONS = ['0007', '0008', '0009', '0010', '0011'];
+const REQUIRED_MIGRATIONS = ['0007', '0008', '0009', '0010', '0011', '0012'];
 const REQUIRED_DRILLS = [
   'provider-disconnect',
   'deployment-restart',
@@ -62,7 +62,7 @@ export function validateReleaseEvidence(value: unknown, requireProduction = fals
       value.migrations.some((item) => typeof item === 'string' && item.startsWith(id))
     )
   )
-    errors.push('migrations 0007-0011 are required');
+    errors.push('migrations 0007-0012 are required');
   const dashboards = Array.isArray(value.dashboards) ? value.dashboards : [];
   for (const required of REQUIRED_DASHBOARDS) {
     const dashboard = dashboards.find((item) => record(item) && item.name === required);

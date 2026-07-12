@@ -17,6 +17,7 @@ const complete = {
     '0009_recovery',
     '0010_release_controls',
     '0011_fault_injections',
+    '0012_operational_observability',
   ],
   dashboards: ['realtime', 'alerts', 'storage-jobs', 'product', 'release'].map((name) => ({
     name,

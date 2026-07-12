@@ -42,7 +42,9 @@
   },
 
   "vars": {
+    "ENVIRONMENT": "local",
     "METRICS_INGEST_SECRET_ID": "metrics-local-v1",
+    "OPS_READ_SECRET": "local-ops",
   },
 
   "env": {
@@ -50,6 +52,7 @@
       "name": "lazuli-web-staging",
       "workers_dev": true,
       "vars": {
+        "ENVIRONMENT": "staging",
         "METRICS_INGEST_SECRET_ID": "metrics-staging-v1",
       },
       "limits": {
@@ -81,6 +84,7 @@
       "name": "lazuli-web",
       "workers_dev": false,
       "vars": {
+        "ENVIRONMENT": "production",
         "METRICS_INGEST_SECRET_ID": "metrics-production-v1",
       },
       "limits": {

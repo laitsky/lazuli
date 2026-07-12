@@ -2,6 +2,7 @@ import type { AlertDeliveryQueueMessage, Env } from '../types';
 import { sendAlertEmail } from './emailDeliveryService';
 import { evaluateReleaseControl, getReleaseControl } from './releaseControlService';
 import { createSecretRing, signWithCurrentSecret } from '../utils/rotatingSecrets';
+import { recordOperationalSli } from './operationalObservabilityService';
 
 const ENCRYPTION_VERSION = 2;
 const LEGACY_ENCRYPTION_VERSION = 1;
@@ -693,6 +694,22 @@ export async function processAlertDeliveryMessage(
       messageText
     );
     throw new RetryableAlertDeliveryError(messageText);
+  } finally {
+    await recordOperationalSli(env, {
+      sli: 'alert_dispatch_latency_ms',
+      value: Math.max(0, Date.now() - row.queued_at * 1_000),
+      source: 'alert-delivery-worker',
+      dimensionKey: row.channel_kind,
+    }).catch((error: unknown) => {
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          module: 'alert-delivery',
+          msg: 'failed to record dispatch SLI',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    });
   }
 }
 

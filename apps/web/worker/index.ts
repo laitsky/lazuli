@@ -5,28 +5,67 @@
  * /api/* requests to the API Worker through a Cloudflare Service Binding.
  */
 
+import { verifyCloudflareAccessJwt } from '../src/lib/access';
+
 interface WebEnv {
   ASSETS: Fetcher;
   API_SERVICE: Fetcher;
   METRICS_INGEST_SECRET?: string;
   METRICS_INGEST_SECRET_ID?: string;
+  ENVIRONMENT?: 'local' | 'staging' | 'production';
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUD?: string;
+  OPERATIONAL_OWNER_EMAIL?: string;
+  OPS_READ_SECRET?: string;
 }
 
 export default {
   async fetch(request: Request, env: WebEnv, executionCtx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
+    if (url.pathname === '/ops' || url.pathname.startsWith('/ops/')) {
+      if (!(await authorizeOpsRequest(request, env))) {
+        return withSecurityHeaders(
+          new Response('Operational access is required.', {
+            status: 403,
+            headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' },
+          })
+        );
+      }
+      if (url.pathname === '/ops/api/dashboard') {
+        if (!env.OPS_READ_SECRET) {
+          return Response.json(
+            { error: 'Operational data binding is unavailable' },
+            { status: 503 }
+          );
+        }
+        const minutes = url.searchParams.get('minutes') ?? '90';
+        const response = await env.API_SERVICE.fetch(
+          `https://api/internal/ops/dashboard?minutes=${encodeURIComponent(minutes)}`,
+          { headers: { 'X-Ops-Read-Secret': env.OPS_READ_SECRET } }
+        );
+        const headers = new Headers(response.headers);
+        headers.set('Cache-Control', 'no-store');
+        return withSecurityHeaders(
+          new Response(response.body, { status: response.status, headers })
+        );
+      }
+    }
+
     if (url.pathname.startsWith('/api/')) {
       return env.API_SERVICE.fetch(request);
     }
 
     if (url.pathname === '/robots.txt') {
-      return new Response(`User-agent: *\nAllow: /\nSitemap: ${url.origin}/sitemap.xml\n`, {
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Cache-Control': 'public, max-age=3600',
-        },
-      });
+      return new Response(
+        `User-agent: *\nAllow: /\nDisallow: /ops\nSitemap: ${url.origin}/sitemap.xml\n`,
+        {
+          headers: {
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600',
+          },
+        }
+      );
     }
 
     if (url.pathname === '/sitemap.xml') {
@@ -127,6 +166,20 @@ export default {
     );
   },
 } satisfies ExportedHandler<WebEnv>;
+
+async function authorizeOpsRequest(request: Request, env: WebEnv): Promise<boolean> {
+  if (!env.ENVIRONMENT || env.ENVIRONMENT === 'local') return true;
+  if (!env.CF_ACCESS_TEAM_DOMAIN || !env.CF_ACCESS_AUD || !env.OPERATIONAL_OWNER_EMAIL) {
+    return false;
+  }
+  const token = request.headers.get('Cf-Access-Jwt-Assertion');
+  if (!token) return false;
+  return verifyCloudflareAccessJwt(token, {
+    teamDomain: env.CF_ACCESS_TEAM_DOMAIN,
+    audience: env.CF_ACCESS_AUD,
+    ownerEmail: env.OPERATIONAL_OWNER_EMAIL,
+  });
+}
 
 async function signInternalMetric(
   secret: string,

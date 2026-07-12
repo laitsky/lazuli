@@ -23,8 +23,15 @@ export interface ProviderHealth {
   connectedAt: number | null;
   lastMessageAt: number | null;
   lastEventAt: number | null;
+  freshnessMs: number | null;
   reconnects: number;
   sequenceGaps: number;
+  unresolvedGaps: number;
+  pendingSnapshots: number;
+  reconciliations: number;
+  reconciliationFailures: number;
+  lastReconciledAt: number | null;
+  lastRecoveredAt: number | null;
   parseErrors: number;
   eventsEmitted: number;
   lastError: string | null;

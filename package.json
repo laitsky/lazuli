@@ -23,6 +23,7 @@
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint -- --fix",
     "type-check": "turbo run type-check",
+    "test": "turbo run test",
     "strategy:validate": "bun run scripts/validate-strategy-ledger.ts",
     "ops:synthetic": "bun run scripts/ops/synthetic-realtime.ts",
     "ops:chaos": "bun run scripts/ops/chaos-drill.ts",

@@ -380,6 +380,7 @@ export const OPENAPI_DOCUMENT = {
                 properties: {
                   metric: {
                     type: 'string',
+                    enum: ['weekly_active_sessions', 'liquidation_latency_ms'],
                   },
                   value: {
                     type: 'number',
@@ -4002,6 +4003,168 @@ export const OPENAPI_DOCUMENT = {
               'application/json': {
                 schema: null,
                 $ref: '#/components/schemas/ApiSuccessResponse',
+              },
+            },
+          },
+          default: {
+            $ref: '#/components/responses/InternalServerError',
+          },
+        },
+      },
+    },
+    '/admin/observability': {
+      get: {
+        summary: 'Read operational dashboards and current SLI state',
+        tags: ['Admin', 'Metrics'],
+        security: [
+          {
+            AdminSignedRequest: [],
+          },
+        ],
+        parameters: [
+          {
+            name: 'minutes',
+            in: 'query',
+            schema: {
+              type: 'integer',
+              minimum: 5,
+              maximum: 10080,
+              default: 90,
+            },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Five operational dashboard datasets',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+          default: {
+            $ref: '#/components/responses/InternalServerError',
+          },
+        },
+      },
+    },
+    '/admin/incidents': {
+      get: {
+        summary: 'List operational SLO incidents',
+        tags: ['Admin', 'Metrics'],
+        security: [
+          {
+            AdminSignedRequest: [],
+          },
+        ],
+        parameters: [
+          {
+            name: 'state',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['open', 'acknowledged', 'resolved'],
+            },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Operational incidents ordered by most recent observation',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+          default: {
+            $ref: '#/components/responses/InternalServerError',
+          },
+        },
+      },
+    },
+    '/admin/incidents/{id}/ack': {
+      parameters: [
+        {
+          name: 'id',
+          in: 'path',
+          required: true,
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      post: {
+        summary: 'Acknowledge an active operational incident',
+        tags: ['Admin', 'Metrics'],
+        security: [
+          {
+            AdminSignedRequest: [],
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Acknowledged operational incident',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+          default: {
+            $ref: '#/components/responses/InternalServerError',
+          },
+        },
+      },
+    },
+    '/admin/incidents/{id}/resolve': {
+      parameters: [
+        {
+          name: 'id',
+          in: 'path',
+          required: true,
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      post: {
+        summary: 'Resolve an active operational incident',
+        tags: ['Admin', 'Metrics'],
+        security: [
+          {
+            AdminSignedRequest: [],
+          },
+        ],
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  resolution: {
+                    type: 'string',
+                    maxLength: 500,
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Resolved operational incident',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
               },
             },
           },

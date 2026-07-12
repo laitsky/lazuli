@@ -90,7 +90,7 @@ function completeReleaseEvidence() {
     owner: 'ops@example.com',
     changeId: 'CHG-1',
     deployments: { api: 'api-v1', web: 'web-v1', ingest: 'ingest-v1' },
-    migrations: ['0007_test', '0008_test', '0009_test', '0010_test', '0011_test'],
+    migrations: ['0007_test', '0008_test', '0009_test', '0010_test', '0011_test', '0012_test'],
     dashboards: ['realtime', 'alerts', 'storage-jobs', 'product', 'release'].map((name) => ({
       name,
       url: `https://dash.example/${name}`,
