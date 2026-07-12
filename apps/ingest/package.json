@@ -12,7 +12,7 @@
     "deploy:staging": "wrangler deploy --env staging",
     "deploy:production": "wrangler deploy --env production",
     "type-check": "tsc --noEmit",
-    "test": "bun test src/**/*.test.ts",
+    "test": "bun test src",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist .turbo .wrangler"
   },

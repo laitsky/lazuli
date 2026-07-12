@@ -1,7 +1,9 @@
 import { Container, getContainer } from '@cloudflare/containers';
 import { faultInjectionAllowed, parseFaultDuration, parseProviderFaultPath } from './control';
+import { withTimeout } from './timeout';
 
 const CONTAINER_PORT = 8080;
+const SHARD_HEALTH_TIMEOUT_MS = 40_000;
 const SUPPORTED_PROVIDERS = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'] as const;
 
 interface Env {
@@ -96,13 +98,21 @@ async function ensureStarted(
 async function aggregateHealth(env: Env): Promise<Response> {
   const providers = configuredProviders(env);
   const results = await Promise.allSettled(
-    providers.map(async (provider) => {
-      const container = await ensureStarted(env, provider);
-      const response = await container.fetch(new Request('http://container/health'));
-      const data = (await response.json()) as Record<string, unknown>;
-      if (!response.ok) throw new Error(`${provider} health returned ${response.status}`);
-      return data;
-    })
+    providers.map((provider) =>
+      withTimeout(
+        (async () => {
+          const container = await ensureStarted(env, provider);
+          const response = await container.fetch(
+            new Request('http://container/health', { signal: AbortSignal.timeout(10_000) })
+          );
+          const data = (await response.json()) as Record<string, unknown>;
+          if (!response.ok) throw new Error(`${provider} health returned ${response.status}`);
+          return data;
+        })(),
+        SHARD_HEALTH_TIMEOUT_MS,
+        `${provider} shard health`
+      )
+    )
   );
   const healthy = results.filter(
     (result): result is PromiseFulfilledResult<Record<string, unknown>> =>
