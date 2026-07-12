@@ -189,7 +189,10 @@ export default function OperationsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(tab) => setSearchParams({ tab }, { replace: true })}>
-        <TabsList aria-label="Operational dashboards" className="h-11 w-full justify-start">
+        <TabsList
+          aria-label="Operational dashboards"
+          className="grid h-auto w-full grid-cols-2 sm:flex sm:h-11 sm:justify-start"
+        >
           {tabMetadata.map(({ id, label, icon: Icon }) => (
             <TabsTrigger key={id} value={id} className="h-10">
               <Icon aria-hidden="true" />
