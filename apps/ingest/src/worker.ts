@@ -155,21 +155,25 @@ async function aggregateHealth(env: Env): Promise<Response> {
             new Request('http://container/health', { signal: AbortSignal.timeout(10_000) })
           );
           const data = (await response.json()) as Record<string, unknown>;
-          if (!response.ok) throw new Error(`${provider} health returned ${response.status}`);
-          return data;
+          return { data, ok: response.ok, status: response.status };
         }),
         SHARD_HEALTH_TIMEOUT_MS + index * SHARD_START_STAGGER_MS,
         `${provider} shard health`
       )
     )
   );
-  const healthy = results.filter(
-    (result): result is PromiseFulfilledResult<Record<string, unknown>> =>
-      result.status === 'fulfilled'
+  const reachable = results.filter(
+    (
+      result
+    ): result is PromiseFulfilledResult<{
+      data: Record<string, unknown>;
+      ok: boolean;
+      status: number;
+    }> => result.status === 'fulfilled'
   );
-  const batching = healthy.reduce(
+  const batching = reachable.reduce(
     (total, result) => {
-      const value = record(result.value.batching);
+      const value = record(result.value.data.batching);
       total.queued += numberValue(value.queued);
       total.dropped += numberValue(value.dropped);
       total.batchesSent += numberValue(value.batchesSent);
@@ -188,17 +192,24 @@ async function aggregateHealth(env: Env): Promise<Response> {
       lastError: null as string | null,
     }
   );
-  const providerHealth = healthy.flatMap((result) =>
-    Array.isArray(result.value.providers) ? result.value.providers : []
+  const providerHealth = reachable.flatMap((result) =>
+    Array.isArray(result.value.data.providers) ? result.value.data.providers : []
   );
   const failures = results.flatMap((result, index) =>
     result.status === 'rejected'
       ? [{ provider: providers[index], error: safeError(result.reason) }]
-      : []
+      : result.value.ok
+        ? []
+        : [
+            {
+              provider: providers[index],
+              error: `${providers[index]} health returned ${result.value.status}`,
+            },
+          ]
   );
   return json(
     {
-      status: failures.length === 0 ? 'ready' : healthy.length > 0 ? 'degraded' : 'unavailable',
+      status: failures.length === 0 ? 'ready' : reachable.length > 0 ? 'degraded' : 'unavailable',
       environment: env.ENVIRONMENT,
       shards: providers.length,
       providers: providerHealth,
