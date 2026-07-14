@@ -26,6 +26,12 @@ bun run scripts/ops/realtime-acceptance.ts \
 
 Pass requires 2,000 peak open sockets, no unexpected closes, no unexplained per-client sequence gaps after snapshot recovery, event and timestamp coverage, p95 source-to-client latency within the declared provider-aware bound, and harness memory growth within the explicitly reviewed bound. Latency sampling uses a bounded 20,000-observation reservoir so the harness itself remains bounded. The dashboard must independently show broker/Container memory, latency, reconnects, and slow-client evictions; client-process memory alone cannot prove server memory stability.
 
+One local source is not accepted as proof when its network path caps concurrent upgrades. The
+manual `Staging Realtime Acceptance` workflow runs four synchronized 500-client shards on
+independent hosted runners and machine-validates their reports with
+`scripts/ops/realtime-aggregate.ts`. Every child must pass; aggregate totals never hide a shard
+failure. The workflow is staging-only and cannot target production.
+
 ## Reconnect storm
 
 ```bash

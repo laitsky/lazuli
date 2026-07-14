@@ -1,0 +1,137 @@
+name: Staging Realtime Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: Full-connection observation duration per runner
+        required: true
+        default: '120'
+      expected_duration_seconds:
+        description: Minimum duration enforced by the aggregate report
+        required: true
+        default: '120'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-realtime-acceptance
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare synchronized start
+    runs-on: ubuntu-latest
+    outputs:
+      start_at: ${{ steps.barrier.outputs.start_at }}
+    steps:
+      - id: barrier
+        name: Set start barrier
+        run: echo "start_at=$(( $(date +%s) + 300 ))" >> "$GITHUB_OUTPUT"
+
+  load:
+    name: Load shard ${{ matrix.shard }}
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Checkout immutable release commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Wait for synchronized start
+        env:
+          START_AT: ${{ needs.prepare.outputs.start_at }}
+        run: |
+          while [ "$(date +%s)" -lt "$START_AT" ]; do sleep 5; done
+
+      - id: acceptance
+        name: Run 500-client shard
+        continue-on-error: true
+        run: |
+          bun run scripts/ops/realtime-acceptance.ts \
+            --mode load \
+            --url 'wss://api-staging.lazuli.now/api/v1/ws?topic=ticker:bybit:btcusdt.p' \
+            --connections 500 \
+            --ramp-seconds 600 \
+            --duration-seconds '${{ inputs.duration_seconds }}' \
+            --max-open-failures 0 \
+            --max-unexpected-closes 0 \
+            --max-sequence-gaps 0 \
+            --max-memory-growth-mib 256 \
+            --min-events 1000 \
+            --min-latency-samples 1000 \
+            --max-latency-p95-ms 800 \
+            --allow-remote \
+            --report '.artifacts/ops/realtime-shard-${{ matrix.shard }}.json'
+
+      - name: Upload shard report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: realtime-shard-${{ matrix.shard }}
+          path: .artifacts/ops/realtime-shard-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce shard result
+        if: steps.acceptance.outcome != 'success'
+        run: exit 1
+
+  aggregate:
+    name: Validate aggregate evidence
+    if: always()
+    needs: load
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout immutable release commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.3.14
+
+      - name: Download shard reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: realtime-shard-*
+          path: .artifacts/ops/shards
+          merge-multiple: true
+
+      - id: aggregate
+        name: Validate 2,000-client aggregate
+        continue-on-error: true
+        run: |
+          bun run scripts/ops/realtime-aggregate.ts \
+            --input-dir .artifacts/ops/shards \
+            --expected-connections 2000 \
+            --expected-shards 4 \
+            --expected-duration-seconds '${{ inputs.expected_duration_seconds }}' \
+            --max-start-skew-seconds 30 \
+            --report .artifacts/ops/realtime-load-aggregate.json
+
+      - name: Upload aggregate report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: realtime-load-aggregate
+          path: .artifacts/ops/realtime-load-aggregate.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce aggregate result
+        if: steps.aggregate.outcome != 'success'
+        run: exit 1
