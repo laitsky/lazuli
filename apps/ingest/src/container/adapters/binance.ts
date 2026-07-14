@@ -20,6 +20,7 @@ interface BufferedDepth extends BinanceDepthSequence {
 const MAX_DEPTH_BUFFER = 5_000;
 const SNAPSHOT_BRIDGE_TIMEOUT_MS = 2_000;
 const SNAPSHOT_BRIDGE_POLL_MS = 25;
+const SNAPSHOT_FETCH_ATTEMPTS = 5;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -241,34 +242,55 @@ export class BinanceAdapter extends ExchangeAdapter {
 
   private async reconcile(symbol: string): Promise<void> {
     const id = canonicalSymbol(symbol);
-    const response = await fetch(`https://fapi.binance.com/fapi/v1/depth?symbol=${id}&limit=100`, {
-      signal: AbortSignal.timeout(5_000),
-    });
-    if (!response.ok) throw new Error(`Binance depth snapshot failed: ${response.status}`);
-    const data = record(await response.json());
-    const last = Number(data.lastUpdateId);
-    if (!validSequence(last)) throw new Error(`Binance depth snapshot sequence invalid for ${id}`);
-    const bridged = await this.waitForSnapshotBridge(id, last);
+    let snapshot: Record<string, unknown> | null = null;
+    let snapshotSequence: number | null = null;
+    let bridged: BufferedDepth[] | null = null;
+    let lastFailure: unknown = null;
+    for (let attempt = 0; attempt < SNAPSHOT_FETCH_ATTEMPTS; attempt += 1) {
+      const response = await fetch(
+        `https://fapi.binance.com/fapi/v1/depth?symbol=${id}&limit=100`,
+        { signal: AbortSignal.timeout(5_000) }
+      );
+      if (!response.ok) throw new Error(`Binance depth snapshot failed: ${response.status}`);
+      const candidate = record(await response.json());
+      const candidateSequence = Number(candidate.lastUpdateId);
+      if (!validSequence(candidateSequence)) {
+        throw new Error(`Binance depth snapshot sequence invalid for ${id}`);
+      }
+      try {
+        bridged = await this.waitForSnapshotBridge(id, candidateSequence);
+        snapshot = candidate;
+        snapshotSequence = candidateSequence;
+        break;
+      } catch (error) {
+        lastFailure = error;
+      }
+    }
+    if (!snapshot || snapshotSequence === null || !bridged) {
+      throw new Error(
+        `Binance snapshot did not bridge buffered depth for ${id}: ${lastFailure instanceof Error ? lastFailure.message : String(lastFailure)}`
+      );
+    }
     const topic = `orderbook:binance:${id}` as RealtimeTopic & `orderbook:binance:${string}`;
     this.publish(
       createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
         type: 'orderbook-delta',
         topic,
         sequence: this.nextSequence(topic),
-        exchangeTimestamp: Number(data.E ?? Date.now()),
+        exchangeTimestamp: Number(snapshot.E ?? Date.now()),
         provider: 'binance',
-        upstreamSequence: last,
+        upstreamSequence: snapshotSequence,
         quality: 'snapshot',
         payload: {
           exchange: 'binance',
           symbol: id,
-          firstSequence: last,
-          lastSequence: last,
-          bids: rows(data.bids).map((row) => [
+          firstSequence: snapshotSequence,
+          lastSequence: snapshotSequence,
+          bids: rows(snapshot.bids).map((row) => [
             requiredNumber(row[0], 'bid price'),
             requiredNumber(row[1], 'bid quantity'),
           ]),
-          asks: rows(data.asks).map((row) => [
+          asks: rows(snapshot.asks).map((row) => [
             requiredNumber(row[0], 'ask price'),
             requiredNumber(row[1], 'ask quantity'),
           ]),
@@ -276,10 +298,10 @@ export class BinanceAdapter extends ExchangeAdapter {
         },
       })
     );
-    this.#depthSequences.set(id, last);
+    this.#depthSequences.set(id, snapshotSequence);
 
     this.#depthBuffers.set(id, []);
-    let previous = last;
+    let previous = snapshotSequence;
     const firstDepth = bridged.shift();
     if (!firstDepth) throw new Error(`Binance snapshot bridge disappeared for ${id}`);
     this.publishDepth(firstDepth);
