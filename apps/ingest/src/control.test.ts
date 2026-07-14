@@ -43,5 +43,7 @@ describe('ingest control safety', () => {
       true
     );
     expect((config.match(/"max_instances": 5/g) ?? []).length).toBe(3);
+    expect((config.match(/"regions": \["APAC"\]/g) ?? []).length).toBe(3);
+    expect(config.includes('"WEUR"')).toBe(false);
   });
 });
