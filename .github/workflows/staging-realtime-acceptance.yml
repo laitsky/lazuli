@@ -54,6 +54,18 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Preflight public realtime route
+        run: |
+          status="$(curl --silent --show-error --max-time 15 \
+            --output /tmp/realtime-preflight.json \
+            --write-out '%{http_code}' \
+            'https://api-staging.lazuli.now/api/v1/ws?topic=ticker:bybit:btcusdt.p')"
+          echo "Public realtime preflight returned HTTP $status"
+          if [ "$status" != '426' ]; then
+            head --bytes 1000 /tmp/realtime-preflight.json || true
+            exit 1
+          fi
+
       - name: Wait for synchronized start
         env:
           START_AT: ${{ needs.prepare.outputs.start_at }}
