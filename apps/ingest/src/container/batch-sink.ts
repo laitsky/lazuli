@@ -26,7 +26,7 @@ export async function signBatch(secret: string, timestamp: number, body: string)
 }
 
 export class BatchSink {
-  readonly #queue: RealtimeEvent[] = [];
+  readonly #lanes = new Map<string, { queue: RealtimeEvent[]; flushing: Promise<void> | null }>();
   readonly #health: BatchHealth = {
     queued: 0,
     dropped: 0,
@@ -36,7 +36,7 @@ export class BatchSink {
     lastError: null,
   };
   #timer: ReturnType<typeof setInterval> | null = null;
-  #flushing = false;
+  #queued = 0;
 
   constructor(
     private readonly config: IngestConfig,
@@ -54,53 +54,71 @@ export class BatchSink {
   }
 
   enqueue(event: RealtimeEvent): void {
-    if (this.#queue.length >= this.config.maxBufferedEvents) {
-      this.#queue.shift();
+    if (this.#queued >= this.config.maxBufferedEvents) {
       this.#health.dropped += 1;
+      return;
     }
-    this.#queue.push(event);
-    this.#health.queued = this.#queue.length;
-    if (this.#queue.length >= this.config.batchSize) void this.flush();
+    const lane = this.#lanes.get(event.topic) ?? { queue: [], flushing: null };
+    if (!this.#lanes.has(event.topic)) this.#lanes.set(event.topic, lane);
+    lane.queue.push(event);
+    this.#queued += 1;
+    this.#health.queued = this.#queued;
+    if (lane.queue.length >= this.config.batchSize) void this.flushLane(event.topic, lane);
   }
 
   getHealth(): BatchHealth {
-    return { ...this.#health, queued: this.#queue.length };
+    return { ...this.#health, queued: this.#queued };
   }
 
   async flush(): Promise<void> {
-    if (this.#flushing || this.#queue.length === 0) return;
-    this.#flushing = true;
-    try {
-      while (this.#queue.length > 0) {
-        const events = this.takeBatch();
+    await Promise.all([...this.#lanes].map(([topic, lane]) => this.flushLane(topic, lane)));
+  }
+
+  private async flushLane(
+    topic: string,
+    lane: { queue: RealtimeEvent[]; flushing: Promise<void> | null }
+  ): Promise<void> {
+    if (lane.flushing) return lane.flushing;
+    if (lane.queue.length === 0) return;
+    const operation = (async () => {
+      while (lane.queue.length > 0) {
+        const events = this.takeBatch(lane.queue);
         if (events.length === 0) break;
-        this.#health.queued = this.#queue.length;
+        this.#queued -= events.length;
+        this.#health.queued = this.#queued;
         const accepted = await this.sendWithRetry(events);
         if (!accepted) {
-          const capacity = Math.max(0, this.config.maxBufferedEvents - this.#queue.length);
-          const restored = events.slice(Math.max(0, events.length - capacity));
-          this.#queue.unshift(...restored);
+          const capacity = Math.max(0, this.config.maxBufferedEvents - this.#queued);
+          const restored = events.slice(0, capacity);
+          lane.queue.unshift(...restored);
+          this.#queued += restored.length;
           this.#health.dropped += events.length - restored.length;
           break;
         }
       }
-    } finally {
-      this.#health.queued = this.#queue.length;
-      this.#flushing = false;
-    }
+    })().finally(() => {
+      this.#health.queued = this.#queued;
+      lane.flushing = null;
+      if (lane.queue.length === 0 && this.#lanes.get(topic) === lane) {
+        this.#lanes.delete(topic);
+      }
+    });
+    lane.flushing = operation;
+    return operation;
   }
 
-  private takeBatch(): RealtimeEvent[] {
+  private takeBatch(queue: RealtimeEvent[]): RealtimeEvent[] {
     const events: RealtimeEvent[] = [];
     let bytes = 0;
-    while (events.length < this.config.batchSize && this.#queue.length > 0) {
-      const next = this.#queue[0];
+    while (events.length < this.config.batchSize && queue.length > 0) {
+      const next = queue[0];
       if (!next) break;
       const eventBytes = encoder.encode(JSON.stringify(next)).byteLength + 1;
       if (events.length > 0 && bytes + eventBytes > MAX_BATCH_EVENT_BYTES) break;
-      this.#queue.shift();
+      queue.shift();
       if (eventBytes > MAX_BATCH_EVENT_BYTES) {
         this.#health.dropped += 1;
+        this.#queued -= 1;
         continue;
       }
       events.push(next);
