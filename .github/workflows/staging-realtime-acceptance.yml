@@ -59,7 +59,7 @@ jobs:
           status="$(curl --silent --show-error --max-time 15 \
             --output /tmp/realtime-preflight.json \
             --write-out '%{http_code}' \
-            'https://api-staging.lazuli.now/api/v1/ws?topic=ticker:bybit:btcusdt.p')"
+            'https://lazuli-api-staging.vincent-diamond15.workers.dev/api/v1/ws?topic=ticker:bybit:btcusdt.p')"
           echo "Public realtime preflight returned HTTP $status"
           if [ "$status" != '426' ]; then
             head --bytes 1000 /tmp/realtime-preflight.json || true
@@ -78,7 +78,7 @@ jobs:
         run: |
           bun run scripts/ops/realtime-acceptance.ts \
             --mode load \
-            --url 'wss://api-staging.lazuli.now/api/v1/ws?topic=ticker:bybit:btcusdt.p' \
+            --url 'wss://lazuli-api-staging.vincent-diamond15.workers.dev/api/v1/ws?topic=ticker:bybit:btcusdt.p' \
             --connections 500 \
             --ramp-seconds 600 \
             --duration-seconds '${{ inputs.duration_seconds || '120' }}' \
