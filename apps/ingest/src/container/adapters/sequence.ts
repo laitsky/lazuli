@@ -21,8 +21,19 @@ export function findBinanceSnapshotBridge(
   snapshotSequence: number,
   events: BinanceDepthSequence[]
 ): number {
-  const expected = snapshotSequence + 1;
-  return events.findIndex((event) => event.first <= expected && event.last >= expected);
+  return events.findIndex(
+    (event) => event.first <= snapshotSequence && event.last >= snapshotSequence
+  );
+}
+
+export type BinanceDepthDecision = 'continuous' | 'stale' | 'gap';
+
+export function binanceDepthDecision(
+  previous: number | null,
+  event: BinanceDepthSequence
+): BinanceDepthDecision {
+  if (previous !== null && event.last <= previous) return 'stale';
+  return binanceDepthIsContinuous(previous, event) ? 'continuous' : 'gap';
 }
 
 export function bybitDepthIsRegression(

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  binanceDepthDecision,
   binanceDepthIsContinuous,
   bybitDepthDecision,
   bybitDepthIsRegression,
@@ -22,6 +23,20 @@ describe('exchange depth sequence semantics', () => {
         { first: 166, last: 170, previousFinal: 165 },
       ])
     ).toBe(1);
+    expect(
+      findBinanceSnapshotBridge(160, [
+        { first: 150, last: 159, previousFinal: 149 },
+        { first: 161, last: 165, previousFinal: 160 },
+      ])
+    ).toBe(-1);
+  });
+
+  test('ignores stale Binance events but rejects a new pu discontinuity', () => {
+    expect(binanceDepthDecision(180, { first: 150, last: 170, previousFinal: 149 })).toBe('stale');
+    expect(binanceDepthDecision(180, { first: 181, last: 190, previousFinal: 180 })).toBe(
+      'continuous'
+    );
+    expect(binanceDepthDecision(180, { first: 191, last: 200, previousFinal: 190 })).toBe('gap');
   });
 
   test('does not treat legitimate Bybit update-id jumps as gaps', () => {

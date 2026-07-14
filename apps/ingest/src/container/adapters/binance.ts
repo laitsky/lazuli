@@ -4,7 +4,7 @@ import type { EmitEvent } from '../types.ts';
 import { ExchangeAdapter } from './base.ts';
 import { canonicalSymbol, createEvent, record, requiredNumber, rows } from './event.ts';
 import {
-  binanceDepthIsContinuous,
+  binanceDepthDecision,
   findBinanceSnapshotBridge,
   validSequence,
   type BinanceDepthSequence,
@@ -18,6 +18,12 @@ interface BufferedDepth extends BinanceDepthSequence {
 }
 
 const MAX_DEPTH_BUFFER = 5_000;
+const SNAPSHOT_BRIDGE_TIMEOUT_MS = 2_000;
+const SNAPSHOT_BRIDGE_POLL_MS = 25;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export class BinanceAdapter extends ExchangeAdapter {
   readonly #depthSequences = new Map<string, number>();
@@ -160,7 +166,9 @@ export class BinanceAdapter extends ExchangeAdapter {
         this.bufferDepth(depth);
         return;
       }
-      if (!binanceDepthIsContinuous(previous, depth)) {
+      const decision = binanceDepthDecision(previous, depth);
+      if (decision === 'stale') return;
+      if (decision === 'gap') {
         this.#readySymbols.delete(symbol);
         this.health.pendingSnapshots = this.symbols.length - this.#readySymbols.size;
         this.#frozenSymbols.add(symbol);
@@ -218,9 +226,16 @@ export class BinanceAdapter extends ExchangeAdapter {
   }
 
   protected async reconcileAll(): Promise<void> {
-    await Promise.all(this.symbols.map((symbol) => this.reconcile(symbol)));
-    if (this.#frozenSymbols.size > 0) {
-      throw new Error('A new Binance gap appeared while reconciliation was in progress');
+    try {
+      await Promise.all(this.symbols.map((symbol) => this.reconcile(symbol)));
+      if (this.#frozenSymbols.size > 0) {
+        throw new Error('A new Binance gap appeared while reconciliation was in progress');
+      }
+    } catch (error) {
+      this.reconnectForSnapshot(
+        `Binance snapshot reconciliation failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+      throw error;
     }
   }
 
@@ -233,6 +248,7 @@ export class BinanceAdapter extends ExchangeAdapter {
     const data = record(await response.json());
     const last = Number(data.lastUpdateId);
     if (!validSequence(last)) throw new Error(`Binance depth snapshot sequence invalid for ${id}`);
+    const bridged = await this.waitForSnapshotBridge(id, last);
     const topic = `orderbook:binance:${id}` as RealtimeTopic & `orderbook:binance:${string}`;
     this.publish(
       createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
@@ -262,31 +278,49 @@ export class BinanceAdapter extends ExchangeAdapter {
     );
     this.#depthSequences.set(id, last);
 
-    const buffered = this.#depthBuffers.get(id) ?? [];
     this.#depthBuffers.set(id, []);
-    const bridge = findBinanceSnapshotBridge(last, buffered);
     let previous = last;
-    if (bridge >= 0) {
-      const bridged = buffered.slice(bridge);
-      const firstDepth = bridged.shift();
-      if (firstDepth) {
-        this.publishDepth(firstDepth);
-        previous = firstDepth.last;
+    const firstDepth = bridged.shift();
+    if (!firstDepth) throw new Error(`Binance snapshot bridge disappeared for ${id}`);
+    this.publishDepth(firstDepth);
+    previous = firstDepth.last;
+    for (const depth of bridged) {
+      const decision = binanceDepthDecision(previous, depth);
+      if (decision === 'stale') continue;
+      if (decision === 'gap') {
+        this.#frozenSymbols.add(id);
+        throw new Error(
+          `Binance buffered depth discontinuity for ${id}: expected predecessor ${previous}, received ${depth.previousFinal ?? depth.first}`
+        );
       }
-      for (const depth of bridged) {
-        if (!binanceDepthIsContinuous(previous, depth)) {
-          this.#frozenSymbols.add(id);
-          throw new Error(
-            `Binance buffered depth discontinuity for ${id}: expected predecessor ${previous}, received ${depth.previousFinal ?? depth.first}`
-          );
-        }
-        this.publishDepth(depth);
-        previous = depth.last;
-      }
+      this.publishDepth(depth);
+      previous = depth.last;
     }
     this.#frozenSymbols.delete(id);
     this.#readySymbols.add(id);
     this.health.pendingSnapshots = this.symbols.length - this.#readySymbols.size;
+  }
+
+  private async waitForSnapshotBridge(
+    id: string,
+    snapshotSequence: number
+  ): Promise<BufferedDepth[]> {
+    const deadline = Date.now() + SNAPSHOT_BRIDGE_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      const buffered = (this.#depthBuffers.get(id) ?? []).filter(
+        (depth) => depth.last >= snapshotSequence
+      );
+      this.#depthBuffers.set(id, buffered);
+      const bridge = findBinanceSnapshotBridge(snapshotSequence, buffered);
+      if (bridge >= 0) return buffered.slice(bridge);
+      if (buffered.some((depth) => depth.first > snapshotSequence)) {
+        throw new Error(
+          `Binance snapshot ${snapshotSequence} is behind the buffered stream for ${id}`
+        );
+      }
+      await delay(SNAPSHOT_BRIDGE_POLL_MS);
+    }
+    throw new Error(`Timed out waiting for Binance snapshot bridge for ${id}`);
   }
 
   private bufferDepth(depth: BufferedDepth): void {

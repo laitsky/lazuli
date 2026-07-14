@@ -196,6 +196,7 @@ async function aggregateHealth(env: Env): Promise<Response> {
   const batching = reachable.reduce(
     (total, result) => {
       const value = record(result.value.data.batching);
+      total.publishingEnabled &&= value.publishingEnabled !== false;
       total.queued += numberValue(value.queued);
       total.dropped += numberValue(value.dropped);
       total.batchesSent += numberValue(value.batchesSent);
@@ -206,6 +207,7 @@ async function aggregateHealth(env: Env): Promise<Response> {
       return total;
     },
     {
+      publishingEnabled: true,
       queued: 0,
       dropped: 0,
       batchesSent: 0,
