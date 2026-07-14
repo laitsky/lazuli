@@ -200,10 +200,11 @@ export class RealtimeHubV2DO extends DurableObject<Env> {
           continue;
         }
         socket.send(encoded);
-        const attachment = socket.deserializeAttachment() as SocketAttachment | null;
-        if (attachment) {
-          socket.serializeAttachment({ ...attachment, lastSequence: envelope.sequence });
-        }
+        // The batch checkpoint is the authoritative durable sequence. Rewriting
+        // every socket attachment for every event makes fan-out cost grow as
+        // events × clients and materially delays the tail of a large cohort.
+        // The attachment's connection-time sequence remains a recovery floor
+        // if a pre-checkpoint publish is interrupted.
         delivered += 1;
       } catch {
         socket.close(1011, 'Publish failed');
