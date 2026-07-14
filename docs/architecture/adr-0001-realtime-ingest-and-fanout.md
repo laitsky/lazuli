@@ -13,7 +13,7 @@ Lazuli requires durable public exchange WebSocket connections, provider-specific
 
 1. A Cloudflare Container in `apps/ingest` is the only always-on exchange ingestion runtime. Adapters own subscriptions, heartbeat, reconnect with jitter, sequence-gap detection, and REST snapshot reconciliation.
 2. The Container normalizes events to the versioned `RealtimeEvent` contract and sends bounded batches to `/internal/realtime/batch`. Requests are timestamped and HMAC-signed. The endpoint is required to reject expired, replayed, malformed, oversized, or private-topic input before production enablement.
-3. The API derives a Durable Object ID from the complete normalized topic. One topic therefore maps to one ordered broker shard. No global broker or cross-topic sequence is promised.
+3. The API replicates each public topic into four ordered Durable Object fan-out shards and assigns connecting sockets by a hash of the WebSocket handshake key. This bounds per-object broadcast work while every shard receives the same ordered event batches. Private user topics remain on one authorization-isolated object. No global or cross-topic sequence is promised.
 4. Each broker persists one bounded checkpoint of sequence, recovery envelopes, and event-ID dedupe state. This is control-plane checkpointing rather than an event archive; R2 remains the high-frequency history store.
 5. RealtimeHubDO uses Cloudflare's hibernation API for client sockets. It assigns broker sequence numbers, retains a bounded recovery window, evicts slow clients, and exposes a REST snapshot for gap recovery.
 6. High-frequency bodies are ephemeral in broker memory or archived in compressed R2 partitions. Durable Object storage holds only the bounded broker checkpoint; D1 stores ingestion checkpoints, derived rollups, attempts, jobs, and manifests. Queues isolate archival and notification work from the latency path.
@@ -24,7 +24,7 @@ Lazuli requires durable public exchange WebSocket connections, provider-specific
 - A Container restart is recovered with adapter checkpoints and provider REST snapshots; duplicate input is tolerated by event/idempotency identifiers.
 - Provider failure is isolated by adapter and topic. Other providers continue independently.
 - Broker hibernation reduces idle-client resource use, while the Container's fixed capacity must be monitored and scaled deliberately.
-- Topic cardinality, per-topic broker memory, batch size, socket backpressure, and Queue lag are explicit capacity constraints.
+- Topic cardinality, per-shard broker memory, batch size, socket backpressure, replication cost, and Queue lag are explicit capacity constraints.
 - The low-latency route remains independent from D1, R2, Queues, and notification delivery. A Durable Object checkpoint failure is surfaced to ingest after fan-out, and event-ID deduplication makes the retry safe.
 - REST polling, stale cache metadata, and modeled liquidation/CVD fallbacks are required rollback paths.
 

@@ -86,6 +86,7 @@ import {
   completeRealtimeIngestBatch,
   releaseRealtimeIngestBatch,
 } from './services/realtimeIngestService';
+import { realtimeHubNameForConnection, realtimeHubNames } from './services/realtimeFanout';
 import {
   getOperationalDashboard,
   listOperationalIncidents,
@@ -500,7 +501,11 @@ const handleRealtimeSocket = async (c: Context<{ Bindings: Env }>): Promise<Resp
     }
   }
 
-  const id = c.env.REALTIME_HUB.idFromName(topic);
+  const hubName = realtimeHubNameForConnection(
+    topic,
+    c.req.header('Sec-WebSocket-Key') ?? crypto.randomUUID()
+  );
+  const id = c.env.REALTIME_HUB.idFromName(hubName);
   return c.env.REALTIME_HUB.get(id).fetch(c.req.raw);
 };
 
@@ -703,7 +708,7 @@ api.get('/realtime/snapshot', async (c) => {
       throw invalidParameter('token', 'A valid private-topic token is required');
     }
   }
-  const id = c.env.REALTIME_HUB.idFromName(topic);
+  const id = c.env.REALTIME_HUB.idFromName(realtimeHubNames(topic)[0] ?? topic);
   const url = new URL('https://realtime/snapshot');
   url.searchParams.set('topic', topic);
   const after = c.req.query('after');
@@ -2532,7 +2537,7 @@ async function loadRealtimeTrades(
     symbol,
     symbol.endsWith('.P') ? 'perp' : 'spot'
   );
-  const id = env.REALTIME_HUB.idFromName(topic);
+  const id = env.REALTIME_HUB.idFromName(realtimeHubNames(topic)[0] ?? topic);
   const url = new URL('https://realtime/snapshot');
   url.searchParams.set('topic', topic);
   const response = await env.REALTIME_HUB.get(id).fetch(url.toString());
@@ -2566,7 +2571,7 @@ async function loadRealtimeLiquidationPrints(
 ): Promise<LiquidationPrint[]> {
   const topic = buildRealtimeTopic('liquidations', exchange, symbol, 'perp');
   if (env.REALTIME_HUB) {
-    const id = env.REALTIME_HUB.idFromName(topic);
+    const id = env.REALTIME_HUB.idFromName(realtimeHubNames(topic)[0] ?? topic);
     const url = new URL('https://realtime/snapshot');
     url.searchParams.set('topic', topic);
     const response = await env.REALTIME_HUB.get(id).fetch(url.toString());
@@ -2781,20 +2786,31 @@ async function publishRealtimeTopicBatch(
   if (!env.REALTIME_HUB || !env.ADMIN_API_KEY) {
     throw new Error('Realtime publishing is not configured');
   }
-  const id = env.REALTIME_HUB.idFromName(topic);
+  const adminApiKey = env.ADMIN_API_KEY;
   const url = new URL('https://realtime/publish-batch');
   url.searchParams.set('topic', topic);
-  const response = await env.REALTIME_HUB.get(id).fetch(url.toString(), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Admin-API-Key': env.ADMIN_API_KEY,
-    },
-    body: JSON.stringify({ batchId, events }),
-  });
-  if (!response.ok) throw new Error(`Realtime publish failed with HTTP ${response.status}`);
-  const result = (await response.json()) as { sequences: number[]; delivered: number };
-  return { topic, sequences: result.sequences, delivered: result.delivered };
+  const body = JSON.stringify({ batchId, events });
+  const results = await Promise.all(
+    realtimeHubNames(topic).map(async (hubName) => {
+      const id = env.REALTIME_HUB.idFromName(hubName);
+      const response = await env.REALTIME_HUB.get(id).fetch(url.toString(), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-API-Key': adminApiKey,
+        },
+        body,
+      });
+      if (!response.ok) throw new Error(`Realtime publish failed with HTTP ${response.status}`);
+      return (await response.json()) as { sequences: number[]; delivered: number };
+    })
+  );
+  const primary = results[0] ?? { sequences: [], delivered: 0 };
+  return {
+    topic,
+    sequences: primary.sequences,
+    delivered: results.reduce((sum, result) => sum + result.delivered, 0),
+  };
 }
 
 async function requireRealtimeIngestSignature(

@@ -132,6 +132,10 @@ async function main(): Promise<void> {
   const expectedClose = new WeakSet<WebSocket>();
   const socketSequences = new WeakMap<WebSocket, Map<string, number>>();
   const latencyReservoir: number[] = [];
+  const diagnostics: {
+    errors: Array<{ phase: 'opening' | 'open'; message: string }>;
+    unexpectedCloses: Array<{ code: number; reason: string; wasClean: boolean }>;
+  } = { errors: [], unexpectedCloses: [] };
   const samples: Array<{
     timestamp: string;
     openSockets: number;
@@ -220,15 +224,35 @@ async function main(): Promise<void> {
           // Non-JSON heartbeat/provider messages are counted but do not affect sequence assertions.
         }
       });
-      socket.addEventListener('error', () => {
+      socket.addEventListener('error', (event) => {
         counters.errors += 1;
+        if (diagnostics.errors.length < 32) {
+          const detail = event as ErrorEvent & { error?: unknown };
+          diagnostics.errors.push({
+            phase: settled ? 'open' : 'opening',
+            message:
+              detail.message ||
+              (detail.error instanceof Error ? detail.error.message : String(detail.error ?? '')) ||
+              'WebSocket error without runtime detail',
+          });
+        }
         settle(false);
       });
-      socket.addEventListener('close', () => {
+      socket.addEventListener('close', (event) => {
         clearTimeout(timeout);
         sockets.delete(socket);
         if (expectedClose.has(socket)) counters.expectedCloses += 1;
-        else counters.unexpectedCloses += 1;
+        else {
+          counters.unexpectedCloses += 1;
+          if (diagnostics.unexpectedCloses.length < 32) {
+            const detail = event as CloseEvent;
+            diagnostics.unexpectedCloses.push({
+              code: detail.code,
+              reason: detail.reason.slice(0, 200),
+              wasClean: detail.wasClean,
+            });
+          }
+        }
         settle(false);
       });
     });
@@ -332,6 +356,7 @@ async function main(): Promise<void> {
     endMemoryMiB: endMemory / 1024 / 1024,
     memoryGrowthMiB,
     latency,
+    diagnostics,
     counters,
     samples,
     checks,
