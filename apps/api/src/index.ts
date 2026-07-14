@@ -577,6 +577,15 @@ app.post('/internal/realtime/batch', async (c) => {
     })
   );
   const enabledEvents = normalizedEvents.filter((_, index) => rolloutDecisions[index]);
+  if (enabledEvents.length === 0) {
+    return ok(c, {
+      accepted: 0,
+      skippedByRollout: normalizedEvents.length,
+      delivered: 0,
+      sequences: [],
+      rolloutDisabled: true,
+    });
+  }
   const claim = await claimRealtimeIngestBatch(c.env, batchId);
   if (claim === 'completed') {
     return ok(c, { accepted: 0, delivered: 0, sequences: [], duplicate: true });
