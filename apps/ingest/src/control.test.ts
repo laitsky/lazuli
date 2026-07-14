@@ -40,11 +40,15 @@ describe('ingest control safety', () => {
     expect(worker.includes('{ INGEST_MAX_BUFFERED_EVENTS: env.INGEST_MAX_BUFFERED_EVENTS }')).toBe(
       true
     );
+    expect(worker.includes('{ REALTIME_PUBLISH_ENABLED: env.REALTIME_PUBLISH_ENABLED }')).toBe(
+      true
+    );
     expect(worker.includes('delayedProvider(index, () => ensureStarted(env, provider))')).toBe(
       true
     );
     expect((config.match(/"max_instances": 5/g) ?? []).length).toBe(3);
     expect((config.match(/"regions": \["APAC"\]/g) ?? []).length).toBe(3);
     expect(config.includes('"WEUR"')).toBe(false);
+    expect(config.includes('"REALTIME_PUBLISH_ENABLED": "false"')).toBe(true);
   });
 });

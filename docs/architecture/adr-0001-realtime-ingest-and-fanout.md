@@ -29,6 +29,9 @@ Lazuli requires durable public exchange WebSocket connections, provider-specific
 - REST polling, stale cache metadata, and modeled liquidation/CVD fallbacks are required rollback paths.
 - `REALTIME_INGEST_ENABLED=false` is a deployment-audited emergency stop that accepts only
   correctly signed, size-bounded ingest requests and returns before JSON parsing or D1 access.
+  `REALTIME_PUBLISH_ENABLED=false` applies the same staging rollback at the Container sender so
+  provider sockets and reconciliation health remain observable without buffering or transmitting
+  batches that the API will discard. Production defaults both switches to enabled.
   Normal cohort control remains D1-backed; the emergency stop is reserved for control-plane or
   fan-out saturation where consulting D1 would defeat the rollback.
 

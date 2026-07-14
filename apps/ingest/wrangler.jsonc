@@ -12,6 +12,7 @@
     "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
     "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
     "INGEST_MAX_BUFFERED_EVENTS": "50000",
+    "REALTIME_PUBLISH_ENABLED": "true",
     "UPBIT_QUOTE": "KRW",
     "OPS_READ_SECRET": "local-ops",
   },
@@ -69,6 +70,7 @@
         "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
         "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
         "INGEST_MAX_BUFFERED_EVENTS": "50000",
+        "REALTIME_PUBLISH_ENABLED": "false",
         "UPBIT_QUOTE": "KRW",
       },
       "durable_objects": {
@@ -107,6 +109,7 @@
         "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
         "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
         "INGEST_MAX_BUFFERED_EVENTS": "50000",
+        "REALTIME_PUBLISH_ENABLED": "true",
         "UPBIT_QUOTE": "KRW",
       },
       "durable_objects": {

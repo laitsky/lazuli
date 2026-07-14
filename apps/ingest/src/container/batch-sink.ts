@@ -27,23 +27,27 @@ export async function signBatch(secret: string, timestamp: number, body: string)
 
 export class BatchSink {
   readonly #lanes = new Map<string, { queue: RealtimeEvent[]; flushing: Promise<void> | null }>();
-  readonly #health: BatchHealth = {
-    queued: 0,
-    dropped: 0,
-    batchesSent: 0,
-    batchesFailed: 0,
-    lastSuccessAt: null,
-    lastError: null,
-  };
+  readonly #health: BatchHealth;
   #timer: ReturnType<typeof setInterval> | null = null;
   #queued = 0;
 
   constructor(
     private readonly config: IngestConfig,
     private readonly providerHealth: () => ProviderHealth[]
-  ) {}
+  ) {
+    this.#health = {
+      publishingEnabled: config.publishEnabled,
+      queued: 0,
+      dropped: 0,
+      batchesSent: 0,
+      batchesFailed: 0,
+      lastSuccessAt: null,
+      lastError: null,
+    };
+  }
 
   start(): void {
+    if (!this.config.publishEnabled) return;
     if (this.#timer) return;
     this.#timer = setInterval(() => void this.flush(), this.config.batchIntervalMs);
   }
@@ -54,6 +58,7 @@ export class BatchSink {
   }
 
   enqueue(event: RealtimeEvent): void {
+    if (!this.config.publishEnabled) return;
     if (this.#queued >= this.config.maxBufferedEvents) {
       this.#health.dropped += 1;
       return;

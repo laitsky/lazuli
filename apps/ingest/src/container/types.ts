@@ -14,6 +14,7 @@ export interface IngestConfig {
   batchSize: number;
   batchIntervalMs: number;
   maxBufferedEvents: number;
+  publishEnabled: boolean;
   controlApiToken: string | null;
 }
 
@@ -38,6 +39,7 @@ export interface ProviderHealth {
 }
 
 export interface BatchHealth {
+  publishingEnabled: boolean;
   queued: number;
   dropped: number;
   batchesSent: number;
@@ -91,6 +93,7 @@ export function loadConfig(env: Record<string, string | undefined>): IngestConfi
     batchSize: positiveInt(env.INGEST_BATCH_SIZE, 500, 500),
     batchIntervalMs: positiveInt(env.INGEST_BATCH_INTERVAL_MS, 200, 5_000),
     maxBufferedEvents: positiveInt(env.INGEST_MAX_BUFFERED_EVENTS, 10_000, 100_000),
+    publishEnabled: env.REALTIME_PUBLISH_ENABLED !== 'false',
     controlApiToken: env.CONTROL_API_TOKEN ?? null,
   };
 }

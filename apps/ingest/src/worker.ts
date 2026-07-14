@@ -21,6 +21,7 @@ interface Env {
   INGEST_PROVIDERS: string;
   INGEST_SYMBOLS: string;
   INGEST_MAX_BUFFERED_EVENTS?: string;
+  REALTIME_PUBLISH_ENABLED?: string;
   UPBIT_QUOTE: string;
   INGEST_SIGNING_SECRET?: string;
   INGEST_SIGNING_SECRET_ID?: string;
@@ -74,6 +75,9 @@ function startOptions(env: Env, provider: string) {
         UPBIT_QUOTE: env.UPBIT_QUOTE,
         ...(env.INGEST_MAX_BUFFERED_EVENTS
           ? { INGEST_MAX_BUFFERED_EVENTS: env.INGEST_MAX_BUFFERED_EVENTS }
+          : {}),
+        ...(env.REALTIME_PUBLISH_ENABLED
+          ? { REALTIME_PUBLISH_ENABLED: env.REALTIME_PUBLISH_ENABLED }
           : {}),
         ...(env.CONTROL_API_TOKEN ? { CONTROL_API_TOKEN: env.CONTROL_API_TOKEN } : {}),
         ...(env.INGEST_SIGNING_SECRET ? { INGEST_SIGNING_SECRET: env.INGEST_SIGNING_SECRET } : {}),

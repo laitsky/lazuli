@@ -22,7 +22,18 @@ describe('ingest configuration', () => {
     expect(config.symbols).toHaveLength(50);
     expect(config.batchSize).toBe(500);
     expect(config.maxBufferedEvents).toBe(10_000);
+    expect(config.publishEnabled).toBe(true);
     expect(config.signingKeyId).toBe('ingest-test-v2');
+  });
+
+  test('supports an explicit deployment-audited publishing stop', () => {
+    const config = loadConfig({
+      API_BASE_URL: 'https://api.example.com',
+      INGEST_SIGNING_SECRET: 'test-secret',
+      REALTIME_PUBLISH_ENABLED: 'false',
+    });
+
+    expect(config.publishEnabled).toBe(false);
   });
 
   test('requires the signing secret before opening provider connections', () => {

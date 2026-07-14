@@ -23,6 +23,7 @@ function config(): IngestConfig {
     batchSize: 500,
     batchIntervalMs: 5_000,
     maxBufferedEvents: 10_000,
+    publishEnabled: true,
     controlApiToken: null,
   };
 }
@@ -97,5 +98,26 @@ describe('BatchSink topic lanes', () => {
     sink.enqueue(trade('trades:binance:btcusdt.p', 3));
 
     expect(sink.getHealth()).toMatchObject({ queued: 2, dropped: 1, batchesSent: 0 });
+  });
+
+  test('keeps provider health active without buffering when publishing is disabled', async () => {
+    let requests = 0;
+    globalThis.fetch = (async () => {
+      requests += 1;
+      return Response.json({ success: true });
+    }) as unknown as typeof fetch;
+    const sink = new BatchSink({ ...config(), publishEnabled: false }, () => []);
+
+    sink.start();
+    sink.enqueue(trade('trades:binance:btcusdt.p', 1));
+    await sink.flush();
+
+    expect(requests).toBe(0);
+    expect(sink.getHealth()).toMatchObject({
+      publishingEnabled: false,
+      queued: 0,
+      dropped: 0,
+      batchesSent: 0,
+    });
   });
 });
