@@ -23,6 +23,9 @@
       "image": "./Dockerfile",
       "max_instances": 5,
       "instance_type": "lite",
+      "constraints": {
+        "regions": ["APAC", "WEUR"],
+      },
     },
   ],
   "durable_objects": {
@@ -80,6 +83,9 @@
           "image": "./Dockerfile",
           "max_instances": 5,
           "instance_type": "lite",
+          "constraints": {
+            "regions": ["APAC", "WEUR"],
+          },
         },
       ],
     },
@@ -114,6 +120,9 @@
           "image": "./Dockerfile",
           "max_instances": 5,
           "instance_type": "lite",
+          "constraints": {
+            "regions": ["APAC", "WEUR"],
+          },
         },
       ],
     },
