@@ -79,6 +79,7 @@ import {
   featureDisabledEnvelope,
   invalidateReleaseControlCache,
   releaseControlEnabled,
+  releaseControlOff,
 } from './utils/features';
 import { OPENAPI_DOCUMENT } from './generated-openapi';
 import {
@@ -545,6 +546,15 @@ app.post('/internal/realtime/batch', async (c) => {
   }
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(batchId)) {
     throw invalidParameter('batchId', 'Realtime ingest batch ID is invalid');
+  }
+  if (await releaseControlOff(c.env, 'realtime')) {
+    return ok(c, {
+      accepted: 0,
+      skippedByRollout: parsed.events.length,
+      delivered: 0,
+      sequences: [],
+      rolloutDisabled: true,
+    });
   }
   const normalizedEvents = parsed.events.map((value) => {
     if (!isRecord(value)) throw invalidParameter('events', 'Every event must be an object');

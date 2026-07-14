@@ -62,6 +62,17 @@ export async function releaseControlEnabled(
   }
 }
 
+/** Fast global rollback check; cohort/resource evaluation still uses releaseControlEnabled. */
+export async function releaseControlOff(env: Env, flag: ReleaseControlFlag): Promise<boolean> {
+  if (!env.DB) return false;
+  try {
+    return (await getCachedReleaseControl(env, flag))?.state === 'off';
+  } catch {
+    // A control-plane outage must not silently broaden a rollout decision.
+    return false;
+  }
+}
+
 export function invalidateReleaseControlCache(env: Env, flag: ReleaseControlFlag): void {
   if (env.DB && typeof env.DB === 'object') releaseControlCaches.get(env.DB)?.delete(flag);
 }

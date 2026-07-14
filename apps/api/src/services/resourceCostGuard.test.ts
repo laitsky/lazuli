@@ -54,8 +54,12 @@ describe('Cloudflare cost regression guards', () => {
 
   test('realtime rollback skips replay D1 writes before claiming a batch', async () => {
     const index = await Bun.file(`${apiDirectory}/src/index.ts`).text();
+    const globalOff = index.indexOf("if (await releaseControlOff(c.env, 'realtime'))");
+    const normalization = index.indexOf('const normalizedEvents = parsed.events.map');
     const disabledReturn = index.indexOf('if (enabledEvents.length === 0)');
     const replayClaim = index.indexOf('const claim = await claimRealtimeIngestBatch');
+    expect(globalOff > -1).toBe(true);
+    expect(normalization > globalOff).toBe(true);
     expect(disabledReturn > -1).toBe(true);
     expect(replayClaim > disabledReturn).toBe(true);
   });

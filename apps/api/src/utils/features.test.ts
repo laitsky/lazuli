@@ -5,6 +5,7 @@ import {
   featureEnabled,
   legacyReleaseControlFallback,
   releaseControlEnabled,
+  releaseControlOff,
   resolveReleaseSubject,
 } from './features';
 
@@ -84,6 +85,34 @@ describe('public-first feature gates', () => {
     expect(legacyReleaseControlFallback(production, 'async_backtests')).toBe(true);
     expect(legacyReleaseControlFallback(production, 'cron_reconciliation')).toBe(false);
     expect(legacyReleaseControlFallback(production, 'admin_operations')).toBe(false);
+  });
+
+  test('detects only an explicit global off control for the fast rollback path', async () => {
+    const envFor = (state: 'off' | 'internal') =>
+      ({
+        DB: {
+          prepare() {
+            return {
+              bind: () => ({
+                first: async () => ({
+                  flag: 'realtime',
+                  state,
+                  subject_allowlist_json: '[]',
+                  provider_allowlist_json: '[]',
+                  topic_allowlist_json: '[]',
+                  revision: 1,
+                  updated_by: 'operator',
+                  update_reason: 'test',
+                  created_at: 1,
+                  updated_at: 1,
+                }),
+              }),
+            };
+          },
+        },
+      }) as unknown as Env;
+    expect(await releaseControlOff(envFor('off'), 'realtime')).toBe(true);
+    expect(await releaseControlOff(envFor('internal'), 'realtime')).toBe(false);
   });
 
   test('does not construct rollout identities from unverified API-key text', async () => {
