@@ -10,6 +10,7 @@ import { withTimeout } from './timeout';
 const CONTAINER_PORT = 8080;
 const SHARD_HEALTH_TIMEOUT_MS = 40_000;
 const SHARD_START_STAGGER_MS = 2_000;
+const SHARD_STOP_TIMEOUT_MS = 30_000;
 const SUPPORTED_PROVIDERS = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'] as const;
 const encoder = new TextEncoder();
 
@@ -145,6 +146,19 @@ function delayedProvider<T>(index: number, operation: () => Promise<T>): Promise
   return new Promise((resolve) => setTimeout(resolve, index * SHARD_START_STAGGER_MS)).then(
     operation
   );
+}
+
+async function waitForStopped(
+  container: DurableObjectStub<IngestContainer>,
+  provider: string
+): Promise<void> {
+  const deadline = Date.now() + SHARD_STOP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const state = await container.getState();
+    if (state.status === 'stopped' || state.status === 'stopped_with_code') return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`${provider} shard did not stop within ${SHARD_STOP_TIMEOUT_MS}ms`);
 }
 
 async function aggregateHealth(env: Env): Promise<Response> {
@@ -308,6 +322,7 @@ export default {
         providers.map(async (provider) => {
           const container = getContainer(env.INGEST_CONTAINER, containerName(provider));
           await container.stop('SIGTERM');
+          await waitForStopped(container, provider);
         })
       );
       await Promise.all(

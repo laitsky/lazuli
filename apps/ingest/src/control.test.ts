@@ -36,6 +36,7 @@ describe('ingest control safety', () => {
     expect(worker.includes('return `market-ingest-${provider}`')).toBe(true);
     expect(worker.includes('SHARD_START_STAGGER_MS = 2_000')).toBe(true);
     expect(worker.includes('await signedApiReady(env)')).toBe(true);
+    expect(worker.includes('await waitForStopped(container, provider)')).toBe(true);
     expect(worker.includes('{ INGEST_MAX_BUFFERED_EVENTS: env.INGEST_MAX_BUFFERED_EVENTS }')).toBe(
       true
     );
