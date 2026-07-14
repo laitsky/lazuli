@@ -9,6 +9,7 @@ import {
 describe('realtime ingest replay protection', () => {
   test('accepts a signed batch nonce once and rejects a replay', async () => {
     const state = new Map<string, 'processing' | 'completed'>();
+    let batchCalls = 0;
     const env = {
       DB: {
         prepare(statement: string) {
@@ -32,11 +33,16 @@ describe('realtime ingest replay protection', () => {
             },
           };
         },
+        async batch(statements: Array<{ run(): Promise<{ meta: { changes: number } }> }>) {
+          batchCalls += 1;
+          return Promise.all(statements.map((statement) => statement.run()));
+        },
       },
     } as unknown as Env;
     const batchId = '123e4567-e89b-12d3-a456-426614174000';
     expect(await claimRealtimeIngestBatch(env, batchId)).toBe('claimed');
     expect(await claimRealtimeIngestBatch(env, batchId)).toBe('processing');
+    expect(batchCalls).toBe(2);
   });
 
   test('marks completed batches as terminal and releases failed processing claims', async () => {

@@ -576,7 +576,15 @@ app.post('/internal/realtime/batch', async (c) => {
   if (claim === 'completed') {
     return ok(c, { accepted: 0, delivered: 0, sequences: [], duplicate: true });
   }
-  if (claim === 'processing') throw new Error('Realtime ingest batch is already processing');
+  if (claim === 'processing') {
+    return ok(c, {
+      accepted: 0,
+      delivered: 0,
+      sequences: [],
+      duplicate: true,
+      processing: true,
+    });
+  }
 
   try {
     const eventsByTopic = new Map<string, Record<string, unknown>[]>();
@@ -633,7 +641,14 @@ app.post('/internal/realtime/batch', async (c) => {
       c.env,
       enabledEvents.map((item) => item.normalized)
     );
-    await completeRealtimeIngestBatch(c.env, batchId);
+    c.executionCtx.waitUntil(
+      completeRealtimeIngestBatch(c.env, batchId).catch((error: unknown) => {
+        console.error('Failed to complete realtime ingest replay checkpoint', {
+          batchId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+    );
     return ok(c, {
       accepted: enabledEvents.length,
       skippedByRollout: normalizedEvents.length - enabledEvents.length,

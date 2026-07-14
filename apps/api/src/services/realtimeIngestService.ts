@@ -10,15 +10,15 @@ export async function claimRealtimeIngestBatch(
     throw new Error('Realtime ingest batch ID is invalid');
   }
   const batchHash = await sha256Hex(batchId);
-  await env.DB.prepare(`DELETE FROM realtime_ingest_batches WHERE expires_at <= unixepoch()`).run();
-  const result = await env.DB.prepare(
-    `INSERT OR IGNORE INTO realtime_ingest_batches
-      (batch_hash, received_at, expires_at, status)
-     VALUES (?, unixepoch(), unixepoch() + 60, 'processing')`
-  )
-    .bind(batchHash)
-    .run();
-  if ((result.meta.changes ?? 0) === 1) return 'claimed';
+  const [, claimResult] = await env.DB.batch([
+    env.DB.prepare(`DELETE FROM realtime_ingest_batches WHERE expires_at <= unixepoch()`),
+    env.DB.prepare(
+      `INSERT OR IGNORE INTO realtime_ingest_batches
+          (batch_hash, received_at, expires_at, status)
+         VALUES (?, unixepoch(), unixepoch() + 60, 'processing')`
+    ).bind(batchHash),
+  ]);
+  if ((claimResult?.meta.changes ?? 0) === 1) return 'claimed';
   const existing = await env.DB.prepare(
     `SELECT status FROM realtime_ingest_batches WHERE batch_hash = ?`
   )
