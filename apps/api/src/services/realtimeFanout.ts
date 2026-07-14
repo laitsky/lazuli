@@ -1,4 +1,4 @@
-export const PUBLIC_REALTIME_FANOUT_SHARDS = 16;
+export const PUBLIC_REALTIME_FANOUT_SHARDS = 8;
 
 export function realtimeHubNames(topic: string): string[] {
   if (topic.startsWith('alerts:user:')) return [topic];
