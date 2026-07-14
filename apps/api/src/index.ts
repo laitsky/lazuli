@@ -536,6 +536,14 @@ app.post('/internal/realtime/batch', async (c) => {
   const rawBody = await c.req.text();
   await requireRealtimeIngestSignature(c.env, c.req.raw.headers, rawBody);
   if (rawBody.length > 512_000) throw invalidParameter('body', 'Realtime batch is too large');
+  if (c.env.REALTIME_INGEST_ENABLED === 'false') {
+    return ok(c, {
+      accepted: 0,
+      delivered: 0,
+      sequences: [],
+      emergencyStop: true,
+    });
+  }
   const parsed = JSON.parse(rawBody) as unknown;
   if (!isRecord(parsed) || !Array.isArray(parsed.events) || parsed.events.length > 500) {
     throw invalidParameter('events', 'events must be an array with at most 500 entries');

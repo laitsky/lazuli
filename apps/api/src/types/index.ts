@@ -212,6 +212,7 @@ export interface Env {
   APP_BASE_URL?: string;
   CORS_ORIGIN?: string;
   ENVIRONMENT?: 'local' | 'staging' | 'production';
+  REALTIME_INGEST_ENABLED?: string;
   ACCOUNT_FEATURES_ENABLED?: string;
   ALERT_EVALUATION_ENABLED?: string;
   ADMIN_ROUTES_ENABLED?: string;

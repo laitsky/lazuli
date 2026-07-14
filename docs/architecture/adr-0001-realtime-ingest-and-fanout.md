@@ -27,6 +27,10 @@ Lazuli requires durable public exchange WebSocket connections, provider-specific
 - Topic cardinality, per-shard broker memory, batch size, socket backpressure, replication cost, and Queue lag are explicit capacity constraints.
 - The low-latency route remains independent from D1, R2, Queues, and notification delivery. A Durable Object checkpoint failure is surfaced to ingest after fan-out, and event-ID deduplication makes the retry safe.
 - REST polling, stale cache metadata, and modeled liquidation/CVD fallbacks are required rollback paths.
+- `REALTIME_INGEST_ENABLED=false` is a deployment-audited emergency stop that accepts only
+  correctly signed, size-bounded ingest requests and returns before JSON parsing or D1 access.
+  Normal cohort control remains D1-backed; the emergency stop is reserved for control-plane or
+  fan-out saturation where consulting D1 would defeat the rollback.
 
 ## Rejected alternatives
 
