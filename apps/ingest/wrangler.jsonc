@@ -11,6 +11,7 @@
     "INGEST_SIGNING_SECRET_ID": "ingest-local-v1",
     "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
     "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
+    "INGEST_MAX_BUFFERED_EVENTS": "50000",
     "UPBIT_QUOTE": "KRW",
     "OPS_READ_SECRET": "local-ops",
   },
@@ -67,6 +68,7 @@
         "INGEST_SIGNING_SECRET_ID": "ingest-staging-v1",
         "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
         "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
+        "INGEST_MAX_BUFFERED_EVENTS": "50000",
         "UPBIT_QUOTE": "KRW",
       },
       "durable_objects": {
@@ -104,6 +106,7 @@
         "INGEST_SIGNING_SECRET_ID": "ingest-production-v1",
         "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
         "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
+        "INGEST_MAX_BUFFERED_EVENTS": "50000",
         "UPBIT_QUOTE": "KRW",
       },
       "durable_objects": {
