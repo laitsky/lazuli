@@ -33,6 +33,7 @@ const MAX_LEGACY_CONNECTIONS = 50;
 const MAX_BUFFERED_BYTES = 1_048_576;
 
 export class RealtimeFanoutV3DO extends DurableObject<Env> {
+  private readonly instanceStartedAt = Date.now();
   private readonly completedBatchIds = new Set<string>();
   private readonly processingBatchIds = new Set<string>();
   private readonly completedEventIds = new Set<string>();
@@ -42,6 +43,11 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
   private logicalEventsPublished = 0;
   private bytesPublished = 0;
   private deduplicatedEvents = 0;
+  private connectionsOpened = 0;
+  private connectionsClosed = 0;
+  private abnormalCloses = 0;
+  private webSocketErrors = 0;
+  private readonly closeCodes = new Map<number, number>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -162,10 +168,14 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
   }
 
   webSocketClose(socket: WebSocket, code: number, reason: string): void {
+    this.connectionsClosed += 1;
+    this.closeCodes.set(code, (this.closeCodes.get(code) ?? 0) + 1);
+    if (code !== 1000) this.abnormalCloses += 1;
     socket.close(code, reason);
   }
 
   webSocketError(socket: WebSocket): void {
+    this.webSocketErrors += 1;
     socket.close(1011, 'WebSocket error');
   }
 
@@ -184,6 +194,7 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
       connectedAt: Date.now(),
     } satisfies SocketAttachment);
     this.ctx.acceptWebSocket(server, [topic, v2 ? 'protocol:v2' : 'protocol:v1']);
+    this.connectionsOpened += 1;
     if (legacyCapacityExceeded) {
       server.close(1013, 'Legacy realtime capacity reached; use v2 or REST polling');
       return new Response(null, { status: 101, webSocket: client });
@@ -346,9 +357,15 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
     }
     return Response.json({
       ok: true,
+      instanceStartedAt: this.instanceStartedAt,
       connections: sockets.length,
       v1Connections,
       v2Connections,
+      connectionsOpened: this.connectionsOpened,
+      connectionsClosed: this.connectionsClosed,
+      abnormalCloses: this.abnormalCloses,
+      webSocketErrors: this.webSocketErrors,
+      closeCodes: Object.fromEntries([...this.closeCodes].sort(([left], [right]) => left - right)),
       batchesPublished: this.batchesPublished,
       logicalEventsPublished: this.logicalEventsPublished,
       bytesPublished: this.bytesPublished,

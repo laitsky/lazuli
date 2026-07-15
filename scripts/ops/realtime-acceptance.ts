@@ -52,7 +52,9 @@ type Counters = {
 };
 
 type ClientState = RealtimeClientEventState & {
+  id: number;
   socket: WebSocket | null;
+  connectedAt: number | null;
   sequences: Map<string, number>;
   seenEventIds: Set<string>;
   eventIdOrder: string[];
@@ -159,12 +161,19 @@ async function main(): Promise<void> {
   };
   const sockets = new Set<WebSocket>();
   const expectedClose = new WeakSet<WebSocket>();
-  const clients = Array.from({ length: config.connections }, () => createClientState());
+  const clients = Array.from({ length: config.connections }, (_, id) => createClientState(id));
   const latencyReservoir: number[] = [];
   const ingestLatencyReservoir: number[] = [];
   const diagnostics: {
     errors: Array<{ phase: 'opening' | 'open'; message: string }>;
-    unexpectedCloses: Array<{ code: number; reason: string; wasClean: boolean }>;
+    unexpectedCloses: Array<{
+      clientId: number;
+      observedAt: string;
+      connectedForMs: number | null;
+      code: number;
+      reason: string;
+      wasClean: boolean;
+    }>;
   } = { errors: [], unexpectedCloses: [] };
   const samples: Array<{
     timestamp: string;
@@ -306,6 +315,7 @@ async function main(): Promise<void> {
           return;
         }
         sockets.add(socket);
+        client.connectedAt = Date.now();
         counters.opened += 1;
         counters.peakOpen = Math.max(counters.peakOpen, sockets.size);
         if (reconnect) {
@@ -372,6 +382,10 @@ async function main(): Promise<void> {
           if (diagnostics.unexpectedCloses.length < 32) {
             const detail = event as CloseEvent;
             diagnostics.unexpectedCloses.push({
+              clientId: client.id,
+              observedAt: new Date().toISOString(),
+              connectedForMs:
+                client.connectedAt === null ? null : Math.max(0, Date.now() - client.connectedAt),
               code: detail.code,
               reason: detail.reason.slice(0, 200),
               wasClean: detail.wasClean,
@@ -531,10 +545,12 @@ async function main(): Promise<void> {
 
 await main();
 
-function createClientState(): ClientState {
+function createClientState(id: number): ClientState {
   return {
     ...createRealtimeClientEventState(),
+    id,
     socket: null,
+    connectedAt: null,
     sequences: new Map(),
     reconnectAttempt: 0,
     reconnectTimer: null,

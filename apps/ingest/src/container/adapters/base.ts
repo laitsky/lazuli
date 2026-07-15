@@ -38,6 +38,7 @@ export abstract class ExchangeAdapter {
       lastReconciledAt: null,
       lastRecoveredAt: null,
       parseErrors: 0,
+      staleEventsDiscarded: 0,
       eventsEmitted: 0,
       lastError: null,
     };
@@ -132,6 +133,10 @@ export abstract class ExchangeAdapter {
   protected parseError(error: unknown): void {
     this.health.parseErrors += 1;
     this.health.lastError = error instanceof Error ? error.message : String(error);
+  }
+
+  protected discardStaleEvent(): void {
+    this.health.staleEventsDiscarded += 1;
   }
 
   private connect(): void {

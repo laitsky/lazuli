@@ -35,6 +35,7 @@ export interface ProviderHealth {
   lastReconciledAt: number | null;
   lastRecoveredAt: number | null;
   parseErrors: number;
+  staleEventsDiscarded: number;
   eventsEmitted: number;
   lastError: string | null;
   channels?: Record<string, ProviderChannelHealth>;

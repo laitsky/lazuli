@@ -158,6 +158,11 @@ export class BybitAdapter extends ExchangeAdapter {
     if (topicName.startsWith('allLiquidation.')) {
       for (const item of Array.isArray(envelope.data) ? envelope.data : []) {
         const liquidation = record(item);
+        const liquidationTimestamp = Number(liquidation.T ?? timestamp);
+        if (!freshBybitLiquidationTimestamp(liquidationTimestamp)) {
+          this.discardStaleEvent();
+          continue;
+        }
         const symbol = canonicalSymbol(String(liquidation.s ?? topicName.split('.').at(-1) ?? ''));
         const price = requiredNumber(liquidation.p, 'liquidation price');
         const quantity = requiredNumber(liquidation.v, 'liquidation quantity');
@@ -167,7 +172,7 @@ export class BybitAdapter extends ExchangeAdapter {
             type: 'liquidation-print',
             topic,
             sequence: this.nextSequence(topic),
-            exchangeTimestamp: Number(liquidation.T ?? timestamp),
+            exchangeTimestamp: liquidationTimestamp,
             provider: 'bybit',
             payload: {
               exchange: 'bybit',
@@ -300,4 +305,12 @@ export class BybitAdapter extends ExchangeAdapter {
     this.#depthSequences.delete(id);
     this.#frozenSymbols.delete(id);
   }
+}
+
+export function freshBybitLiquidationTimestamp(
+  timestamp: number,
+  now = Date.now(),
+  maximumAgeMs = 10_000
+): boolean {
+  return Number.isFinite(timestamp) && timestamp >= now - maximumAgeMs && timestamp <= now + 5_000;
 }

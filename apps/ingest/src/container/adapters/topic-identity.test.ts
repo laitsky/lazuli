@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import type { RealtimeEvent } from '@lazuli/shared';
 
 import { BinanceAdapter } from './binance';
-import { BybitAdapter } from './bybit';
+import { BybitAdapter, freshBybitLiquidationTimestamp } from './bybit';
 import { HyperliquidAdapter } from './hyperliquid';
 import { OkxAdapter } from './okx';
 import { UpbitAdapter } from './upbit';
@@ -70,5 +70,31 @@ describe('adapter realtime topic identity', () => {
     });
 
     expect(events.map((event) => event.topic)).toEqual(['ticker:upbit:btc-krw']);
+  });
+
+  test('rejects retained Bybit liquidations from the live latency stream', () => {
+    const now = 1_800_000_000_000;
+    expect(freshBybitLiquidationTimestamp(now - 10_000, now)).toBe(true);
+    expect(freshBybitLiquidationTimestamp(now - 10_001, now)).toBe(false);
+    expect(freshBybitLiquidationTimestamp(now + 5_001, now)).toBe(false);
+
+    const staleEvents: RealtimeEvent[] = [];
+    const staleAdapter = new BybitAdapter(['BTC/USDT'], (event) => staleEvents.push(event));
+    (staleAdapter as unknown as MessageAdapter).handleMessage(
+      JSON.stringify({
+        topic: 'allLiquidation.BTCUSDT',
+        ts: now,
+        data: [{ T: now - 60_000, s: 'BTCUSDT', S: 'Sell', p: '100', v: '1' }],
+      })
+    );
+    expect(staleEvents).toEqual([]);
+    expect(staleAdapter.health.staleEventsDiscarded).toBe(1);
+
+    const liveEvents = emitOne((emit) => new BybitAdapter(['BTC/USDT'], emit), {
+      topic: 'allLiquidation.BTCUSDT',
+      ts: Date.now(),
+      data: [{ T: Date.now(), s: 'BTCUSDT', S: 'Sell', p: '100', v: '1' }],
+    });
+    expect(liveEvents.map((event) => event.topic)).toEqual(['liquidations:bybit:btcusdt.p']);
   });
 });

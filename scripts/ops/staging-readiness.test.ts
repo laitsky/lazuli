@@ -14,6 +14,7 @@ function cleanSample(): ReadinessSample {
         provider,
         state: 'connected',
         freshnessMs: 10,
+        staleEventsDiscarded: 0,
         reconnects: 0,
         sequenceGaps: 0,
         unresolvedGaps: 0,

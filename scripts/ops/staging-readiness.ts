@@ -37,6 +37,9 @@ export function readinessViolations(sample: ReadinessSample): string[] {
     const name = typeof provider.provider === 'string' ? provider.provider : 'unknown';
     if (provider.state !== 'connected') failures.push(`${name} is not connected`);
     if (number(provider.freshnessMs) >= 45_000) failures.push(`${name} is stale`);
+    if (!Number.isFinite(number(provider.staleEventsDiscarded))) {
+      failures.push(`${name} stale-event telemetry is missing`);
+    }
     for (const field of ['reconnects', 'sequenceGaps', 'unresolvedGaps', 'pendingSnapshots']) {
       if (number(provider[field]) !== 0) failures.push(`${name} ${field} is not zero`);
     }

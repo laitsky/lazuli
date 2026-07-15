@@ -82,7 +82,11 @@ import {
   releaseControlOff,
 } from './utils/features';
 import { OPENAPI_DOCUMENT } from './generated-openapi';
-import { realtimeFanoutNameForConnection, realtimeSequencerName } from './services/realtimeFanout';
+import {
+  realtimeFanoutNameForConnection,
+  realtimeFanoutNames,
+  realtimeSequencerName,
+} from './services/realtimeFanout';
 import { filterAcceptedRealtimeEvents } from './services/realtimeProtocol';
 import {
   getOperationalDashboard,
@@ -2232,7 +2236,17 @@ api.get('/admin/metrics', async (c) => {
 api.get('/admin/observability', async (c) => {
   await requireAdminRequest(c);
   const minutes = validateInteger(c.req.query('minutes'), 90, 5, 10_080);
-  return ok(c, await getOperationalDashboard(c.env, minutes));
+  const topicQuery = c.req.query('topic');
+  const topic = topicQuery === undefined ? null : sanitizeRealtimeTopic(topicQuery);
+  if (topicQuery !== undefined && (!topic || isPrivateRealtimeTopic(topic))) {
+    throw invalidParameter('topic', 'A valid public realtime topic is required');
+  }
+  const [dashboard, realtime] = await Promise.all([
+    getOperationalDashboard(c.env, minutes),
+    topic ? getRealtimeTopicHealth(c.env, topic) : null,
+  ]);
+  const dashboardData = isRecord(dashboard) ? dashboard : { dashboard };
+  return ok(c, { ...dashboardData, ...(realtime ? { realtime } : {}) });
 });
 
 api.get('/admin/incidents', async (c) => {
@@ -2890,6 +2904,28 @@ async function publishRealtimeTopicBatch(
     acceptedEventIds: result.acceptedEventIds ?? [],
     delivered: result.delivered,
     duplicate: result.duplicate === true,
+  };
+}
+
+async function getRealtimeTopicHealth(env: Env, topic: string): Promise<Record<string, unknown>> {
+  if (!env.REALTIME_SEQUENCER || !env.REALTIME_FANOUT) {
+    throw new Error('Realtime Durable Objects are not configured');
+  }
+  const sequencerId = env.REALTIME_SEQUENCER.idFromName(realtimeSequencerName(topic));
+  const [sequencerResponse, ...leafResponses] = await Promise.all([
+    env.REALTIME_SEQUENCER.get(sequencerId).fetch('https://realtime/health'),
+    ...realtimeFanoutNames(topic).map((name) =>
+      env.REALTIME_FANOUT.get(env.REALTIME_FANOUT.idFromName(name)).fetch('https://realtime/health')
+    ),
+  ]);
+  if (!sequencerResponse.ok || leafResponses.some((response) => !response.ok)) {
+    throw new Error('Realtime topic health is unavailable');
+  }
+  return {
+    topic,
+    sequencer: await sequencerResponse.json(),
+    leaves: await Promise.all(leafResponses.map((response) => response.json())),
+    timestamp: Date.now(),
   };
 }
 

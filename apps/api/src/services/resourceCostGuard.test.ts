@@ -35,6 +35,10 @@ describe('Cloudflare cost regression guards', () => {
     expect(sequencer.includes('MAX_RECENT_STORAGE_BYTES')).toBe(true);
     expect(fanout.includes('MAX_REALTIME_FRAME_BYTES')).toBe(true);
     expect(fanout.includes('MAX_PROCESSING_BATCHES')).toBe(true);
+    expect(fanout.includes('connectionsOpened')).toBe(true);
+    expect(fanout.includes('abnormalCloses')).toBe(true);
+    expect(fanout.includes('webSocketErrors')).toBe(true);
+    expect(fanout.includes('closeCodes')).toBe(true);
     expect(sequencer.slice(sequencer.indexOf('async fetch')).includes('rowid NOT IN')).toBe(false);
     expect(fanout.slice(fanout.indexOf('async fetch')).includes('rowid NOT IN')).toBe(false);
     expect(sequencer.includes('bounded retry capacity')).toBe(true);
@@ -72,6 +76,14 @@ describe('Cloudflare cost regression guards', () => {
   test('scheduled reconciliation uses an explicit internal rollout identity', async () => {
     const index = await Bun.file(`${apiDirectory}/src/index.ts`).text();
     expect(index.includes("subject: { kind: 'internal', id: 'scheduled-worker' }")).toBe(true);
+  });
+
+  test('signed observability can inspect every sequencer leaf for one public topic', async () => {
+    const index = await Bun.file(`${apiDirectory}/src/index.ts`).text();
+    expect(index.includes("c.req.query('topic')")).toBe(true);
+    expect(index.includes('getRealtimeTopicHealth(c.env, topic)')).toBe(true);
+    expect(index.includes('realtimeFanoutNames(topic).map')).toBe(true);
+    expect(index.includes('isPrivateRealtimeTopic(topic)')).toBe(true);
   });
 
   test('realtime hot path relies on bounded sequencer idempotency instead of D1 claims', async () => {

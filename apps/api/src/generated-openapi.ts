@@ -4032,6 +4032,15 @@ export const OPENAPI_DOCUMENT = {
               default: 90,
             },
           },
+          {
+            name: 'topic',
+            in: 'query',
+            description: 'Optional public realtime topic for sequencer and leaf health',
+            schema: {
+              type: 'string',
+              maxLength: 120,
+            },
+          },
         ],
         responses: {
           '200': {
