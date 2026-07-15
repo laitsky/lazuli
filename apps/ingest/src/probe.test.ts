@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { runHealthProbe } from './probe';
+import { runHealthProbe, signedProbePayload } from './probe';
 
 describe('external API health probe', () => {
+  test('binds signed reports to their exact body', () => {
+    expect(signedProbePayload(123, '{"success":true}')).toBe('123.{"success":true}');
+    expect(signedProbePayload(123, '')).toBe('123.');
+  });
+
   test('records a successful service-isolation response', async () => {
     const result = await runHealthProbe(
       'https://api-worker.example/path',

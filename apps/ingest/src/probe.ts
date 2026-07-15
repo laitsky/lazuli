@@ -9,6 +9,10 @@ export interface HealthProbeResult {
 
 type FetchImplementation = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
+export function signedProbePayload(timestamp: number, body: string): string {
+  return `${timestamp}.${body}`;
+}
+
 export async function runHealthProbe(
   baseUrl: string,
   fetchImplementation: FetchImplementation = fetch

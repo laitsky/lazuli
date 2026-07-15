@@ -6,7 +6,7 @@ import {
   parseProviderFaultPath,
 } from './control';
 import { withTimeout } from './timeout';
-import { runHealthProbe } from './probe';
+import { runHealthProbe, signedProbePayload } from './probe';
 
 const CONTAINER_PORT = 8080;
 const SHARD_HEALTH_TIMEOUT_MS = 40_000;
@@ -143,7 +143,11 @@ async function signedApiRequest(
     false,
     ['sign']
   );
-  const bytes = await crypto.subtle.sign('HMAC', key, encoder.encode(`${timestamp}.`));
+  const bytes = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(signedProbePayload(timestamp, body))
+  );
   const signature = [...new Uint8Array(bytes)]
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
