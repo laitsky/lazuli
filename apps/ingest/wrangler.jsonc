@@ -71,6 +71,7 @@
         "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
         "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
         "INGEST_MAX_BUFFERED_EVENTS": "50000",
+        "INGEST_TOPIC_ALLOWLIST": "liquidations:bybit:btcusdt.p,ticker:bybit:btcusdt.p,trades:okx:btcusdt.p",
         "REALTIME_PUBLISH_ENABLED": "false",
         "UPBIT_QUOTE": "KRW",
       },

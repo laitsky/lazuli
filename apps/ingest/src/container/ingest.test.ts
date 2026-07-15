@@ -14,6 +14,8 @@ describe('ingest configuration', () => {
       INGEST_SYMBOLS: `btc/usdt,BTC/USDT,${symbols}`,
       INGEST_BATCH_SIZE: '999',
       INGEST_MAX_BUFFERED_EVENTS: '-1',
+      INGEST_TOPIC_ALLOWLIST:
+        'TRADES:BINANCE:BTCUSDT.P,invalid,ticker:bybit:btcusdt.p,trades:binance:btcusdt.p',
     });
 
     expect(config.apiBaseUrl).toBe('https://api.example.com');
@@ -25,6 +27,10 @@ describe('ingest configuration', () => {
     expect(config.maxBufferedEvents).toBe(10_000);
     expect(config.publishEnabled).toBe(true);
     expect(config.signingKeyId).toBe('ingest-test-v2');
+    expect([...config.topicAllowlist!]).toEqual([
+      'trades:binance:btcusdt.p',
+      'ticker:bybit:btcusdt.p',
+    ]);
   });
 
   test('supports an explicit deployment-audited publishing stop', () => {
@@ -35,6 +41,17 @@ describe('ingest configuration', () => {
     });
 
     expect(config.publishEnabled).toBe(false);
+    expect(config.topicAllowlist).toBe(null);
+  });
+
+  test('treats an explicitly empty rollout allowlist as deny all', () => {
+    const config = loadConfig({
+      API_BASE_URL: 'https://api.example.com',
+      INGEST_SIGNING_SECRET: 'test-secret',
+      INGEST_TOPIC_ALLOWLIST: '',
+    });
+
+    expect(config.topicAllowlist).toEqual(new Set());
   });
 
   test('requires the signing secret before opening provider connections', () => {

@@ -37,6 +37,8 @@ export class BatchSink {
   ) {
     this.#health = {
       publishingEnabled: config.publishEnabled,
+      topicAllowlist: config.topicAllowlist ? [...config.topicAllowlist].sort() : null,
+      filtered: 0,
       queued: 0,
       dropped: 0,
       batchesSent: 0,
@@ -59,6 +61,10 @@ export class BatchSink {
 
   enqueue(event: RealtimeEvent): void {
     if (!this.config.publishEnabled) return;
+    if (this.config.topicAllowlist && !this.config.topicAllowlist.has(event.topic)) {
+      this.#health.filtered += 1;
+      return;
+    }
     if (this.#queued >= this.config.maxBufferedEvents) {
       this.#health.dropped += 1;
       return;

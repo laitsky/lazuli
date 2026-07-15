@@ -22,6 +22,7 @@ interface Env {
   INGEST_PROVIDERS: string;
   INGEST_SYMBOLS: string;
   INGEST_MAX_BUFFERED_EVENTS?: string;
+  INGEST_TOPIC_ALLOWLIST?: string;
   REALTIME_PUBLISH_ENABLED?: string;
   UPBIT_QUOTE: string;
   INGEST_SIGNING_SECRET?: string;
@@ -78,6 +79,9 @@ function startOptions(env: Env, provider: string) {
         UPBIT_QUOTE: env.UPBIT_QUOTE,
         ...(env.INGEST_MAX_BUFFERED_EVENTS
           ? { INGEST_MAX_BUFFERED_EVENTS: env.INGEST_MAX_BUFFERED_EVENTS }
+          : {}),
+        ...(env.INGEST_TOPIC_ALLOWLIST !== undefined
+          ? { INGEST_TOPIC_ALLOWLIST: env.INGEST_TOPIC_ALLOWLIST }
           : {}),
         ...(env.REALTIME_PUBLISH_ENABLED
           ? { REALTIME_PUBLISH_ENABLED: env.REALTIME_PUBLISH_ENABLED }
@@ -227,6 +231,7 @@ async function aggregateHealth(env: Env): Promise<Response> {
     (total, result) => {
       const value = record(result.value.data.batching);
       total.publishingEnabled &&= value.publishingEnabled !== false;
+      total.filtered += numberValue(value.filtered);
       total.queued += numberValue(value.queued);
       total.dropped += numberValue(value.dropped);
       total.batchesSent += numberValue(value.batchesSent);
@@ -238,6 +243,8 @@ async function aggregateHealth(env: Env): Promise<Response> {
     },
     {
       publishingEnabled: true,
+      topicAllowlist: env.INGEST_TOPIC_ALLOWLIST?.split(',').map((topic) => topic.trim()) ?? null,
+      filtered: 0,
       queued: 0,
       dropped: 0,
       batchesSent: 0,

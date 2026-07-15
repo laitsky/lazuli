@@ -37,6 +37,12 @@ Lazuli requires durable public exchange WebSocket connections, provider-specific
 - Ordered provider/topic lanes coalesce events for 400 ms before signed ingest. This keeps the
   sequencer checkpoint path below saturation while retaining headroom inside the 800 ms primary
   feed SLO; a lane flushes earlier when its bounded batch or frame limit is reached.
+- Controlled ramps set `INGEST_TOPIC_ALLOWLIST` to the same exact public topics authorized by the
+  D1 release control. The Container filters other topics before buffering or signing requests and
+  reports them as intentional `filtered` events, separately from loss-bearing `dropped` events.
+  The API repeats the D1 authorization check as the authoritative defense in depth. An omitted
+  Container allowlist permits every public topic; an explicitly empty or wholly invalid list
+  denies all.
 
 ## Rejected alternatives
 

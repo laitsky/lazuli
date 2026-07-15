@@ -24,6 +24,7 @@ function config(): IngestConfig {
     batchIntervalMs: 5_000,
     maxBufferedEvents: 10_000,
     publishEnabled: true,
+    topicAllowlist: null,
     controlApiToken: null,
   };
 }
@@ -100,6 +101,35 @@ describe('BatchSink topic lanes', () => {
     expect(sink.getHealth()).toMatchObject({ queued: 2, dropped: 1, batchesSent: 0 });
   });
 
+  test('filters deployment-disabled topics before buffering or API delivery', async () => {
+    const payloads: RealtimeEvent[][] = [];
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      payloads.push((JSON.parse(String(init?.body)) as { events: RealtimeEvent[] }).events);
+      return Response.json({ success: true });
+    }) as typeof fetch;
+    const sink = new BatchSink(
+      {
+        ...config(),
+        topicAllowlist: new Set(['trades:binance:btcusdt.p']),
+      },
+      () => []
+    );
+
+    sink.enqueue(trade('trades:binance:ethusdt.p', 1));
+    sink.enqueue(trade('trades:binance:btcusdt.p', 2));
+    await sink.flush();
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]?.map((event) => event.topic)).toEqual(['trades:binance:btcusdt.p']);
+    expect(sink.getHealth()).toMatchObject({
+      topicAllowlist: ['trades:binance:btcusdt.p'],
+      filtered: 1,
+      queued: 0,
+      dropped: 0,
+      batchesSent: 1,
+    });
+  });
+
   test('keeps provider health active without buffering when publishing is disabled', async () => {
     let requests = 0;
     globalThis.fetch = (async () => {
@@ -115,6 +145,7 @@ describe('BatchSink topic lanes', () => {
     expect(requests).toBe(0);
     expect(sink.getHealth()).toMatchObject({
       publishingEnabled: false,
+      filtered: 0,
       queued: 0,
       dropped: 0,
       batchesSent: 0,

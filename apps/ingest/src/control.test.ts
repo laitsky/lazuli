@@ -42,6 +42,7 @@ describe('ingest control safety', () => {
     expect(worker.includes('{ INGEST_MAX_BUFFERED_EVENTS: env.INGEST_MAX_BUFFERED_EVENTS }')).toBe(
       true
     );
+    expect(worker.includes('{ INGEST_TOPIC_ALLOWLIST: env.INGEST_TOPIC_ALLOWLIST }')).toBe(true);
     expect(worker.includes('{ REALTIME_PUBLISH_ENABLED: env.REALTIME_PUBLISH_ENABLED }')).toBe(
       true
     );
@@ -52,6 +53,7 @@ describe('ingest control safety', () => {
     expect((config.match(/"regions": \["APAC"\]/g) ?? []).length).toBe(3);
     expect(config.includes('"WEUR"')).toBe(false);
     expect(config.includes('"REALTIME_PUBLISH_ENABLED": "false"')).toBe(true);
+    expect(config.includes('"INGEST_TOPIC_ALLOWLIST"')).toBe(true);
     expect(config.includes('"PROBE_API_BASE_URL"')).toBe(true);
     expect((config.match(/"binding": "API_SERVICE"/g) ?? []).length).toBe(2);
     expect(config.includes('"service": "lazuli-api-staging"')).toBe(true);

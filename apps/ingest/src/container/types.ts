@@ -1,4 +1,4 @@
-import type { RealtimeEvent, SupportedExchange } from '@lazuli/shared';
+import type { RealtimeEvent, RealtimeTopic, SupportedExchange } from '@lazuli/shared';
 
 export type ProviderName = SupportedExchange;
 
@@ -15,6 +15,7 @@ export interface IngestConfig {
   batchIntervalMs: number;
   maxBufferedEvents: number;
   publishEnabled: boolean;
+  topicAllowlist: ReadonlySet<RealtimeTopic> | null;
   controlApiToken: string | null;
 }
 
@@ -49,6 +50,8 @@ export interface ProviderChannelHealth {
 
 export interface BatchHealth {
   publishingEnabled: boolean;
+  topicAllowlist: RealtimeTopic[] | null;
+  filtered: number;
   queued: number;
   dropped: number;
   batchesSent: number;
@@ -60,6 +63,8 @@ export interface BatchHealth {
 export type EmitEvent = (event: RealtimeEvent) => void;
 
 const ALLOWED_PROVIDERS: ProviderName[] = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'];
+const PUBLIC_TOPIC_PATTERN =
+  /^(ticker|liquidations|liquidation-bands|trades|cvd|orderbook|funding|open-interest):(binance|bybit|okx|hyperliquid|upbit):[a-z0-9._-]+$/;
 
 function positiveInt(value: string | undefined, fallback: number, maximum: number): number {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -82,6 +87,7 @@ export function loadConfig(env: Record<string, string | undefined>): IngestConfi
     )
     .slice(0, 50);
   const apiBaseUrl = env.API_BASE_URL?.replace(/\/$/, '');
+  const topicAllowlist = parseTopicAllowlist(env.INGEST_TOPIC_ALLOWLIST);
 
   if (!apiBaseUrl) throw new Error('API_BASE_URL is required');
   if (!env.INGEST_SIGNING_SECRET) {
@@ -106,6 +112,20 @@ export function loadConfig(env: Record<string, string | undefined>): IngestConfi
     batchIntervalMs: positiveInt(env.INGEST_BATCH_INTERVAL_MS, 400, 5_000),
     maxBufferedEvents: positiveInt(env.INGEST_MAX_BUFFERED_EVENTS, 10_000, 100_000),
     publishEnabled: env.REALTIME_PUBLISH_ENABLED !== 'false',
+    topicAllowlist,
     controlApiToken: env.CONTROL_API_TOKEN ?? null,
   };
+}
+
+/**
+ * Undefined means unrestricted ingestion. An explicitly empty value means no
+ * topics, which makes a malformed or accidentally blank rollout fail closed.
+ */
+export function parseTopicAllowlist(value: string | undefined): ReadonlySet<RealtimeTopic> | null {
+  if (value === undefined) return null;
+  const topics = value
+    .split(',')
+    .map((topic) => topic.trim().toLowerCase())
+    .filter((topic): topic is RealtimeTopic => PUBLIC_TOPIC_PATTERN.test(topic));
+  return new Set(topics);
 }
