@@ -21,8 +21,10 @@ const MAX_DEPTH_BUFFER = 5_000;
 const SNAPSHOT_BRIDGE_TIMEOUT_MS = 2_000;
 const SNAPSHOT_BRIDGE_POLL_MS = 25;
 const SNAPSHOT_FETCH_ATTEMPTS = 5;
-const BINANCE_PUBLIC_URL = 'wss://fstream.binance.com/public';
-const BINANCE_MARKET_URL = 'wss://fstream.binance.com/market';
+// Routed endpoints still require an access mode. `/ws` keeps live JSON
+// SUBSCRIBE/UNSUBSCRIBE control messages while separating public and market traffic.
+const BINANCE_PUBLIC_URL = 'wss://fstream.binance.com/public/ws';
+const BINANCE_MARKET_URL = 'wss://fstream.binance.com/market/ws';
 const CHANNEL_HEARTBEAT_MS = 15_000;
 const CHANNEL_STALE_MS = 45_000;
 
