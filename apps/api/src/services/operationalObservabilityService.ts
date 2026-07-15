@@ -417,16 +417,23 @@ export async function transitionOperationalIncident(
   return incident ? mapIncident(incident) : null;
 }
 
+export function getSyntheticProbeBaseUrl(
+  env: Pick<Env, 'SERVICE_ISOLATION_API_BASE_URL' | 'PUBLIC_API_BASE_URL'>
+): string | undefined {
+  return env.SERVICE_ISOLATION_API_BASE_URL ?? env.PUBLIC_API_BASE_URL;
+}
+
 async function runSyntheticProbes(env: Env): Promise<void> {
-  if (!env.PUBLIC_API_BASE_URL) return;
-  await probe(env, 'api', new URL('/health', env.PUBLIC_API_BASE_URL));
+  const probeBaseUrl = getSyntheticProbeBaseUrl(env);
+  if (!probeBaseUrl) return;
+  await probe(env, 'api', new URL('/health', probeBaseUrl));
   const realtime = await getReleaseControl(env, 'realtime');
   if (realtime && realtime.state !== 'off') {
     const topic = realtime.topicAllowlist[0] ?? 'ticker:bybit:btcusdt.p';
     await probe(
       env,
       'ws',
-      new URL(`/api/v1/ws?topic=${encodeURIComponent(topic)}`, env.PUBLIC_API_BASE_URL),
+      new URL(`/api/v1/ws?topic=${encodeURIComponent(topic)}`, probeBaseUrl),
       true
     );
   }

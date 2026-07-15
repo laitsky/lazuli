@@ -237,6 +237,7 @@ export interface Env {
   OPS_READ_SECRET_NEXT?: string;
   INGEST_HEALTH_URL?: string;
   PUBLIC_API_BASE_URL?: string;
+  SERVICE_ISOLATION_API_BASE_URL?: string;
 }
 
 /**

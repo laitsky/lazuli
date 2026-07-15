@@ -197,6 +197,7 @@
         "REALTIME_INGEST_ENABLED": "false",
         "APP_BASE_URL": "https://staging.lazuli.now",
         "PUBLIC_API_BASE_URL": "https://api-staging.lazuli.now",
+        "SERVICE_ISOLATION_API_BASE_URL": "https://lazuli-api-staging.vincent-diamond15.workers.dev",
         "CORS_ORIGIN": "https://staging.lazuli.now",
         "ADMIN_API_KEY_ID": "lazuli-admin-staging",
         "INGEST_SIGNING_SECRET_ID": "ingest-staging-v1",

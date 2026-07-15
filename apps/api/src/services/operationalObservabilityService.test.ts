@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { percentile95, sloBreached } from './operationalObservabilityService';
+import {
+  getSyntheticProbeBaseUrl,
+  percentile95,
+  sloBreached,
+} from './operationalObservabilityService';
 
 declare const Bun: {
   file(path: string): { text(): Promise<string> };
@@ -29,5 +33,17 @@ describe('operational observability', () => {
     expect(migration.includes('release_evidence_references_immutable_delete')).toBe(true);
     expect(migration.includes('operational_incidents')).toBe(true);
     expect(migration.includes('synthetic_probe_results')).toBe(true);
+  });
+
+  test('synthetic probes prefer service isolation and retain a public fallback', () => {
+    expect(
+      getSyntheticProbeBaseUrl({
+        SERVICE_ISOLATION_API_BASE_URL: 'https://service-isolation.example',
+        PUBLIC_API_BASE_URL: 'https://public.example',
+      })
+    ).toBe('https://service-isolation.example');
+    expect(getSyntheticProbeBaseUrl({ PUBLIC_API_BASE_URL: 'https://public.example' })).toBe(
+      'https://public.example'
+    );
   });
 });
