@@ -62,6 +62,18 @@ export interface BatchHealth {
 
 export type EmitEvent = (event: RealtimeEvent) => void;
 
+export function providerFreshnessMs(
+  health: Pick<ProviderHealth, 'lastEventAt' | 'lastMessageAt'>,
+  now = Date.now()
+): number | null {
+  // During a controlled rollout a provider may keep a low-rate health stream
+  // connected while every market topic for that provider is disabled. In that
+  // state upstream messages are the honest freshness signal; once a publishable
+  // event exists, event freshness remains the stricter data-plane signal.
+  const lastActivityAt = health.lastEventAt ?? health.lastMessageAt;
+  return lastActivityAt === null ? null : Math.max(0, now - lastActivityAt);
+}
+
 const ALLOWED_PROVIDERS: ProviderName[] = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'];
 const PUBLIC_TOPIC_PATTERN =
   /^(ticker|liquidations|liquidation-bands|trades|cvd|orderbook|funding|open-interest):(binance|bybit|okx|hyperliquid|upbit):[a-z0-9._-]+$/;

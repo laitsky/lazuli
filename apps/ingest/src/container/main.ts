@@ -4,7 +4,7 @@ import { BybitAdapter } from './adapters/bybit.ts';
 import { HyperliquidAdapter } from './adapters/hyperliquid.ts';
 import { OkxAdapter } from './adapters/okx.ts';
 import { UpbitAdapter } from './adapters/upbit.ts';
-import { loadConfig, type ProviderHealth } from './types.ts';
+import { loadConfig, providerFreshnessMs, type ProviderHealth } from './types.ts';
 import type { ExchangeAdapter } from './adapters/base.ts';
 
 const startedAt = Date.now();
@@ -15,10 +15,7 @@ const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const providerHealth = (): ProviderHealth[] =>
   adapters.map((adapter) => ({
     ...adapter.health,
-    freshnessMs:
-      adapter.health.lastEventAt === null
-        ? null
-        : Math.max(0, Date.now() - adapter.health.lastEventAt),
+    freshnessMs: providerFreshnessMs(adapter.health),
   }));
 const sink = new BatchSink(config, providerHealth);
 const emit = sink.enqueue.bind(sink);

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { signBatch } from './batch-sink.ts';
-import { loadConfig } from './types.ts';
+import { loadConfig, providerFreshnessMs } from './types.ts';
 
 describe('ingest configuration', () => {
   test('normalizes, deduplicates, and bounds public configuration', () => {
@@ -58,6 +58,12 @@ describe('ingest configuration', () => {
     expect(() => loadConfig({ API_BASE_URL: 'https://api.example.com' })).toThrow(
       'INGEST_SIGNING_SECRET is required'
     );
+  });
+
+  test('uses upstream messages for health-only rollout streams', () => {
+    expect(providerFreshnessMs({ lastEventAt: null, lastMessageAt: 900 }, 1_000)).toBe(100);
+    expect(providerFreshnessMs({ lastEventAt: 800, lastMessageAt: 950 }, 1_000)).toBe(200);
+    expect(providerFreshnessMs({ lastEventAt: null, lastMessageAt: null }, 1_000)).toBeNull();
   });
 });
 
