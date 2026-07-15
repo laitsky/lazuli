@@ -21,6 +21,7 @@ describe('ingest configuration', () => {
     expect(config.symbols[0]).toBe('BTC/USDT');
     expect(config.symbols).toHaveLength(50);
     expect(config.batchSize).toBe(500);
+    expect(config.batchIntervalMs).toBe(400);
     expect(config.maxBufferedEvents).toBe(10_000);
     expect(config.publishEnabled).toBe(true);
     expect(config.signingKeyId).toBe('ingest-test-v2');

@@ -100,7 +100,10 @@ export function loadConfig(env: Record<string, string | undefined>): IngestConfi
     upbitQuote: (env.UPBIT_QUOTE ?? 'KRW').toUpperCase(),
     port: positiveInt(env.PORT, 8080, 65_535),
     batchSize: positiveInt(env.INGEST_BATCH_SIZE, 500, 500),
-    batchIntervalMs: positiveInt(env.INGEST_BATCH_INTERVAL_MS, 200, 5_000),
+    // Coalesce each ordered topic lane below the 800 ms end-to-end budget.
+    // A 200 ms cadence saturated the signed API/DO checkpoint path at live
+    // ticker rates; 400 ms leaves measured staging dispatch headroom.
+    batchIntervalMs: positiveInt(env.INGEST_BATCH_INTERVAL_MS, 400, 5_000),
     maxBufferedEvents: positiveInt(env.INGEST_MAX_BUFFERED_EVENTS, 10_000, 100_000),
     publishEnabled: env.REALTIME_PUBLISH_ENABLED !== 'false',
     controlApiToken: env.CONTROL_API_TOKEN ?? null,

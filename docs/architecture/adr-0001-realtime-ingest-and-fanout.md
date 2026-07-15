@@ -34,6 +34,9 @@ Lazuli requires durable public exchange WebSocket connections, provider-specific
   batches that the API will discard. Production defaults both switches to enabled.
   Normal cohort control remains D1-backed; the emergency stop is reserved for control-plane or
   fan-out saturation where consulting D1 would defeat the rollback.
+- Ordered provider/topic lanes coalesce events for 400 ms before signed ingest. This keeps the
+  sequencer checkpoint path below saturation while retaining headroom inside the 800 ms primary
+  feed SLO; a lane flushes earlier when its bounded batch or frame limit is reached.
 
 ## Rejected alternatives
 
