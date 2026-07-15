@@ -7,6 +7,11 @@ on:
         description: Continuous observation duration (minimum 900)
         required: true
         default: '900'
+  push:
+    branches: [codex/product-strategy-acceptance]
+    paths:
+      - .github/workflows/staging-readiness.yml
+      - .github/staging-readiness-trigger.json
 
 permissions:
   contents: read
@@ -31,7 +36,7 @@ jobs:
       - name: Run continuous readiness gate
         env:
           STAGING_OPS_READ_SECRET: ${{ secrets.STAGING_OPS_READ_SECRET }}
-          READINESS_DURATION_SECONDS: ${{ inputs.duration_seconds }}
+          READINESS_DURATION_SECONDS: ${{ inputs.duration_seconds || '900' }}
           READINESS_INTERVAL_SECONDS: '60'
         run: bun run scripts/ops/staging-readiness.ts
 
