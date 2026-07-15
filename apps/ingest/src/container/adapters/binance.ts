@@ -129,6 +129,7 @@ export class BinanceAdapter extends ExchangeAdapter {
     if (!symbol) return;
 
     if (type === 'aggTrade') {
+      if (!this.topicEnabled('trades', symbol)) return;
       const topic = marketTopic('trades', 'binance', symbol, 'perp');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'trade' }>>({
@@ -152,6 +153,7 @@ export class BinanceAdapter extends ExchangeAdapter {
     }
 
     if (type === 'bookTicker') {
+      if (!this.topicEnabled('ticker', symbol)) return;
       const topic = marketTopic('ticker', 'binance', symbol, 'perp');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'ticker' }>>({
@@ -179,6 +181,7 @@ export class BinanceAdapter extends ExchangeAdapter {
     if (type === 'forceOrder') {
       const order = record(data.o);
       const orderSymbol = canonicalSymbol(String(order.s ?? symbol));
+      if (!this.topicEnabled('liquidations', orderSymbol)) return;
       const price = requiredNumber(order.ap ?? order.p, 'liquidation price');
       const quantity = requiredNumber(order.z ?? order.q, 'liquidation quantity');
       const topic = marketTopic('liquidations', 'binance', orderSymbol, 'perp');
@@ -205,6 +208,7 @@ export class BinanceAdapter extends ExchangeAdapter {
     }
 
     if (type === 'depthUpdate') {
+      if (!this.topicEnabled('orderbook', symbol)) return;
       const previous = this.#depthSequences.get(symbol) ?? null;
       const first = Number(data.U);
       const last = Number(data.u);
@@ -244,43 +248,50 @@ export class BinanceAdapter extends ExchangeAdapter {
     }
 
     if (type === 'markPriceUpdate') {
-      const markPrice = requiredNumber(data.p, 'mark price');
-      const tickerTopic = marketTopic('ticker', 'binance', symbol, 'perp');
-      this.publish(
-        createEvent<Extract<RealtimeEvent, { type: 'ticker' }>>({
-          type: 'ticker',
-          topic: tickerTopic,
-          sequence: this.nextSequence(tickerTopic),
-          exchangeTimestamp: timestamp,
-          provider: 'binance',
-          payload: {
-            exchange: 'binance',
-            symbol,
-            marketType: 'perp',
-            bid: null,
-            ask: null,
-            last: markPrice,
-            volume24h: null,
-            change24hPercent: null,
-          },
-        })
-      );
-      const topic = marketTopic('funding', 'binance', symbol, 'perp');
-      this.publish(
-        createEvent<Extract<RealtimeEvent, { type: 'funding' }>>({
-          type: 'funding',
-          topic,
-          sequence: this.nextSequence(topic),
-          exchangeTimestamp: timestamp,
-          provider: 'binance',
-          payload: {
-            exchange: 'binance',
-            symbol,
-            fundingRate: requiredNumber(data.r, 'funding rate'),
-            nextFundingAt: Number(data.T) || null,
-          },
-        })
-      );
+      const tickerEnabled = this.topicEnabled('ticker', symbol);
+      const fundingEnabled = this.topicEnabled('funding', symbol);
+      if (!tickerEnabled && !fundingEnabled) return;
+      if (tickerEnabled) {
+        const markPrice = requiredNumber(data.p, 'mark price');
+        const tickerTopic = marketTopic('ticker', 'binance', symbol, 'perp');
+        this.publish(
+          createEvent<Extract<RealtimeEvent, { type: 'ticker' }>>({
+            type: 'ticker',
+            topic: tickerTopic,
+            sequence: this.nextSequence(tickerTopic),
+            exchangeTimestamp: timestamp,
+            provider: 'binance',
+            payload: {
+              exchange: 'binance',
+              symbol,
+              marketType: 'perp',
+              bid: null,
+              ask: null,
+              last: markPrice,
+              volume24h: null,
+              change24hPercent: null,
+            },
+          })
+        );
+      }
+      if (fundingEnabled) {
+        const topic = marketTopic('funding', 'binance', symbol, 'perp');
+        this.publish(
+          createEvent<Extract<RealtimeEvent, { type: 'funding' }>>({
+            type: 'funding',
+            topic,
+            sequence: this.nextSequence(topic),
+            exchangeTimestamp: timestamp,
+            provider: 'binance',
+            payload: {
+              exchange: 'binance',
+              symbol,
+              fundingRate: requiredNumber(data.r, 'funding rate'),
+              nextFundingAt: Number(data.T) || null,
+            },
+          })
+        );
+      }
     }
   }
 

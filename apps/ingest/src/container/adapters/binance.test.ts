@@ -1,6 +1,18 @@
 import { describe, expect, test } from 'bun:test';
 
-import { binanceChannelConfiguration, binanceSubscriptionStreams } from './binance.ts';
+import type { RealtimeEvent, RealtimeTopic } from '@lazuli/shared';
+
+import {
+  BinanceAdapter,
+  binanceChannelConfiguration,
+  binanceSubscriptionStreams,
+} from './binance.ts';
+
+class TestBinanceAdapter extends BinanceAdapter {
+  receive(message: Record<string, unknown>): void {
+    this.handleMessage(JSON.stringify(message));
+  }
+}
 
 describe('Binance 2026 websocket channel layout', () => {
   test('separates public order-book traffic from market event traffic', () => {
@@ -27,5 +39,30 @@ describe('Binance 2026 websocket channel layout', () => {
       'btcusdt@forceOrder',
       'btcusdt@markPrice@1s',
     ]);
+  });
+
+  test('uses disabled fallback streams for freshness without entering fan-out', () => {
+    const emitted: RealtimeEvent[] = [];
+    const allowlist = new Set<RealtimeTopic>(['ticker:bybit:btcusdt.p']);
+    const adapter = new TestBinanceAdapter(['BTC/USDT'], (event) => emitted.push(event), allowlist);
+
+    adapter.receive({
+      e: 'bookTicker',
+      E: 1_700_000_000_000,
+      s: 'BTCUSDT',
+      u: 1,
+      b: '60000',
+      a: '60001',
+    });
+    adapter.receive({
+      e: 'markPriceUpdate',
+      E: 1_700_000_000_001,
+      s: 'BTCUSDT',
+      p: '60000.5',
+      r: '0.0001',
+      T: 1_700_003_600_000,
+    });
+
+    expect(emitted).toEqual([]);
   });
 });
