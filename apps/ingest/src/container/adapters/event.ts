@@ -1,11 +1,10 @@
-import {
-  buildRealtimeTopic,
-  type RealtimeEvent,
-  type RealtimeMarketType,
-  type RealtimeProvenance,
-  type RealtimePublicChannel,
-  type RealtimeTopic,
-  type SupportedExchange,
+import type {
+  RealtimeEvent,
+  RealtimeMarketType,
+  RealtimeProvenance,
+  RealtimePublicChannel,
+  RealtimeTopic,
+  SupportedExchange,
 } from '@lazuli/shared';
 
 export function numberOrNull(value: unknown): number | null {
@@ -32,12 +31,24 @@ export function marketTopic<
   symbol: string,
   marketType: RealtimeMarketType
 ): `${TChannel}:${TExchange}:${string}` {
-  return buildRealtimeTopic(
-    channel,
-    exchange,
-    symbol,
-    marketType
-  ) as `${TChannel}:${TExchange}:${string}`;
+  const upper = symbol.trim().toUpperCase();
+  const withoutSettlement = upper.split(':')[0] ?? upper;
+  const compact = withoutSettlement.replace(/\.P$/, '').replace(/[-_/]/g, '');
+  let identity = marketType === 'perp' ? `${compact}.P` : compact;
+  if (marketType === 'spot') {
+    const separated = withoutSettlement.replace(/\.P$/, '').match(/^([A-Z0-9]+)[-_/]([A-Z0-9]+)$/);
+    if (separated?.[1] && separated[2]) {
+      identity = `${separated[1]}-${separated[2]}`;
+    } else {
+      for (const quote of ['USDT', 'USDC', 'USD', 'KRW', 'BTC', 'ETH', 'EUR']) {
+        if (compact.length > quote.length && compact.endsWith(quote)) {
+          identity = `${compact.slice(0, -quote.length)}-${quote}`;
+          break;
+        }
+      }
+    }
+  }
+  return `${channel}:${exchange}:${identity.toLowerCase()}`;
 }
 
 export function createEvent<T extends RealtimeEvent>(input: {
