@@ -26,7 +26,7 @@ const emit = sink.enqueue.bind(sink);
 for (const provider of config.providers) {
   switch (provider) {
     case 'binance':
-      adapters.push(new BinanceAdapter(config.symbols, emit));
+      adapters.push(new BinanceAdapter(config.symbols, emit, config.topicAllowlist));
       break;
     case 'bybit':
       adapters.push(new BybitAdapter(config.symbols, emit));

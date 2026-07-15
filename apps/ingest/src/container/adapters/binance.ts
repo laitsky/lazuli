@@ -1,4 +1,4 @@
-import type { RealtimeEvent } from '@lazuli/shared';
+import type { RealtimeEvent, RealtimePublicChannel, RealtimeTopic } from '@lazuli/shared';
 
 import type { EmitEvent, ProviderChannelHealth } from '../types.ts';
 import { ExchangeAdapter } from './base.ts';
@@ -44,13 +44,19 @@ export class BinanceAdapter extends ExchangeAdapter {
   readonly #depthBuffers = new Map<string, BufferedDepth[]>();
   readonly #readySymbols = new Set<string>();
   readonly #frozenSymbols = new Set<string>();
+  readonly #depthSymbols: string[];
   #marketSocket: WebSocket | null = null;
   #marketReconnectTimer: ReturnType<typeof setTimeout> | null = null;
   #marketHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   #marketReconnectAttempt = 0;
 
-  constructor(symbols: string[], emit: EmitEvent) {
+  constructor(
+    symbols: string[],
+    emit: EmitEvent,
+    private readonly topicAllowlist: ReadonlySet<RealtimeTopic> | null = null
+  ) {
     super('binance', symbols, emit);
+    this.#depthSymbols = symbols.filter((symbol) => this.topicEnabled('orderbook', symbol));
     this.health.channels = {
       public: channelHealth(),
       market: channelHealth(),
@@ -66,12 +72,11 @@ export class BinanceAdapter extends ExchangeAdapter {
     this.#depthBuffers.clear();
     this.#readySymbols.clear();
     this.#frozenSymbols.clear();
-    this.health.pendingSnapshots = this.symbols.length;
-    const streams = this.symbols.flatMap((symbol) => {
-      const id = canonicalSymbol(symbol).toLowerCase();
-      return [`${id}@bookTicker`, `${id}@depth@100ms`];
-    });
-    socket.send(JSON.stringify({ method: 'SUBSCRIBE', params: streams, id: Date.now() }));
+    this.health.pendingSnapshots = this.#depthSymbols.length;
+    const streams = binanceSubscriptionStreams(this.symbols, this.topicAllowlist).publicStreams;
+    if (streams.length > 0) {
+      socket.send(JSON.stringify({ method: 'SUBSCRIBE', params: streams, id: Date.now() }));
+    }
     this.refreshAggregateHealth();
   }
 
@@ -224,7 +229,7 @@ export class BinanceAdapter extends ExchangeAdapter {
       if (decision === 'stale') return;
       if (decision === 'gap') {
         this.#readySymbols.delete(symbol);
-        this.health.pendingSnapshots = this.symbols.length - this.#readySymbols.size;
+        this.health.pendingSnapshots = this.#depthSymbols.length - this.#readySymbols.size;
         this.#frozenSymbols.add(symbol);
         this.bufferDepth(depth);
         this.reportSequenceGap(
@@ -281,7 +286,7 @@ export class BinanceAdapter extends ExchangeAdapter {
 
   protected async reconcileAll(): Promise<void> {
     try {
-      await Promise.all(this.symbols.map((symbol) => this.reconcile(symbol)));
+      await Promise.all(this.#depthSymbols.map((symbol) => this.reconcile(symbol)));
       if (this.#frozenSymbols.size > 0) {
         throw new Error('A new Binance gap appeared while reconciliation was in progress');
       }
@@ -312,10 +317,7 @@ export class BinanceAdapter extends ExchangeAdapter {
       channel.connectedAt = Date.now();
       channel.lastMessageAt = Date.now();
       channel.lastError = null;
-      const streams = this.symbols.flatMap((symbol) => {
-        const id = canonicalSymbol(symbol).toLowerCase();
-        return [`${id}@aggTrade`, `${id}@forceOrder`, `${id}@markPrice@1s`];
-      });
+      const streams = binanceSubscriptionStreams(this.symbols, this.topicAllowlist).marketStreams;
       socket.send(JSON.stringify({ method: 'SUBSCRIBE', params: streams, id: Date.now() }));
       this.startMarketHeartbeat(socket);
       this.refreshAggregateHealth();
@@ -475,7 +477,14 @@ export class BinanceAdapter extends ExchangeAdapter {
     }
     this.#frozenSymbols.delete(id);
     this.#readySymbols.add(id);
-    this.health.pendingSnapshots = this.symbols.length - this.#readySymbols.size;
+    this.health.pendingSnapshots = this.#depthSymbols.length - this.#readySymbols.size;
+  }
+
+  private topicEnabled(channel: RealtimePublicChannel, symbol: string): boolean {
+    return (
+      this.topicAllowlist === null ||
+      this.topicAllowlist.has(marketTopic(channel, 'binance', symbol, 'perp'))
+    );
   }
 
   private async waitForSnapshotBridge(
@@ -556,6 +565,38 @@ export function binanceChannelConfiguration(): {
     publicStreams: ['bookTicker', 'depth@100ms'],
     marketStreams: ['aggTrade', 'forceOrder', 'markPrice@1s'],
   };
+}
+
+export function binanceSubscriptionStreams(
+  symbols: string[],
+  topicAllowlist: ReadonlySet<RealtimeTopic> | null
+): { publicStreams: string[]; marketStreams: string[] } {
+  const enabled = (channel: RealtimePublicChannel, symbol: string) =>
+    topicAllowlist === null || topicAllowlist.has(marketTopic(channel, 'binance', symbol, 'perp'));
+  const publicStreams = symbols.flatMap((symbol) => {
+    const id = canonicalSymbol(symbol).toLowerCase();
+    return [
+      ...(enabled('ticker', symbol) ? [`${id}@bookTicker`] : []),
+      ...(enabled('orderbook', symbol) ? [`${id}@depth@100ms`] : []),
+    ];
+  });
+  const marketStreams = symbols.flatMap((symbol) => {
+    const id = canonicalSymbol(symbol).toLowerCase();
+    return [
+      ...(enabled('trades', symbol) ? [`${id}@aggTrade`] : []),
+      ...(enabled('liquidations', symbol) ? [`${id}@forceOrder`] : []),
+      ...(enabled('ticker', symbol) || enabled('funding', symbol) ? [`${id}@markPrice@1s`] : []),
+    ];
+  });
+  // Keep both Binance channels fresh during a rollout that has no Binance
+  // topic, without consuming depth, trade, or liquidation streams.
+  if (publicStreams.length === 0 && symbols[0]) {
+    publicStreams.push(`${canonicalSymbol(symbols[0]).toLowerCase()}@bookTicker`);
+  }
+  if (marketStreams.length === 0 && symbols[0]) {
+    marketStreams.push(`${canonicalSymbol(symbols[0]).toLowerCase()}@markPrice@1s`);
+  }
+  return { publicStreams, marketStreams };
 }
 
 function channelHealth(): ProviderChannelHealth {
