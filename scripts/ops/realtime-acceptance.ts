@@ -1,5 +1,10 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import {
+  createRealtimeClientEventState,
+  rememberRealtimeClientEvent,
+  type RealtimeClientEventState,
+} from './realtime-client-state';
 
 type Mode = 'load' | 'reconnect' | 'soak';
 
@@ -39,6 +44,23 @@ type Counters = {
   ingestLatencySamples: number;
   latencyMissing: number;
   reconnectCyclesCompleted: number;
+  reconnectAttempts: number;
+  reconnectRecoveries: number;
+  snapshotRecoveries: number;
+  snapshotResets: number;
+  deduplicatedEvents: number;
+};
+
+type ClientState = RealtimeClientEventState & {
+  socket: WebSocket | null;
+  sequences: Map<string, number>;
+  seenEventIds: Set<string>;
+  eventIdOrder: string[];
+  reconnectAttempt: number;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+  stopped: boolean;
+  recovering: boolean;
+  bufferedEnvelopes: Record<string, unknown>[];
 };
 
 const args = Bun.argv.slice(2);
@@ -129,10 +151,15 @@ async function main(): Promise<void> {
     ingestLatencySamples: 0,
     latencyMissing: 0,
     reconnectCyclesCompleted: 0,
+    reconnectAttempts: 0,
+    reconnectRecoveries: 0,
+    snapshotRecoveries: 0,
+    snapshotResets: 0,
+    deduplicatedEvents: 0,
   };
   const sockets = new Set<WebSocket>();
   const expectedClose = new WeakSet<WebSocket>();
-  const socketSequences = new WeakMap<WebSocket, Map<string, number>>();
+  const clients = Array.from({ length: config.connections }, () => createClientState());
   const latencyReservoir: number[] = [];
   const ingestLatencyReservoir: number[] = [];
   const diagnostics: {
@@ -150,6 +177,7 @@ async function main(): Promise<void> {
   const startMemory = process.memoryUsage().rss;
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let sampler: ReturnType<typeof setInterval> | undefined;
+  let acceptingReconnects = false;
 
   const sample = () => {
     samples.push({
@@ -178,10 +206,84 @@ async function main(): Promise<void> {
     if (replacement < reservoir.length) reservoir[replacement] = milliseconds;
   };
 
-  const connect = (): Promise<void> =>
+  const observeEnvelope = (client: ClientState, value: Record<string, unknown>) => {
+    if (value.type !== 'event') return;
+    const event =
+      value.event !== null && typeof value.event === 'object'
+        ? (value.event as Record<string, unknown>)
+        : value;
+    const eventId = typeof event.eventId === 'string' ? event.eventId : null;
+    if (eventId && !rememberRealtimeClientEvent(client, eventId)) {
+      counters.deduplicatedEvents += 1;
+      return;
+    }
+    counters.events += 1;
+    const topic = String(value.topic ?? target.searchParams.get('topic'));
+    const sequence = Number(value.sequence);
+    const previous = client.sequences.get(topic);
+    if (Number.isSafeInteger(sequence)) {
+      if (previous !== undefined && sequence > previous + 1) {
+        counters.sequenceGaps += sequence - previous - 1;
+      }
+      if (previous === undefined || sequence > previous) client.sequences.set(topic, sequence);
+    }
+    const exchangeTimestamp = Number(event.exchangeTimestamp);
+    if (Number.isFinite(exchangeTimestamp) && exchangeTimestamp > 0) {
+      observeLatency(Math.max(0, Date.now() - exchangeTimestamp), latencyReservoir, 'source');
+    } else {
+      counters.latencyMissing += 1;
+    }
+    const ingestedAt = Number(event.ingestedAt);
+    if (Number.isFinite(ingestedAt) && ingestedAt > 0) {
+      observeLatency(Math.max(0, Date.now() - ingestedAt), ingestLatencyReservoir, 'ingest');
+    }
+  };
+
+  const recover = async (client: ClientState): Promise<void> => {
+    const topic = target.searchParams.get('topic') as string;
+    const after = client.sequences.get(topic) ?? 0;
+    const snapshotUrl = new URL('/api/v1/realtime/snapshot', target.origin.replace(/^ws/, 'http'));
+    snapshotUrl.searchParams.set('topic', topic);
+    snapshotUrl.searchParams.set('after', String(after));
+    const response = await fetch(snapshotUrl, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) throw new Error(`Snapshot recovery returned HTTP ${response.status}`);
+    const snapshot = (await response.json()) as {
+      sequence?: unknown;
+      resetRequired?: unknown;
+      events?: unknown;
+    };
+    if (snapshot.resetRequired === true) {
+      counters.snapshotResets += 1;
+      const sequence = Number(snapshot.sequence);
+      if (Number.isSafeInteger(sequence) && sequence >= 0) client.sequences.set(topic, sequence);
+      return;
+    }
+    if (Array.isArray(snapshot.events)) {
+      for (const event of snapshot.events) if (isRecord(event)) observeEnvelope(client, event);
+    }
+    counters.snapshotRecoveries += 1;
+  };
+
+  const scheduleReconnect = (client: ClientState) => {
+    if (!acceptingReconnects || client.stopped || client.reconnectTimer !== null) return;
+    const delay = Math.min(5_000, 250 * 2 ** Math.min(client.reconnectAttempt, 5));
+    client.reconnectAttempt += 1;
+    client.reconnectTimer = setTimeout(() => {
+      client.reconnectTimer = null;
+      void connect(client, true);
+    }, delay);
+  };
+
+  const connect = (client: ClientState, reconnect = false): Promise<void> =>
     new Promise((resolve) => {
-      counters.attempted += 1;
+      if (reconnect) counters.reconnectAttempts += 1;
+      else counters.attempted += 1;
+      client.recovering = reconnect;
       const socket = new WebSocket(target.toString(), 'lazuli.realtime.v2');
+      client.socket = socket;
       let settled = false;
       const settle = (opened: boolean) => {
         if (settled) return;
@@ -193,13 +295,39 @@ async function main(): Promise<void> {
         expectedClose.add(socket);
         socket.close(4000, 'open timeout');
         settle(false);
+        scheduleReconnect(client);
       }, 15_000);
-      socket.addEventListener('open', () => {
+      socket.addEventListener('open', async () => {
         clearTimeout(timeout);
+        if (client.stopped) {
+          expectedClose.add(socket);
+          socket.close(1000, 'acceptance stopped');
+          settle(false);
+          return;
+        }
         sockets.add(socket);
-        socketSequences.set(socket, new Map());
         counters.opened += 1;
         counters.peakOpen = Math.max(counters.peakOpen, sockets.size);
+        if (reconnect) {
+          try {
+            await recover(client);
+            counters.reconnectRecoveries += 1;
+            client.reconnectAttempt = 0;
+          } catch (error) {
+            counters.errors += 1;
+            if (diagnostics.errors.length < 32) {
+              diagnostics.errors.push({
+                phase: 'open',
+                message: error instanceof Error ? error.message : String(error),
+              });
+            }
+          } finally {
+            client.recovering = false;
+            for (const envelope of client.bufferedEnvelopes.splice(0)) {
+              observeEnvelope(client, envelope);
+            }
+          }
+        }
         settle(true);
       });
       socket.addEventListener('message', (message) => {
@@ -213,41 +341,13 @@ async function main(): Promise<void> {
               : value.type === 'event'
                 ? [value]
                 : [];
-          for (const envelope of envelopes) observeEnvelope(socket, envelope);
+          if (client.recovering) client.bufferedEnvelopes.push(...envelopes);
+          else for (const envelope of envelopes) observeEnvelope(client, envelope);
         } catch {
           // Non-JSON heartbeat/provider messages are counted but do not affect sequence assertions.
         }
       });
 
-      const observeEnvelope = (currentSocket: WebSocket, value: Record<string, unknown>) => {
-        if (value.type !== 'event') return;
-        counters.events += 1;
-        const topic = String(value.topic ?? target.searchParams.get('topic'));
-        const sequence = Number(value.sequence);
-        const sequences = socketSequences.get(currentSocket) ?? new Map<string, number>();
-        socketSequences.set(currentSocket, sequences);
-        const previous = sequences.get(topic);
-        if (Number.isSafeInteger(sequence)) {
-          if (previous !== undefined && sequence > previous + 1) {
-            counters.sequenceGaps += sequence - previous - 1;
-          }
-          if (previous === undefined || sequence > previous) sequences.set(topic, sequence);
-        }
-        const event =
-          value.event !== null && typeof value.event === 'object'
-            ? (value.event as Record<string, unknown>)
-            : value;
-        const exchangeTimestamp = Number(event.exchangeTimestamp);
-        if (Number.isFinite(exchangeTimestamp) && exchangeTimestamp > 0) {
-          observeLatency(Math.max(0, Date.now() - exchangeTimestamp), latencyReservoir, 'source');
-        } else {
-          counters.latencyMissing += 1;
-        }
-        const ingestedAt = Number(event.ingestedAt);
-        if (Number.isFinite(ingestedAt) && ingestedAt > 0) {
-          observeLatency(Math.max(0, Date.now() - ingestedAt), ingestLatencyReservoir, 'ingest');
-        }
-      };
       socket.addEventListener('error', (event) => {
         counters.errors += 1;
         if (diagnostics.errors.length < 32) {
@@ -265,6 +365,7 @@ async function main(): Promise<void> {
       socket.addEventListener('close', (event) => {
         clearTimeout(timeout);
         sockets.delete(socket);
+        if (client.socket === socket) client.socket = null;
         if (expectedClose.has(socket)) counters.expectedCloses += 1;
         else {
           counters.unexpectedCloses += 1;
@@ -276,24 +377,40 @@ async function main(): Promise<void> {
               wasClean: detail.wasClean,
             });
           }
+          scheduleReconnect(client);
         }
         settle(false);
       });
     });
 
-  const openWave = async () => {
+  const openWave = async (reconnect = false) => {
+    acceptingReconnects = true;
     const interval =
       config.rampSeconds === 0 ? 0 : (config.rampSeconds * 1000) / config.connections;
     const pending: Promise<void>[] = [];
     for (let index = 0; index < config.connections; index += 1) {
-      pending.push(connect());
+      const client = clients[index];
+      if (client) {
+        client.stopped = false;
+        pending.push(connect(client, reconnect));
+      }
       if (interval > 0) await sleep(interval);
     }
     await Promise.all(pending);
   };
 
   const closeWave = async () => {
-    const current = [...sockets];
+    acceptingReconnects = false;
+    for (const client of clients) {
+      client.stopped = true;
+      if (client.reconnectTimer !== null) clearTimeout(client.reconnectTimer);
+      client.reconnectTimer = null;
+    }
+    const current = [
+      ...new Set(
+        clients.flatMap((client) => (client.socket ? [client.socket] : [])).concat([...sockets])
+      ),
+    ];
     for (const socket of current) {
       expectedClose.add(socket);
       socket.close(1000, 'acceptance cycle');
@@ -313,7 +430,7 @@ async function main(): Promise<void> {
 
     if (config.mode === 'reconnect') {
       for (let cycle = 0; cycle < config.cycles; cycle += 1) {
-        await openWave();
+        await openWave(cycle > 0);
         await sleep(config.cyclePauseSeconds * 1000);
         await closeWave();
         counters.reconnectCyclesCompleted += 1;
@@ -370,6 +487,7 @@ async function main(): Promise<void> {
     openFailures: counters.openFailures <= config.maxOpenFailures,
     unexpectedCloses: counters.unexpectedCloses <= config.maxUnexpectedCloses,
     sequenceGaps: counters.sequenceGaps <= config.maxSequenceGaps,
+    snapshotResets: counters.snapshotResets === 0,
     memoryGrowth: memoryGrowthMiB <= config.maxMemoryGrowthMiB,
     eventCoverage: counters.events >= config.minEvents,
     latencyCoverage: counters.latencySamples >= config.minLatencySamples,
@@ -378,7 +496,9 @@ async function main(): Promise<void> {
         ? config.minLatencySamples === 0
         : latency.p95Ms <= config.maxLatencyP95Ms,
     reconnectCycles:
-      config.mode !== 'reconnect' || counters.reconnectCyclesCompleted === config.cycles,
+      config.mode !== 'reconnect' ||
+      (counters.reconnectCyclesCompleted === config.cycles &&
+        counters.reconnectRecoveries === counters.reconnectAttempts),
   };
   const passed = Object.values(checks).every(Boolean);
   const report = {
@@ -410,6 +530,19 @@ async function main(): Promise<void> {
 }
 
 await main();
+
+function createClientState(): ClientState {
+  return {
+    ...createRealtimeClientEventState(),
+    socket: null,
+    sequences: new Map(),
+    reconnectAttempt: 0,
+    reconnectTimer: null,
+    stopped: false,
+    recovering: false,
+    bufferedEnvelopes: [],
+  };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
