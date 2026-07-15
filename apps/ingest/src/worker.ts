@@ -29,6 +29,7 @@ interface Env {
   CONTROL_API_TOKEN?: string;
   OPS_READ_SECRET?: string;
   PROBE_API_BASE_URL?: string;
+  API_SERVICE?: Fetcher;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -166,7 +167,10 @@ async function signedApiRequest(
 
 async function runExternalApiProbe(env: Env): Promise<void> {
   if (!env.PROBE_API_BASE_URL) return;
-  const result = await runHealthProbe(env.PROBE_API_BASE_URL);
+  const result = await runHealthProbe(
+    env.PROBE_API_BASE_URL,
+    env.API_SERVICE ? (input, init) => env.API_SERVICE!.fetch(input, init) : fetch
+  );
   const body = JSON.stringify(result);
   const response = await signedApiRequest(env, '/internal/observability/probe', 'POST', body);
   if (!response.ok) throw new Error(`external probe report returned ${response.status}`);

@@ -82,6 +82,12 @@
           },
         ],
       },
+      "services": [
+        {
+          "binding": "API_SERVICE",
+          "service": "lazuli-api-staging",
+        },
+      ],
       "containers": [
         {
           "class_name": "IngestContainer",
@@ -122,6 +128,12 @@
           },
         ],
       },
+      "services": [
+        {
+          "binding": "API_SERVICE",
+          "service": "lazuli-api",
+        },
+      ],
       "containers": [
         {
           "class_name": "IngestContainer",

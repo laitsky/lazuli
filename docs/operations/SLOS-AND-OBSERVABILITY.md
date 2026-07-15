@@ -33,9 +33,10 @@ rollups and synthetic probes. Its machine-readable panel and paging contract is
 checked in as [`dashboard-definitions.json`](./dashboard-definitions.json).
 Cloudflare Access validates the operational owner before the Web Worker uses a
 read-only service binding; admin credentials are never sent to the browser.
-The separate ingest Worker probes the API through its workers.dev service-isolation URL and
-submits a signed, origin-constrained result to the API; the API never recursively fetches itself.
-The acceptance workflow independently probes the custom domain from GitHub-hosted runners.
+The separate ingest Worker probes the API through a read-only Cloudflare service binding and
+submits a signed, origin-constrained result recorded against the workers.dev service-isolation
+URL; the API never recursively fetches itself. The acceptance workflow independently probes both
+workers.dev and the custom domain from GitHub-hosted runners.
 
 ## Paging and ticket alerts
 

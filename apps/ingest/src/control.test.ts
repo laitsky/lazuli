@@ -53,5 +53,7 @@ describe('ingest control safety', () => {
     expect(config.includes('"WEUR"')).toBe(false);
     expect(config.includes('"REALTIME_PUBLISH_ENABLED": "false"')).toBe(true);
     expect(config.includes('"PROBE_API_BASE_URL"')).toBe(true);
+    expect((config.match(/"binding": "API_SERVICE"/g) ?? []).length).toBe(2);
+    expect(config.includes('"service": "lazuli-api-staging"')).toBe(true);
   });
 });
