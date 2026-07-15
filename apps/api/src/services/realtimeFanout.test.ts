@@ -8,6 +8,7 @@ import {
   realtimeHubNames,
   realtimeSequencerName,
 } from './realtimeFanout';
+import { boundedCheckpointEvictions } from './realtimeCheckpoint';
 
 describe('realtime public fan-out sharding', () => {
   test('uses one canonical sequencer and four v3 leaves per public topic', () => {
@@ -49,5 +50,21 @@ describe('realtime public fan-out sharding', () => {
       realtimeHubNameForConnection(topic, 'stable-key')
     );
     expect(new Set(assignments)).toEqual(new Set(realtimeHubNames(topic)));
+  });
+
+  test('evicts only the oldest persisted dedupe ids at the configured bound', () => {
+    expect(boundedCheckpointEvictions(new Set(['oldest', 'middle']), ['newest'], 2)).toEqual([
+      'oldest',
+    ]);
+    expect(boundedCheckpointEvictions(new Set(['oldest', 'middle']), ['oldest'], 2)).toEqual([]);
+    expect(boundedCheckpointEvictions(new Set(['a']), ['b', 'c', 'd'], 2)).toEqual(['a', 'b']);
+    let rejectedInvalidCapacity = false;
+    try {
+      boundedCheckpointEvictions(new Set(), ['a'], 0);
+    } catch (error) {
+      rejectedInvalidCapacity =
+        error instanceof Error && error.message === 'Realtime checkpoint capacity must be positive';
+    }
+    expect(rejectedInvalidCapacity).toBe(true);
   });
 });

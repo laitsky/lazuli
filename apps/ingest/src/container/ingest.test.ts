@@ -13,7 +13,6 @@ describe('ingest configuration', () => {
       INGEST_PROVIDERS: 'BINANCE,unknown,bybit,binance',
       INGEST_SYMBOLS: `btc/usdt,BTC/USDT,${symbols}`,
       INGEST_BATCH_SIZE: '999',
-      INGEST_BATCH_INTERVAL_MS: '-1',
       INGEST_MAX_BUFFERED_EVENTS: '-1',
     });
 
@@ -22,7 +21,6 @@ describe('ingest configuration', () => {
     expect(config.symbols[0]).toBe('BTC/USDT');
     expect(config.symbols).toHaveLength(50);
     expect(config.batchSize).toBe(500);
-    expect(config.batchIntervalMs).toBe(100);
     expect(config.maxBufferedEvents).toBe(10_000);
     expect(config.publishEnabled).toBe(true);
     expect(config.signingKeyId).toBe('ingest-test-v2');

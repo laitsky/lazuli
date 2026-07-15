@@ -24,8 +24,17 @@ describe('Cloudflare cost regression guards', () => {
     expect(realtimeHub.includes('eventSequences: this.eventSequences')).toBe(false);
     expect(sequencer.match(/blockConcurrencyWhile/g) ?? []).toHaveLength(1);
     expect(fanout.match(/blockConcurrencyWhile/g) ?? []).toHaveLength(1);
+    expect(sequencer.includes('storage.transactionSync')).toBe(true);
+    expect(fanout.includes('storage.transactionSync')).toBe(true);
+    expect(sequencer.includes('realtime_sequencer_batches_v1')).toBe(true);
+    expect(fanout.includes('realtime_fanout_batches_v1')).toBe(true);
+    expect(sequencer.includes("state = 'completed'")).toBe(true);
+    expect(sequencer.includes('envelopes_json')).toBe(true);
+    expect(sequencer.includes('await this.persistCheckpoint()')).toBe(false);
+    expect(fanout.includes('ctx.storage.put(CHECKPOINT_KEY')).toBe(false);
     expect(sequencer.includes('MAX_RECENT_STORAGE_BYTES')).toBe(true);
     expect(fanout.includes('MAX_REALTIME_FRAME_BYTES')).toBe(true);
+    expect(fanout.includes('MAX_PROCESSING_BATCHES')).toBe(true);
     for (const source of [marketCache, realtimeHub, sequencer, fanout]) {
       expect(/\b(?:alarm|getAlarm|setAlarm|deleteAlarm)\s*\(/.test(source)).toBe(false);
     }

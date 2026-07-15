@@ -10,6 +10,7 @@ import {
   timingSafeStringEqual,
   type CanonicalRealtimeEnvelope,
 } from './realtimeProtocol';
+import { boundedCheckpointEvictions } from './realtimeCheckpoint';
 
 interface SocketAttachment {
   topic: string;
@@ -23,7 +24,10 @@ interface FanoutCheckpoint {
 }
 
 const CHECKPOINT_KEY = 'fanout-v3-checkpoint';
+const BATCH_TABLE = 'realtime_fanout_batches_v1';
+const EVENT_TABLE = 'realtime_fanout_events_v1';
 const MAX_COMPLETED_BATCHES = 512;
+const MAX_PROCESSING_BATCHES = 64;
 const MAX_COMPLETED_EVENTS = 2_048;
 const MAX_LEGACY_CONNECTIONS = 50;
 const MAX_BUFFERED_BYTES = 1_048_576;
@@ -41,12 +45,62 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.ready = ctx.blockConcurrencyWhile(async () => {
+      const sql = ctx.storage.sql;
+      sql.exec(`
+        CREATE TABLE IF NOT EXISTS ${BATCH_TABLE} (
+          batch_id TEXT PRIMARY KEY,
+          state TEXT NOT NULL CHECK (state IN ('processing', 'completed')),
+          created_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS ${EVENT_TABLE} (
+          event_id TEXT PRIMARY KEY,
+          created_at INTEGER NOT NULL
+        );
+      `);
       const checkpoint = await ctx.storage.get<FanoutCheckpoint>(CHECKPOINT_KEY);
-      for (const batchId of checkpoint?.completedBatchIds ?? []) {
-        this.completedBatchIds.add(batchId);
+      if (
+        checkpoint &&
+        sql.exec<{ count: number }>(`SELECT COUNT(*) AS count FROM ${BATCH_TABLE}`).one().count ===
+          0
+      ) {
+        // Preserve the legacy KV checkpoint for rollback while copying its
+        // bounded dedupe state into the SQLite hot path once.
+        const migratedAt = Date.now();
+        ctx.storage.transactionSync(() => {
+          for (const batchId of checkpoint.completedBatchIds) {
+            sql.exec(
+              `INSERT OR IGNORE INTO ${BATCH_TABLE} (batch_id, state, created_at)
+               VALUES (?, 'completed', ?)`,
+              batchId,
+              migratedAt
+            );
+          }
+          for (const eventId of checkpoint.completedEventIds) {
+            sql.exec(
+              `INSERT OR IGNORE INTO ${EVENT_TABLE} (event_id, created_at) VALUES (?, ?)`,
+              eventId,
+              migratedAt
+            );
+          }
+        });
       }
-      for (const eventId of checkpoint?.completedEventIds ?? []) {
-        this.completedEventIds.add(eventId);
+      for (const row of sql.exec<{ batch_id: string }>(
+        `SELECT batch_id FROM (
+           SELECT batch_id, created_at, rowid FROM ${BATCH_TABLE} WHERE state = 'completed'
+           ORDER BY created_at DESC, rowid DESC LIMIT ?
+         ) ORDER BY created_at ASC, rowid ASC`,
+        MAX_COMPLETED_BATCHES
+      )) {
+        this.completedBatchIds.add(row.batch_id);
+      }
+      for (const row of sql.exec<{ event_id: string }>(
+        `SELECT event_id FROM (
+           SELECT event_id, created_at, rowid FROM ${EVENT_TABLE}
+           ORDER BY created_at DESC, rowid DESC LIMIT ?
+         ) ORDER BY created_at ASC, rowid ASC`,
+        MAX_COMPLETED_EVENTS
+      )) {
+        this.completedEventIds.add(row.event_id);
       }
     });
   }
@@ -129,7 +183,12 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
     ) {
       return Response.json({ error: 'Invalid canonical realtime batch' }, { status: 400 });
     }
-    if (this.completedBatchIds.has(input.batchId)) {
+    const persistedBatch = this.ctx.storage.sql
+      .exec<{
+        state: 'processing' | 'completed';
+      }>(`SELECT state FROM ${BATCH_TABLE} WHERE batch_id = ?`, input.batchId)
+      .toArray()[0];
+    if (this.completedBatchIds.has(input.batchId) || persistedBatch?.state === 'completed') {
       return Response.json({ ok: true, duplicate: true, delivered: 0, timestamp: Date.now() });
     }
 
@@ -145,15 +204,44 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
       }
     }
 
-    this.rememberBatch(input.batchId);
-    for (const event of unseenEvents) {
+    const eventIds = unseenEvents.flatMap((event) => {
       const eventId = realtimeEventId(event.event);
-      if (eventId) this.rememberEvent(eventId);
-    }
-    const checkpointWrite = this.ctx.storage.put(CHECKPOINT_KEY, {
-      completedBatchIds: [...this.completedBatchIds],
-      completedEventIds: [...this.completedEventIds],
-    } satisfies FanoutCheckpoint);
+      return eventId ? [eventId] : [];
+    });
+    const evictedBatchIds = boundedCheckpointEvictions(
+      this.completedBatchIds,
+      [input.batchId],
+      MAX_COMPLETED_BATCHES
+    );
+    const evictedEventIds = boundedCheckpointEvictions(
+      this.completedEventIds,
+      eventIds,
+      MAX_COMPLETED_EVENTS
+    );
+    const persistedAt = Date.now();
+    // A processing marker makes crash recovery at-least-once. If a leaf dies
+    // after sending only part of a batch, the canonical retry is sent again and
+    // v2 clients suppress repeated event IDs before applying it.
+    this.ctx.storage.transactionSync(() => {
+      const sql = this.ctx.storage.sql;
+      sql.exec(
+        `INSERT OR IGNORE INTO ${BATCH_TABLE} (batch_id, state, created_at)
+         VALUES (?, 'processing', ?)`,
+        input.batchId,
+        persistedAt
+      );
+      for (const batchId of evictedBatchIds) {
+        sql.exec(`DELETE FROM ${BATCH_TABLE} WHERE batch_id = ?`, batchId);
+      }
+      sql.exec(
+        `DELETE FROM ${BATCH_TABLE}
+         WHERE state = 'processing' AND rowid NOT IN (
+           SELECT rowid FROM ${BATCH_TABLE} WHERE state = 'processing'
+           ORDER BY created_at DESC, rowid DESC LIMIT ?
+         )`,
+        MAX_PROCESSING_BATCHES
+      );
+    });
 
     let delivered = 0;
     for (const socket of unseenEvents.length > 0 ? this.ctx.getWebSockets(topic) : []) {
@@ -173,7 +261,22 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
         socket.close(1011, 'Publish failed');
       }
     }
-    await checkpointWrite;
+    this.ctx.storage.transactionSync(() => {
+      const sql = this.ctx.storage.sql;
+      for (const eventId of eventIds) {
+        sql.exec(
+          `INSERT OR IGNORE INTO ${EVENT_TABLE} (event_id, created_at) VALUES (?, ?)`,
+          eventId,
+          persistedAt
+        );
+      }
+      for (const eventId of evictedEventIds) {
+        sql.exec(`DELETE FROM ${EVENT_TABLE} WHERE event_id = ?`, eventId);
+      }
+      sql.exec(`UPDATE ${BATCH_TABLE} SET state = 'completed' WHERE batch_id = ?`, input.batchId);
+    });
+    this.rememberBatch(input.batchId);
+    for (const eventId of eventIds) this.rememberEvent(eventId);
     this.batchesPublished += 1;
     this.logicalEventsPublished += unseenEvents.length;
     this.bytesPublished +=
