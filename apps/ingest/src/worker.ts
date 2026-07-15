@@ -122,7 +122,8 @@ export class IngestContainer extends Container {
 
 async function ensureStarted(
   env: Env,
-  provider: string
+  provider: string,
+  coldStartDelayMs = 0
 ): Promise<DurableObjectStub<IngestContainer>> {
   const container = getContainer(env.INGEST_CONTAINER, containerName(provider));
   const state = await container.getState();
@@ -130,6 +131,9 @@ async function ensureStarted(
   // port polling and can serialize concurrent health probes behind a busy
   // high-volume provider. Only cold or stopped shards need startup work.
   if (containerNeedsStart(state.status)) {
+    if (coldStartDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, coldStartDelayMs));
+    }
     await container.startAndWaitForPorts(startOptions(env, provider));
   }
   return container;
@@ -212,14 +216,14 @@ async function aggregateHealth(env: Env): Promise<Response> {
   const results = await Promise.allSettled(
     providers.map((provider, index) =>
       withTimeout(
-        delayedProvider(index, async () => {
-          const container = await ensureStarted(env, provider);
+        (async () => {
+          const container = await ensureStarted(env, provider, index * SHARD_START_STAGGER_MS);
           const response = await container.fetch(
             new Request('http://container/health', { signal: AbortSignal.timeout(10_000) })
           );
           const data = (await response.json()) as Record<string, unknown>;
           return { data, ok: response.ok, status: response.status };
-        }),
+        })(),
         SHARD_HEALTH_TIMEOUT_MS + index * SHARD_START_STAGGER_MS,
         `${provider} shard health`
       )

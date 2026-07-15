@@ -46,6 +46,9 @@ describe('ingest control safety', () => {
     expect(worker.includes('SHARD_START_STAGGER_MS = 2_000')).toBe(true);
     expect(worker.includes('await signedApiReady(env)')).toBe(true);
     expect(worker.includes('if (containerNeedsStart(state.status))')).toBe(true);
+    expect(worker.includes('ensureStarted(env, provider, index * SHARD_START_STAGGER_MS)')).toBe(
+      true
+    );
     expect(worker.includes('await runExternalApiProbe(env)')).toBe(true);
     expect(worker.includes("'/internal/observability/probe'")).toBe(true);
     expect(worker.includes('await waitForStopped(container, provider)')).toBe(true);
