@@ -34,6 +34,7 @@ const MAX_BUFFERED_BYTES = 1_048_576;
 
 export class RealtimeFanoutV3DO extends DurableObject<Env> {
   private readonly completedBatchIds = new Set<string>();
+  private readonly processingBatchIds = new Set<string>();
   private readonly completedEventIds = new Set<string>();
   private readonly ready: Promise<void>;
   private slowConsumers = 0;
@@ -93,6 +94,15 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
       )) {
         this.completedBatchIds.add(row.batch_id);
       }
+      for (const row of sql.exec<{ batch_id: string }>(
+        `SELECT batch_id FROM (
+           SELECT batch_id, created_at, rowid FROM ${BATCH_TABLE} WHERE state = 'processing'
+           ORDER BY created_at DESC, rowid DESC LIMIT ?
+         ) ORDER BY created_at ASC, rowid ASC`,
+        MAX_PROCESSING_BATCHES
+      )) {
+        this.processingBatchIds.add(row.batch_id);
+      }
       for (const row of sql.exec<{ event_id: string }>(
         `SELECT event_id FROM (
            SELECT event_id, created_at, rowid FROM ${EVENT_TABLE}
@@ -102,6 +112,32 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
       )) {
         this.completedEventIds.add(row.event_id);
       }
+      ctx.storage.transactionSync(() => {
+        sql.exec(
+          `DELETE FROM ${BATCH_TABLE}
+           WHERE state = 'completed' AND rowid NOT IN (
+             SELECT rowid FROM ${BATCH_TABLE} WHERE state = 'completed'
+             ORDER BY created_at DESC, rowid DESC LIMIT ?
+           )`,
+          MAX_COMPLETED_BATCHES
+        );
+        sql.exec(
+          `DELETE FROM ${BATCH_TABLE}
+           WHERE state = 'processing' AND rowid NOT IN (
+             SELECT rowid FROM ${BATCH_TABLE} WHERE state = 'processing'
+             ORDER BY created_at DESC, rowid DESC LIMIT ?
+           )`,
+          MAX_PROCESSING_BATCHES
+        );
+        sql.exec(
+          `DELETE FROM ${EVENT_TABLE}
+           WHERE rowid NOT IN (
+             SELECT rowid FROM ${EVENT_TABLE}
+             ORDER BY created_at DESC, rowid DESC LIMIT ?
+           )`,
+          MAX_COMPLETED_EVENTS
+        );
+      });
     });
   }
 
@@ -191,6 +227,12 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
     if (this.completedBatchIds.has(input.batchId) || persistedBatch?.state === 'completed') {
       return Response.json({ ok: true, duplicate: true, delivered: 0, timestamp: Date.now() });
     }
+    if (!persistedBatch && this.processingBatchIds.size >= MAX_PROCESSING_BATCHES) {
+      return Response.json(
+        { error: 'Realtime fanout is at its bounded retry capacity', retryable: true },
+        { status: 503 }
+      );
+    }
 
     const unseenEvents = input.events.filter((event) => {
       const eventId = realtimeEventId(event.event);
@@ -208,11 +250,6 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
       const eventId = realtimeEventId(event.event);
       return eventId ? [eventId] : [];
     });
-    const evictedBatchIds = boundedCheckpointEvictions(
-      this.completedBatchIds,
-      [input.batchId],
-      MAX_COMPLETED_BATCHES
-    );
     const evictedEventIds = boundedCheckpointEvictions(
       this.completedEventIds,
       eventIds,
@@ -230,18 +267,8 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
         input.batchId,
         persistedAt
       );
-      for (const batchId of evictedBatchIds) {
-        sql.exec(`DELETE FROM ${BATCH_TABLE} WHERE batch_id = ?`, batchId);
-      }
-      sql.exec(
-        `DELETE FROM ${BATCH_TABLE}
-         WHERE state = 'processing' AND rowid NOT IN (
-           SELECT rowid FROM ${BATCH_TABLE} WHERE state = 'processing'
-           ORDER BY created_at DESC, rowid DESC LIMIT ?
-         )`,
-        MAX_PROCESSING_BATCHES
-      );
     });
+    this.rememberProcessingBatch(input.batchId);
 
     let delivered = 0;
     for (const socket of unseenEvents.length > 0 ? this.ctx.getWebSockets(topic) : []) {
@@ -261,6 +288,11 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
         socket.close(1011, 'Publish failed');
       }
     }
+    const evictedCompletedBatchIds = boundedCheckpointEvictions(
+      this.completedBatchIds,
+      [input.batchId],
+      MAX_COMPLETED_BATCHES
+    );
     this.ctx.storage.transactionSync(() => {
       const sql = this.ctx.storage.sql;
       for (const eventId of eventIds) {
@@ -274,7 +306,11 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
         sql.exec(`DELETE FROM ${EVENT_TABLE} WHERE event_id = ?`, eventId);
       }
       sql.exec(`UPDATE ${BATCH_TABLE} SET state = 'completed' WHERE batch_id = ?`, input.batchId);
+      for (const batchId of evictedCompletedBatchIds) {
+        sql.exec(`DELETE FROM ${BATCH_TABLE} WHERE batch_id = ?`, batchId);
+      }
     });
+    this.processingBatchIds.delete(input.batchId);
     this.rememberBatch(input.batchId);
     for (const eventId of eventIds) this.rememberEvent(eventId);
     this.batchesPublished += 1;
@@ -353,6 +389,16 @@ export class RealtimeFanoutV3DO extends DurableObject<Env> {
       const oldest = this.completedBatchIds.values().next().value as string | undefined;
       if (!oldest) break;
       this.completedBatchIds.delete(oldest);
+    }
+  }
+
+  private rememberProcessingBatch(batchId: string): void {
+    this.processingBatchIds.delete(batchId);
+    this.processingBatchIds.add(batchId);
+    while (this.processingBatchIds.size > MAX_PROCESSING_BATCHES) {
+      const oldest = this.processingBatchIds.values().next().value as string | undefined;
+      if (!oldest) break;
+      this.processingBatchIds.delete(oldest);
     }
   }
 

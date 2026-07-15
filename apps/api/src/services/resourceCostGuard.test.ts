@@ -35,6 +35,10 @@ describe('Cloudflare cost regression guards', () => {
     expect(sequencer.includes('MAX_RECENT_STORAGE_BYTES')).toBe(true);
     expect(fanout.includes('MAX_REALTIME_FRAME_BYTES')).toBe(true);
     expect(fanout.includes('MAX_PROCESSING_BATCHES')).toBe(true);
+    expect(sequencer.slice(sequencer.indexOf('async fetch')).includes('rowid NOT IN')).toBe(false);
+    expect(fanout.slice(fanout.indexOf('async fetch')).includes('rowid NOT IN')).toBe(false);
+    expect(sequencer.includes('bounded retry capacity')).toBe(true);
+    expect(fanout.includes('bounded retry capacity')).toBe(true);
     for (const source of [marketCache, realtimeHub, sequencer, fanout]) {
       expect(/\b(?:alarm|getAlarm|setAlarm|deleteAlarm)\s*\(/.test(source)).toBe(false);
     }

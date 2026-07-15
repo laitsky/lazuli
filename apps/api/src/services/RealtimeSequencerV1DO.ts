@@ -1,5 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from '../types';
+import { boundedCheckpointEvictions, boundedSerializedCheckpoint } from './realtimeCheckpoint';
 import { BoundedRealtimeEventIndex } from './realtimeDedupe';
 import { realtimeFanoutNames } from './realtimeFanout';
 import {
@@ -35,12 +36,14 @@ const MAX_RECENT_EVENTS = 96;
 const MAX_RECENT_STORAGE_BYTES = 64_000;
 const MAX_EVENT_IDS = 384;
 const MAX_COMPLETED_BATCHES = 256;
+const MAX_PROCESSING_BATCHES = 64;
 
 export class RealtimeSequencerV1DO extends DurableObject<Env> {
   private sequence = 0;
   private readonly recent: CanonicalRealtimeEnvelope[] = [];
   private readonly eventSequences = new BoundedRealtimeEventIndex(MAX_EVENT_IDS);
   private readonly completedBatchIds = new Set<string>();
+  private readonly processingBatchIds = new Set<string>();
   private readonly ready: Promise<void>;
   private partialDispatches = 0;
   private dispatchRetries = 0;
@@ -138,12 +141,22 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
           .map((row) => [row.event_id, row.sequence] as [string, number])
       );
       for (const row of sql.exec<{ envelope_json: string }>(
-        `SELECT envelope_json FROM ${RECOVERY_TABLE} ORDER BY sequence ASC LIMIT ?`,
+        `SELECT envelope_json FROM (
+           SELECT sequence, envelope_json FROM ${RECOVERY_TABLE}
+           ORDER BY sequence DESC LIMIT ?
+         ) ORDER BY sequence ASC`,
         MAX_RECENT_EVENTS
       )) {
         const event = parseCanonicalEnvelope(row.envelope_json);
         if (event) this.recent.push(event);
       }
+      const initialRecovery = boundedSerializedCheckpoint(
+        [],
+        this.recent,
+        MAX_RECENT_EVENTS,
+        MAX_RECENT_STORAGE_BYTES
+      );
+      this.recent.splice(0, this.recent.length, ...initialRecovery.retained);
       for (const row of sql.exec<{ batch_id: string }>(
         `SELECT batch_id FROM (
            SELECT batch_id, created_at, rowid FROM ${BATCH_TABLE}
@@ -154,6 +167,56 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
       )) {
         this.completedBatchIds.add(row.batch_id);
       }
+      for (const row of sql.exec<{ batch_id: string }>(
+        `SELECT batch_id FROM (
+           SELECT batch_id, created_at, rowid FROM ${BATCH_TABLE}
+           WHERE state = 'processing'
+           ORDER BY created_at DESC, rowid DESC LIMIT ?
+         ) ORDER BY created_at ASC, rowid ASC`,
+        MAX_PROCESSING_BATCHES
+      )) {
+        this.processingBatchIds.add(row.batch_id);
+      }
+      // Legacy checkpoints may contain more rows than the v2 bounds. Compact
+      // them once during initialization; the publish hot path uses point
+      // deletes for known evictions and never scans an entire checkpoint table.
+      ctx.storage.transactionSync(() => {
+        sql.exec(
+          `DELETE FROM ${BATCH_TABLE}
+           WHERE state = 'completed' AND rowid NOT IN (
+             SELECT rowid FROM ${BATCH_TABLE} WHERE state = 'completed'
+             ORDER BY created_at DESC, rowid DESC LIMIT ?
+           )`,
+          MAX_COMPLETED_BATCHES
+        );
+        sql.exec(
+          `DELETE FROM ${BATCH_TABLE}
+           WHERE state = 'processing' AND rowid NOT IN (
+             SELECT rowid FROM ${BATCH_TABLE} WHERE state = 'processing'
+             ORDER BY created_at DESC, rowid DESC LIMIT ?
+           )`,
+          MAX_PROCESSING_BATCHES
+        );
+        sql.exec(
+          `DELETE FROM ${EVENT_TABLE}
+           WHERE rowid NOT IN (
+             SELECT rowid FROM ${EVENT_TABLE}
+             ORDER BY created_at DESC, rowid DESC LIMIT ?
+           )`,
+          MAX_EVENT_IDS
+        );
+        sql.exec(
+          `DELETE FROM ${RECOVERY_TABLE}
+           WHERE rowid NOT IN (
+             SELECT rowid FROM ${RECOVERY_TABLE}
+             ORDER BY sequence DESC LIMIT ?
+           )`,
+          MAX_RECENT_EVENTS
+        );
+        for (const envelope of initialRecovery.evicted) {
+          sql.exec(`DELETE FROM ${RECOVERY_TABLE} WHERE sequence = ?`, envelope.sequence);
+        }
+      });
     });
   }
 
@@ -227,6 +290,12 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
       this.dispatchRetries += 1;
       return this.dispatchCanonicalBatch(input.batchId, topic, persistedEnvelopes);
     }
+    if (this.processingBatchIds.size >= MAX_PROCESSING_BATCHES) {
+      return Response.json(
+        { error: 'Realtime sequencer is at its bounded retry capacity', retryable: true },
+        { status: 503 }
+      );
+    }
 
     const envelopes: CanonicalRealtimeEnvelope[] = [];
     const eventIdsInBatch = new Set<string>();
@@ -276,6 +345,17 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
     this.sequence = nextSequence;
     this.deduplicatedEvents += duplicateCount;
     const persistedAt = Date.now();
+    const evictedEventIds = boundedCheckpointEvictions(
+      new Set(this.eventSequences.entries().map(([eventId]) => eventId)),
+      newEvents.map(({ eventId }) => eventId),
+      MAX_EVENT_IDS
+    );
+    const recovery = boundedSerializedCheckpoint(
+      this.recent,
+      newEvents.map(({ envelope }) => envelope),
+      MAX_RECENT_EVENTS,
+      MAX_RECENT_STORAGE_BYTES
+    );
     // Persist the exact canonical envelopes and ID-to-sequence mapping before
     // any leaf dispatch. A crash or partial dispatch can therefore replay the
     // same batch without allocating new sequences or publish timestamps.
@@ -312,12 +392,18 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
           persistedAt
         );
       }
-      this.trimSqlCheckpoints();
+      for (const eventId of evictedEventIds) {
+        sql.exec(`DELETE FROM ${EVENT_TABLE} WHERE event_id = ?`, eventId);
+      }
+      for (const envelope of recovery.evicted) {
+        sql.exec(`DELETE FROM ${RECOVERY_TABLE} WHERE sequence = ?`, envelope.sequence);
+      }
     });
     for (const { eventId, envelope } of newEvents) {
       this.eventSequences.remember(eventId, envelope.sequence);
-      this.rememberRecent(envelope);
     }
+    rememberBounded(this.processingBatchIds, input.batchId, MAX_PROCESSING_BATCHES);
+    this.recent.splice(0, this.recent.length, ...recovery.retained);
     return this.dispatchCanonicalBatch(input.batchId, topic, envelopes);
   }
 
@@ -349,12 +435,19 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
         { status: 503 }
       );
     }
+    const evictedBatchIds = boundedCheckpointEvictions(
+      this.completedBatchIds,
+      [batchId],
+      MAX_COMPLETED_BATCHES
+    );
     this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec(
-        `UPDATE ${BATCH_TABLE} SET state = 'completed' WHERE batch_id = ?`,
-        batchId
-      );
+      const sql = this.ctx.storage.sql;
+      sql.exec(`UPDATE ${BATCH_TABLE} SET state = 'completed' WHERE batch_id = ?`, batchId);
+      for (const evictedBatchId of evictedBatchIds) {
+        sql.exec(`DELETE FROM ${BATCH_TABLE} WHERE batch_id = ?`, evictedBatchId);
+      }
     });
+    this.processingBatchIds.delete(batchId);
     this.rememberCompletedBatch(batchId);
     const delivered = results.reduce(
       (sum, result) => (result.status === 'fulfilled' ? sum + result.value.delivered : sum),
@@ -402,49 +495,6 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
       }
     }
     return persisted;
-  }
-
-  private trimSqlCheckpoints(): void {
-    const sql = this.ctx.storage.sql;
-    sql.exec(
-      `DELETE FROM ${BATCH_TABLE}
-       WHERE rowid NOT IN (
-         SELECT rowid FROM ${BATCH_TABLE}
-         ORDER BY created_at DESC, rowid DESC LIMIT ?
-       )`,
-      MAX_COMPLETED_BATCHES
-    );
-    sql.exec(
-      `DELETE FROM ${EVENT_TABLE}
-       WHERE rowid NOT IN (
-         SELECT rowid FROM ${EVENT_TABLE}
-         ORDER BY created_at DESC, rowid DESC LIMIT ?
-       )`,
-      MAX_EVENT_IDS
-    );
-    sql.exec(
-      `DELETE FROM ${RECOVERY_TABLE}
-       WHERE rowid NOT IN (
-         SELECT rowid FROM ${RECOVERY_TABLE}
-         ORDER BY sequence DESC LIMIT ?
-       )`,
-      MAX_RECENT_EVENTS
-    );
-    let retainedBytes = 0;
-    let minimumRetainedSequence: number | null = null;
-    for (const row of sql.exec<{ sequence: number; envelope_json: string }>(
-      `SELECT sequence, envelope_json FROM ${RECOVERY_TABLE} ORDER BY sequence DESC`
-    )) {
-      const bytes = new TextEncoder().encode(row.envelope_json).byteLength;
-      if (retainedBytes + bytes > MAX_RECENT_STORAGE_BYTES) break;
-      retainedBytes += bytes;
-      minimumRetainedSequence = row.sequence;
-    }
-    if (minimumRetainedSequence === null) {
-      sql.exec(`DELETE FROM ${RECOVERY_TABLE}`);
-    } else {
-      sql.exec(`DELETE FROM ${RECOVERY_TABLE} WHERE sequence < ?`, minimumRetainedSequence);
-    }
   }
 
   private async dispatch(
@@ -509,16 +559,6 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
     return Boolean(expected && provided && timingSafeStringEqual(provided, expected));
   }
 
-  private rememberRecent(event: CanonicalRealtimeEnvelope): void {
-    this.recent.push(event);
-    while (
-      this.recent.length > MAX_RECENT_EVENTS ||
-      new TextEncoder().encode(JSON.stringify(this.recent)).byteLength > MAX_RECENT_STORAGE_BYTES
-    ) {
-      this.recent.shift();
-    }
-  }
-
   private rememberCompletedBatch(batchId: string): void {
     this.completedBatchIds.delete(batchId);
     this.completedBatchIds.add(batchId);
@@ -527,6 +567,16 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
       if (!oldest) break;
       this.completedBatchIds.delete(oldest);
     }
+  }
+}
+
+function rememberBounded(values: Set<string>, value: string, maximum: number): void {
+  values.delete(value);
+  values.add(value);
+  while (values.size > maximum) {
+    const oldest = values.values().next().value as string | undefined;
+    if (!oldest) break;
+    values.delete(oldest);
   }
 }
 

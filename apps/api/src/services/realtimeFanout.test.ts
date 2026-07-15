@@ -8,7 +8,7 @@ import {
   realtimeHubNames,
   realtimeSequencerName,
 } from './realtimeFanout';
-import { boundedCheckpointEvictions } from './realtimeCheckpoint';
+import { boundedCheckpointEvictions, boundedSerializedCheckpoint } from './realtimeCheckpoint';
 
 describe('realtime public fan-out sharding', () => {
   test('uses one canonical sequencer and four v3 leaves per public topic', () => {
@@ -66,5 +66,30 @@ describe('realtime public fan-out sharding', () => {
         error instanceof Error && error.message === 'Realtime checkpoint capacity must be positive';
     }
     expect(rejectedInvalidCapacity).toBe(true);
+  });
+
+  test('bounds recovery checkpoints by count and exact serialized bytes', () => {
+    expect(boundedSerializedCheckpoint(['a', 'b'], ['c'], 2, 100)).toEqual({
+      retained: ['b', 'c'],
+      evicted: ['a'],
+    });
+    expect(boundedSerializedCheckpoint(['1234'], ['5678'], 10, 8)).toEqual({
+      retained: ['5678'],
+      evicted: ['1234'],
+    });
+    let rejectedCount = false;
+    let rejectedBytes = false;
+    try {
+      boundedSerializedCheckpoint([], [], 0, 2);
+    } catch {
+      rejectedCount = true;
+    }
+    try {
+      boundedSerializedCheckpoint([], [], 1, 1);
+    } catch {
+      rejectedBytes = true;
+    }
+    expect(rejectedCount).toBe(true);
+    expect(rejectedBytes).toBe(true);
   });
 });
