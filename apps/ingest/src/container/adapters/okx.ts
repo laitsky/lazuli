@@ -5,6 +5,7 @@ import { ExchangeAdapter } from './base.ts';
 import {
   canonicalSymbol,
   createEvent,
+  marketTopic,
   numberOrNull,
   record,
   requiredNumber,
@@ -61,7 +62,7 @@ export class OkxAdapter extends ExchangeAdapter {
       if (!symbol) continue;
 
       if (channel === 'trades') {
-        const topic = `trades:okx:${symbol}` as const;
+        const topic = marketTopic('trades', 'okx', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'trade' }>>({
             type: 'trade',
@@ -81,7 +82,7 @@ export class OkxAdapter extends ExchangeAdapter {
           })
         );
       } else if (channel === 'tickers') {
-        const topic = `ticker:okx:${symbol}` as const;
+        const topic = marketTopic('ticker', 'okx', symbol, 'perp');
         const open = numberOrNull(item.open24h);
         const last = numberOrNull(item.last);
         this.publish(
@@ -111,7 +112,7 @@ export class OkxAdapter extends ExchangeAdapter {
           this.detectGap(`okx:${symbol}:depth`, previous, sequence);
         }
         this.#depthSequences.set(symbol, sequence);
-        const topic = `orderbook:okx:${symbol}` as const;
+        const topic = marketTopic('orderbook', 'okx', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
             type: 'orderbook-delta',
@@ -138,7 +139,7 @@ export class OkxAdapter extends ExchangeAdapter {
           })
         );
       } else if (channel === 'funding-rate') {
-        const topic = `funding:okx:${symbol}` as const;
+        const topic = marketTopic('funding', 'okx', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'funding' }>>({
             type: 'funding',
@@ -159,7 +160,7 @@ export class OkxAdapter extends ExchangeAdapter {
           const detail = record(rawDetail);
           const price = requiredNumber(detail.bkPx, 'bankruptcy price');
           const quantity = requiredNumber(detail.sz, 'liquidation quantity');
-          const topic = `liquidations:okx:${symbol}` as const;
+          const topic = marketTopic('liquidations', 'okx', symbol, 'perp');
           this.publish(
             createEvent<Extract<RealtimeEvent, { type: 'liquidation-print' }>>({
               type: 'liquidation-print',
@@ -195,7 +196,7 @@ export class OkxAdapter extends ExchangeAdapter {
         const symbol = canonicalSymbol(configuredSymbol);
         const sequence = Number(item.seqId);
         this.#depthSequences.set(symbol, sequence);
-        const topic = `orderbook:okx:${symbol}` as const;
+        const topic = marketTopic('orderbook', 'okx', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
             type: 'orderbook-delta',

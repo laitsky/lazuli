@@ -2,7 +2,14 @@ import type { RealtimeEvent } from '@lazuli/shared';
 
 import type { EmitEvent } from '../types.ts';
 import { ExchangeAdapter } from './base.ts';
-import { canonicalSymbol, createEvent, numberOrNull, record, requiredNumber } from './event.ts';
+import {
+  canonicalSymbol,
+  createEvent,
+  marketTopic,
+  numberOrNull,
+  record,
+  requiredNumber,
+} from './event.ts';
 
 function market(symbol: string, quote: string): string {
   const base = symbol.split('/')[0] ?? symbol;
@@ -52,7 +59,7 @@ export class UpbitAdapter extends ExchangeAdapter {
     const timestamp = Number(item.timestamp ?? Date.now());
 
     if (type === 'ticker') {
-      const topic = `ticker:upbit:${symbol}` as const;
+      const topic = marketTopic('ticker', 'upbit', symbol, 'spot');
       const signedChange = numberOrNull(item.signed_change_rate);
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'ticker' }>>({
@@ -75,7 +82,7 @@ export class UpbitAdapter extends ExchangeAdapter {
         })
       );
     } else if (type === 'trade') {
-      const topic = `trades:upbit:${symbol}` as const;
+      const topic = marketTopic('trades', 'upbit', symbol, 'spot');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'trade' }>>({
           type: 'trade',
@@ -129,7 +136,7 @@ export class UpbitAdapter extends ExchangeAdapter {
       ]);
     }
     const sequence = numberOrNull(item.sequential_id);
-    const topic = `orderbook:upbit:${symbol}` as const;
+    const topic = marketTopic('orderbook', 'upbit', symbol, 'spot');
     this.publish(
       createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
         type: 'orderbook-delta',

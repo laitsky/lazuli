@@ -6,6 +6,7 @@ import { fetchBybitOrderbook } from './bybit-rest.ts';
 import {
   canonicalSymbol,
   createEvent,
+  marketTopic,
   numberOrNull,
   record,
   requiredNumber,
@@ -56,7 +57,7 @@ export class BybitAdapter extends ExchangeAdapter {
       for (const item of Array.isArray(envelope.data) ? envelope.data : []) {
         const trade = record(item);
         const symbol = canonicalSymbol(String(trade.s ?? topicName.split('.').at(-1) ?? ''));
-        const topic = `trades:bybit:${symbol}` as const;
+        const topic = marketTopic('trades', 'bybit', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'trade' }>>({
             type: 'trade',
@@ -82,7 +83,7 @@ export class BybitAdapter extends ExchangeAdapter {
     if (topicName.startsWith('tickers.')) {
       const ticker = record(envelope.data);
       const symbol = canonicalSymbol(String(ticker.symbol ?? topicName.split('.').at(-1) ?? ''));
-      const topic = `ticker:bybit:${symbol}` as const;
+      const topic = marketTopic('ticker', 'bybit', symbol, 'perp');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'ticker' }>>({
           type: 'ticker',
@@ -108,7 +109,7 @@ export class BybitAdapter extends ExchangeAdapter {
       );
 
       if (numberOrNull(ticker.fundingRate) !== null) {
-        const fundingTopic = `funding:bybit:${symbol}` as const;
+        const fundingTopic = marketTopic('funding', 'bybit', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'funding' }>>({
             type: 'funding',
@@ -128,7 +129,7 @@ export class BybitAdapter extends ExchangeAdapter {
 
       if (numberOrNull(ticker.openInterest) !== null) {
         const oi = requiredNumber(ticker.openInterest, 'open interest');
-        const oiTopic = `open-interest:bybit:${symbol}` as const;
+        const oiTopic = marketTopic('open-interest', 'bybit', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'open-interest' }>>({
             type: 'open-interest',
@@ -160,7 +161,7 @@ export class BybitAdapter extends ExchangeAdapter {
         const symbol = canonicalSymbol(String(liquidation.s ?? topicName.split('.').at(-1) ?? ''));
         const price = requiredNumber(liquidation.p, 'liquidation price');
         const quantity = requiredNumber(liquidation.v, 'liquidation quantity');
-        const topic = `liquidations:bybit:${symbol}` as const;
+        const topic = marketTopic('liquidations', 'bybit', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'liquidation-print' }>>({
             type: 'liquidation-print',
@@ -214,7 +215,7 @@ export class BybitAdapter extends ExchangeAdapter {
         return;
       }
       this.#depthSequences.set(symbol, current);
-      const topic = `orderbook:bybit:${symbol}` as const;
+      const topic = marketTopic('orderbook', 'bybit', symbol, 'perp');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
           type: 'orderbook-delta',
@@ -267,7 +268,7 @@ export class BybitAdapter extends ExchangeAdapter {
     const sequence = Number(result.u);
     if (!validSequence(sequence))
       throw new Error(`Bybit depth snapshot sequence invalid for ${id}`);
-    const topic = `orderbook:bybit:${id}` as const;
+    const topic = marketTopic('orderbook', 'bybit', id, 'perp');
     this.publish(
       createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
         type: 'orderbook-delta',

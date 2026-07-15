@@ -2,7 +2,14 @@ import type { RealtimeEvent } from '@lazuli/shared';
 
 import type { EmitEvent } from '../types.ts';
 import { ExchangeAdapter } from './base.ts';
-import { canonicalSymbol, createEvent, numberOrNull, record, requiredNumber } from './event.ts';
+import {
+  canonicalSymbol,
+  createEvent,
+  marketTopic,
+  numberOrNull,
+  record,
+  requiredNumber,
+} from './event.ts';
 
 function coin(symbol: string): string {
   return symbol.split('/')[0] ?? symbol;
@@ -44,7 +51,7 @@ export class HyperliquidAdapter extends ExchangeAdapter {
         const asset = coin(configured);
         if (mids[asset] === undefined) continue;
         const symbol = canonicalSymbol(configured);
-        const topic = `ticker:hyperliquid:${symbol}` as const;
+        const topic = marketTopic('ticker', 'hyperliquid', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'ticker' }>>({
             type: 'ticker',
@@ -72,7 +79,7 @@ export class HyperliquidAdapter extends ExchangeAdapter {
         const configured = this.symbols.find((value) => coin(value) === asset);
         if (!configured) continue;
         const symbol = canonicalSymbol(configured);
-        const topic = `trades:hyperliquid:${symbol}` as const;
+        const topic = marketTopic('trades', 'hyperliquid', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'trade' }>>({
             type: 'trade',
@@ -103,7 +110,7 @@ export class HyperliquidAdapter extends ExchangeAdapter {
       const symbol = canonicalSymbol(configured);
       const timestamp = Date.now();
       if (numberOrNull(context.funding) !== null) {
-        const topic = `funding:hyperliquid:${symbol}` as const;
+        const topic = marketTopic('funding', 'hyperliquid', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'funding' }>>({
             type: 'funding',
@@ -123,7 +130,7 @@ export class HyperliquidAdapter extends ExchangeAdapter {
       if (numberOrNull(context.openInterest) !== null) {
         const value = requiredNumber(context.openInterest, 'open interest');
         const mark = numberOrNull(context.markPx);
-        const topic = `open-interest:hyperliquid:${symbol}` as const;
+        const topic = marketTopic('open-interest', 'hyperliquid', symbol, 'perp');
         this.publish(
           createEvent<Extract<RealtimeEvent, { type: 'open-interest' }>>({
             type: 'open-interest',
@@ -172,7 +179,7 @@ export class HyperliquidAdapter extends ExchangeAdapter {
         const level = record(raw);
         return [requiredNumber(level.px, 'book price'), requiredNumber(level.sz, 'book quantity')];
       });
-    const topic = `orderbook:hyperliquid:${symbol}` as const;
+    const topic = marketTopic('orderbook', 'hyperliquid', symbol, 'perp');
     this.publish(
       createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
         type: 'orderbook-delta',

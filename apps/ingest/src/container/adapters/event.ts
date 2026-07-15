@@ -1,4 +1,12 @@
-import { type RealtimeEvent, type RealtimeProvenance, type RealtimeTopic } from '@lazuli/shared';
+import {
+  buildRealtimeTopic,
+  type RealtimeEvent,
+  type RealtimeMarketType,
+  type RealtimeProvenance,
+  type RealtimePublicChannel,
+  type RealtimeTopic,
+  type SupportedExchange,
+} from '@lazuli/shared';
 
 export function numberOrNull(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number.parseFloat(String(value));
@@ -13,6 +21,23 @@ export function requiredNumber(value: unknown, field: string): number {
 
 export function canonicalSymbol(value: string): string {
   return value.toUpperCase().replace(/[-_/]/g, '');
+}
+
+export function marketTopic<
+  TChannel extends RealtimePublicChannel,
+  TExchange extends SupportedExchange,
+>(
+  channel: TChannel,
+  exchange: TExchange,
+  symbol: string,
+  marketType: RealtimeMarketType
+): `${TChannel}:${TExchange}:${string}` {
+  return buildRealtimeTopic(
+    channel,
+    exchange,
+    symbol,
+    marketType
+  ) as `${TChannel}:${TExchange}:${string}`;
 }
 
 export function createEvent<T extends RealtimeEvent>(input: {

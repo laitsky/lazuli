@@ -1,8 +1,15 @@
-import type { RealtimeEvent, RealtimeTopic } from '@lazuli/shared';
+import type { RealtimeEvent } from '@lazuli/shared';
 
 import type { EmitEvent, ProviderChannelHealth } from '../types.ts';
 import { ExchangeAdapter } from './base.ts';
-import { canonicalSymbol, createEvent, record, requiredNumber, rows } from './event.ts';
+import {
+  canonicalSymbol,
+  createEvent,
+  marketTopic,
+  record,
+  requiredNumber,
+  rows,
+} from './event.ts';
 import {
   binanceDepthDecision,
   findBinanceSnapshotBridge,
@@ -117,7 +124,7 @@ export class BinanceAdapter extends ExchangeAdapter {
     if (!symbol) return;
 
     if (type === 'aggTrade') {
-      const topic = `trades:binance:${symbol}` as const;
+      const topic = marketTopic('trades', 'binance', symbol, 'perp');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'trade' }>>({
           type: 'trade',
@@ -140,7 +147,7 @@ export class BinanceAdapter extends ExchangeAdapter {
     }
 
     if (type === 'bookTicker') {
-      const topic = `ticker:binance:${symbol}` as const;
+      const topic = marketTopic('ticker', 'binance', symbol, 'perp');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'ticker' }>>({
           type: 'ticker',
@@ -169,7 +176,7 @@ export class BinanceAdapter extends ExchangeAdapter {
       const orderSymbol = canonicalSymbol(String(order.s ?? symbol));
       const price = requiredNumber(order.ap ?? order.p, 'liquidation price');
       const quantity = requiredNumber(order.z ?? order.q, 'liquidation quantity');
-      const topic = `liquidations:binance:${orderSymbol}` as const;
+      const topic = marketTopic('liquidations', 'binance', orderSymbol, 'perp');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'liquidation-print' }>>({
           type: 'liquidation-print',
@@ -233,7 +240,7 @@ export class BinanceAdapter extends ExchangeAdapter {
 
     if (type === 'markPriceUpdate') {
       const markPrice = requiredNumber(data.p, 'mark price');
-      const tickerTopic = `ticker:binance:${symbol}` as const;
+      const tickerTopic = marketTopic('ticker', 'binance', symbol, 'perp');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'ticker' }>>({
           type: 'ticker',
@@ -253,7 +260,7 @@ export class BinanceAdapter extends ExchangeAdapter {
           },
         })
       );
-      const topic = `funding:binance:${symbol}` as const;
+      const topic = marketTopic('funding', 'binance', symbol, 'perp');
       this.publish(
         createEvent<Extract<RealtimeEvent, { type: 'funding' }>>({
           type: 'funding',
@@ -419,7 +426,7 @@ export class BinanceAdapter extends ExchangeAdapter {
         `Binance snapshot did not bridge buffered depth for ${id}: ${lastFailure instanceof Error ? lastFailure.message : String(lastFailure)}`
       );
     }
-    const topic = `orderbook:binance:${id}` as RealtimeTopic & `orderbook:binance:${string}`;
+    const topic = marketTopic('orderbook', 'binance', id, 'perp');
     this.publish(
       createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
         type: 'orderbook-delta',
@@ -508,7 +515,7 @@ export class BinanceAdapter extends ExchangeAdapter {
 
   private publishDepth(depth: BufferedDepth): void {
     this.#depthSequences.set(depth.symbol, depth.last);
-    const topic = `orderbook:binance:${depth.symbol}` as const;
+    const topic = marketTopic('orderbook', 'binance', depth.symbol, 'perp');
     this.publish(
       createEvent<Extract<RealtimeEvent, { type: 'orderbook-delta' }>>({
         type: 'orderbook-delta',
