@@ -4,6 +4,7 @@ import {
   getReleaseControl,
   listReleaseControlAudit,
   listReleaseControls,
+  type ReleaseControlFlag,
 } from './releaseControlService';
 
 const BUCKET_SECONDS = 300;
@@ -20,6 +21,7 @@ interface SloPolicy {
   severity: 'page' | 'ticket';
   runbook: string;
   summary: string;
+  rolloutFlag?: ReleaseControlFlag;
 }
 
 const SLO_POLICIES: SloPolicy[] = [
@@ -40,6 +42,7 @@ const SLO_POLICIES: SloPolicy[] = [
     severity: 'page',
     runbook: `${RUNBOOK_ROOT}/realtime-provider-failure.md`,
     summary: 'Public WebSocket availability is below 99.9%',
+    rolloutFlag: 'realtime',
   },
   {
     id: 'liquidation-latency',
@@ -704,6 +707,35 @@ async function refreshPercentileRollups(env: Pick<Env, 'DB'>): Promise<void> {
 async function evaluateSloPolicies(env: Env): Promise<void> {
   const owner = env.OPERATIONAL_OWNER ?? 'lazuli-operations';
   for (const policy of SLO_POLICIES) {
+    const dedupeKey = `${env.ENVIRONMENT ?? 'local'}:${policy.id}`;
+    const active = await env.DB.prepare(
+      `SELECT * FROM operational_incidents WHERE dedupe_key = ?
+       AND state IN ('open', 'acknowledged') LIMIT 1`
+    )
+      .bind(dedupeKey)
+      .first<IncidentRow>();
+    if (policy.rolloutFlag) {
+      const control = await getReleaseControl(env, policy.rolloutFlag);
+      if (control?.state === 'off') {
+        if (active) {
+          await env.DB.prepare(
+            `UPDATE operational_incidents SET state = 'resolved', resolved_at = unixepoch(),
+             resolution = 'SLO suppressed while release control is off',
+             last_observed_at = unixepoch() WHERE id = ?`
+          )
+            .bind(active.id)
+            .run();
+          await deliverIncidentEmail(
+            env,
+            active.id,
+            policy,
+            active.observed_value ?? 0,
+            'resolved'
+          );
+        }
+        continue;
+      }
+    }
     const ordering = policy.comparison === 'max' ? 'DESC' : 'ASC';
     const row = await env.DB.prepare(
       `SELECT * FROM operational_sli_rollups WHERE sli = ?
@@ -714,13 +746,6 @@ async function evaluateSloPolicies(env: Env): Promise<void> {
       .first<SliRow>();
     if (!row || row.value === null) continue;
     const breached = sloBreached(row.value, policy.comparison, policy.threshold);
-    const dedupeKey = `${env.ENVIRONMENT ?? 'local'}:${policy.id}`;
-    const active = await env.DB.prepare(
-      `SELECT * FROM operational_incidents WHERE dedupe_key = ?
-       AND state IN ('open', 'acknowledged') LIMIT 1`
-    )
-      .bind(dedupeKey)
-      .first<IncidentRow>();
     if (breached) {
       if (active) {
         await env.DB.prepare(

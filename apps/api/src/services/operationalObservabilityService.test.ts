@@ -59,4 +59,12 @@ describe('operational observability', () => {
     expect(worker.includes('allowedOrigins.includes(target.origin)')).toBe(true);
     expect(config.includes('"EXTERNAL_SYNTHETIC_PROBES": "true"')).toBe(true);
   });
+
+  test('suppresses WebSocket paging while realtime rollout is off', async () => {
+    const directory = (import.meta as ImportMeta & { dir: string }).dir;
+    const service = await Bun.file(`${directory}/operationalObservabilityService.ts`).text();
+    expect(service.includes("rolloutFlag: 'realtime'")).toBe(true);
+    expect(service.includes("control?.state === 'off'")).toBe(true);
+    expect(service.includes('SLO suppressed while release control is off')).toBe(true);
+  });
 });
