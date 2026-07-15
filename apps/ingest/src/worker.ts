@@ -1,5 +1,6 @@
 import { Container, getContainer } from '@cloudflare/containers';
 import {
+  containerNeedsStart,
   faultInjectionAllowed,
   healthRequestAuthorized,
   parseFaultDuration,
@@ -124,7 +125,13 @@ async function ensureStarted(
   provider: string
 ): Promise<DurableObjectStub<IngestContainer>> {
   const container = getContainer(env.INGEST_CONTAINER, containerName(provider));
-  await container.startAndWaitForPorts(startOptions(env, provider));
+  const state = await container.getState();
+  // Re-running startAndWaitForPorts for a healthy shard performs redundant
+  // port polling and can serialize concurrent health probes behind a busy
+  // high-volume provider. Only cold or stopped shards need startup work.
+  if (containerNeedsStart(state.status)) {
+    await container.startAndWaitForPorts(startOptions(env, provider));
+  }
   return container;
 }
 

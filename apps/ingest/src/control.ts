@@ -20,6 +20,12 @@ export function faultInjectionAllowed(environment: string): boolean {
   return environment === 'local' || environment === 'staging';
 }
 
+export function containerNeedsStart(
+  status: 'running' | 'stopping' | 'stopped' | 'healthy' | 'stopped_with_code'
+): boolean {
+  return status !== 'healthy' && status !== 'running';
+}
+
 export function healthRequestAuthorized(
   authorization: string | null,
   environment: string,

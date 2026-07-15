@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  containerNeedsStart,
   faultInjectionAllowed,
   healthRequestAuthorized,
   parseFaultDuration,
@@ -27,6 +28,14 @@ describe('ingest control safety', () => {
     expect(healthRequestAuthorized(null, 'local')).toBe(true);
   });
 
+  test('does not restart healthy or running shards during concurrent health probes', () => {
+    expect(containerNeedsStart('healthy')).toBe(false);
+    expect(containerNeedsStart('running')).toBe(false);
+    expect(containerNeedsStart('stopped')).toBe(true);
+    expect(containerNeedsStart('stopped_with_code')).toBe(true);
+    expect(containerNeedsStart('stopping')).toBe(true);
+  });
+
   test('shards the always-on ingest runtime by provider within a hard instance cap', async () => {
     const directory = (import.meta as ImportMeta & { dir: string }).dir;
     const [worker, config] = await Promise.all([
@@ -36,6 +45,7 @@ describe('ingest control safety', () => {
     expect(worker.includes('return `market-ingest-${provider}`')).toBe(true);
     expect(worker.includes('SHARD_START_STAGGER_MS = 2_000')).toBe(true);
     expect(worker.includes('await signedApiReady(env)')).toBe(true);
+    expect(worker.includes('if (containerNeedsStart(state.status))')).toBe(true);
     expect(worker.includes('await runExternalApiProbe(env)')).toBe(true);
     expect(worker.includes("'/internal/observability/probe'")).toBe(true);
     expect(worker.includes('await waitForStopped(container, provider)')).toBe(true);
