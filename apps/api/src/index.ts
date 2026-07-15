@@ -82,12 +82,8 @@ import {
   releaseControlOff,
 } from './utils/features';
 import { OPENAPI_DOCUMENT } from './generated-openapi';
-import {
-  claimRealtimeIngestBatch,
-  completeRealtimeIngestBatch,
-  releaseRealtimeIngestBatch,
-} from './services/realtimeIngestService';
 import { realtimeFanoutNameForConnection, realtimeSequencerName } from './services/realtimeFanout';
+import { filterAcceptedRealtimeEvents } from './services/realtimeProtocol';
 import {
   getOperationalDashboard,
   listOperationalIncidents,
@@ -607,95 +603,90 @@ app.post('/internal/realtime/batch', async (c) => {
       rolloutDisabled: true,
     });
   }
-  const claim = await claimRealtimeIngestBatch(c.env, batchId);
-  if (claim === 'completed') {
-    return ok(c, { accepted: 0, delivered: 0, sequences: [], duplicate: true });
+  const eventsByTopic = new Map<string, Record<string, unknown>[]>();
+  for (const { normalized, topic } of enabledEvents) {
+    const topicEvents = eventsByTopic.get(topic) ?? [];
+    topicEvents.push(normalized);
+    eventsByTopic.set(topic, topicEvents);
   }
-  if (claim === 'processing') {
-    return ok(c, {
-      accepted: 0,
-      delivered: 0,
-      sequences: [],
-      duplicate: true,
-      processing: true,
-    });
-  }
-
-  try {
-    const eventsByTopic = new Map<string, Record<string, unknown>[]>();
-    for (const { normalized, topic } of enabledEvents) {
-      const topicEvents = eventsByTopic.get(topic) ?? [];
-      topicEvents.push(normalized);
-      eventsByTopic.set(topic, topicEvents);
-      const ticker = realtimeTickerInput(normalized);
-      if (ticker) c.executionCtx.waitUntil(evaluateRealtimeTickerAlerts(c.env, ticker));
-      const openInterest = realtimeOpenInterestInput(normalized);
-      if (openInterest)
-        c.executionCtx.waitUntil(persistOpenInterestObservation(c.env, openInterest));
-      if (
-        normalized.type === 'liquidation-print' &&
-        typeof normalized.exchangeTimestamp === 'number' &&
-        Number.isFinite(normalized.exchangeTimestamp)
-      ) {
-        const latencyMs = Math.max(0, Date.now() - normalized.exchangeTimestamp);
-        const provider =
-          isRecord(normalized.provenance) && typeof normalized.provenance.provider === 'string'
-            ? normalized.provenance.provider
-            : 'unknown';
-        const persistD1 = claimLatencyD1Sample('exchange-to-api', provider);
-        c.executionCtx.waitUntil(
-          Promise.all(
-            [
-              recordProductMetric(
-                c.env,
-                'liquidation_latency_ms',
-                latencyMs,
-                { provider, segment: 'exchange-to-api' },
-                { persistD1 }
-              ),
-              persistD1
-                ? recordOperationalSli(c.env, {
-                    sli: 'liquidation_latency_ms',
-                    value: latencyMs,
-                    source: 'realtime-ingest',
-                    dimensionKey: provider,
-                    details: { segment: 'exchange-to-api' },
-                  })
-                : null,
-            ].filter((task): task is Promise<void> => task !== null)
-          ).then(() => undefined)
-        );
-      }
+  // The canonical per-topic sequencer persists bounded batch/event idempotency
+  // before dispatch. Keeping the old global D1 replay claim in this path added
+  // a serial cross-topic storage write to every high-frequency batch and caused
+  // measurable staging backlog. D1 remains the control-plane/rollup store.
+  const publishResults = await Promise.allSettled(
+    [...eventsByTopic].map(([topic, events]) =>
+      publishRealtimeTopicBatch(c.env, topic, batchId, events)
+    )
+  );
+  const published = publishResults.flatMap((result) =>
+    result.status === 'fulfilled' ? [result.value] : []
+  );
+  const publishFailures = publishResults.filter(
+    (result): result is PromiseRejectedResult => result.status === 'rejected'
+  );
+  const acceptedEvents = filterAcceptedRealtimeEvents(
+    enabledEvents.map((item) => ({ ...item, eventId: item.normalized.eventId })),
+    published.flatMap((item) => item.acceptedEventIds)
+  );
+  for (const { normalized } of acceptedEvents) {
+    const ticker = realtimeTickerInput(normalized);
+    if (ticker) c.executionCtx.waitUntil(evaluateRealtimeTickerAlerts(c.env, ticker));
+    const openInterest = realtimeOpenInterestInput(normalized);
+    if (openInterest) c.executionCtx.waitUntil(persistOpenInterestObservation(c.env, openInterest));
+    if (
+      normalized.type === 'liquidation-print' &&
+      typeof normalized.exchangeTimestamp === 'number' &&
+      Number.isFinite(normalized.exchangeTimestamp)
+    ) {
+      const latencyMs = Math.max(0, Date.now() - normalized.exchangeTimestamp);
+      const provider =
+        isRecord(normalized.provenance) && typeof normalized.provenance.provider === 'string'
+          ? normalized.provenance.provider
+          : 'unknown';
+      const persistD1 = claimLatencyD1Sample('exchange-to-api', provider);
+      c.executionCtx.waitUntil(
+        Promise.all(
+          [
+            recordProductMetric(
+              c.env,
+              'liquidation_latency_ms',
+              latencyMs,
+              { provider, segment: 'exchange-to-api' },
+              { persistD1 }
+            ),
+            persistD1
+              ? recordOperationalSli(c.env, {
+                  sli: 'liquidation_latency_ms',
+                  value: latencyMs,
+                  source: 'realtime-ingest',
+                  dimensionKey: provider,
+                  details: { segment: 'exchange-to-api' },
+                })
+              : null,
+          ].filter((task): task is Promise<void> => task !== null)
+        ).then(() => undefined)
+      );
     }
-    const published = await Promise.all(
-      [...eventsByTopic].map(([topic, events]) =>
-        publishRealtimeTopicBatch(c.env, topic, batchId, events)
-      )
-    );
-    await persistLiquidationPrintCheckpoints(
-      c.env,
-      enabledEvents.map((item) => item.normalized)
-    );
-    c.executionCtx.waitUntil(
-      completeRealtimeIngestBatch(c.env, batchId).catch((error: unknown) => {
-        console.error('Failed to complete realtime ingest replay checkpoint', {
-          batchId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      })
-    );
-    return ok(c, {
-      accepted: enabledEvents.length,
-      skippedByRollout: normalizedEvents.length - enabledEvents.length,
-      delivered: published.reduce((sum, item) => sum + item.delivered, 0),
-      sequences: published.flatMap((item) =>
-        item.sequences.map((sequence) => ({ topic: item.topic, sequence }))
-      ),
-    });
-  } catch (error) {
-    await releaseRealtimeIngestBatch(c.env, batchId);
-    throw error;
   }
+  await persistLiquidationPrintCheckpoints(
+    c.env,
+    acceptedEvents.map((item) => item.normalized)
+  );
+  if (publishFailures.length > 0) {
+    throw new Error(
+      `Realtime publishing failed for ${publishFailures.length} of ${eventsByTopic.size} topics`
+    );
+  }
+  return ok(c, {
+    accepted: acceptedEvents.length,
+    skippedByRollout: normalizedEvents.length - enabledEvents.length,
+    skippedAsDuplicate: enabledEvents.length - acceptedEvents.length,
+    delivered: published.reduce((sum, item) => sum + item.delivered, 0),
+    sequences: published.flatMap((item) =>
+      item.sequences.map((sequence) => ({ topic: item.topic, sequence }))
+    ),
+    duplicate: acceptedEvents.length === 0,
+  });
 });
 
 app.post('/internal/observability/probe', async (c) => {
@@ -2863,7 +2854,13 @@ async function publishRealtimeTopicBatch(
   topic: string,
   batchId: string,
   events: Record<string, unknown>[]
-): Promise<{ topic: string; sequences: number[]; delivered: number }> {
+): Promise<{
+  topic: string;
+  sequences: number[];
+  acceptedEventIds: string[];
+  delivered: number;
+  duplicate: boolean;
+}> {
   if (!env.REALTIME_SEQUENCER || !env.ADMIN_API_KEY) {
     throw new Error('Realtime publishing is not configured');
   }
@@ -2881,11 +2878,18 @@ async function publishRealtimeTopicBatch(
     body,
   });
   if (!response.ok) throw new Error(`Realtime publish failed with HTTP ${response.status}`);
-  const result = (await response.json()) as { sequences: number[]; delivered: number };
+  const result = (await response.json()) as {
+    sequences: number[];
+    acceptedEventIds?: string[];
+    delivered: number;
+    duplicate?: boolean;
+  };
   return {
     topic,
     sequences: result.sequences,
+    acceptedEventIds: result.acceptedEventIds ?? [],
     delivered: result.delivered,
+    duplicate: result.duplicate === true,
   };
 }
 

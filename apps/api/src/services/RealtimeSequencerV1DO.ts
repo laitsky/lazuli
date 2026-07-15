@@ -66,6 +66,7 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
           batch_id TEXT PRIMARY KEY,
           state TEXT NOT NULL CHECK (state IN ('processing', 'completed')),
           envelopes_json TEXT NOT NULL,
+          accepted_event_ids_json TEXT NOT NULL DEFAULT '[]',
           created_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS ${EVENT_TABLE} (
@@ -80,6 +81,15 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
           created_at INTEGER NOT NULL
         );
       `);
+      const batchColumns = sql
+        .exec<{ name: string }>(`PRAGMA table_info(${BATCH_TABLE})`)
+        .toArray();
+      if (!batchColumns.some((column) => column.name === 'accepted_event_ids_json')) {
+        sql.exec(
+          `ALTER TABLE ${BATCH_TABLE}
+           ADD COLUMN accepted_event_ids_json TEXT NOT NULL DEFAULT '[]'`
+        );
+      }
       const [checkpoint, index, recovery] = await Promise.all([
         ctx.storage.get<SequencerCheckpoint>(CHECKPOINT_KEY),
         ctx.storage.get<SequencerEventIndexCheckpoint>(EVENT_INDEX_KEY),
@@ -269,7 +279,12 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
       .exec<{
         state: 'processing' | 'completed';
         envelopes_json: string;
-      }>(`SELECT state, envelopes_json FROM ${BATCH_TABLE} WHERE batch_id = ?`, input.batchId)
+        accepted_event_ids_json: string;
+      }>(
+        `SELECT state, envelopes_json, accepted_event_ids_json
+         FROM ${BATCH_TABLE} WHERE batch_id = ?`,
+        input.batchId
+      )
       .toArray()[0];
     if (this.completedBatchIds.has(input.batchId) || persistedBatch?.state === 'completed') {
       return Response.json({
@@ -277,6 +292,7 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
         duplicate: true,
         topic,
         sequences: [],
+        acceptedEventIds: [],
         delivered: 0,
         timestamp: Date.now(),
       });
@@ -284,11 +300,23 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
     this.requests += 1;
     if (persistedBatch?.state === 'processing') {
       const persistedEnvelopes = parseCanonicalEnvelopes(persistedBatch.envelopes_json);
+      const acceptedEventIds = parseEventIds(persistedBatch.accepted_event_ids_json);
       if (!persistedEnvelopes || persistedEnvelopes.some((event) => event.topic !== topic)) {
         return Response.json({ error: 'Persisted realtime batch is invalid' }, { status: 500 });
       }
+      if (!acceptedEventIds) {
+        return Response.json(
+          { error: 'Persisted realtime batch IDs are invalid' },
+          { status: 500 }
+        );
+      }
       this.dispatchRetries += 1;
-      return this.dispatchCanonicalBatch(input.batchId, topic, persistedEnvelopes);
+      return this.dispatchCanonicalBatch(
+        input.batchId,
+        topic,
+        persistedEnvelopes,
+        acceptedEventIds
+      );
     }
     if (this.processingBatchIds.size >= MAX_PROCESSING_BATCHES) {
       return Response.json(
@@ -368,10 +396,11 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
       );
       sql.exec(
         `INSERT INTO ${BATCH_TABLE}
-           (batch_id, state, envelopes_json, created_at)
-         VALUES (?, 'processing', ?, ?)`,
+           (batch_id, state, envelopes_json, accepted_event_ids_json, created_at)
+         VALUES (?, 'processing', ?, ?, ?)`,
         input.batchId,
         JSON.stringify(envelopes),
+        JSON.stringify(newEvents.map(({ eventId }) => eventId)),
         persistedAt
       );
       for (const { eventId, envelope } of newEvents) {
@@ -404,13 +433,19 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
     }
     rememberBounded(this.processingBatchIds, input.batchId, MAX_PROCESSING_BATCHES);
     this.recent.splice(0, this.recent.length, ...recovery.retained);
-    return this.dispatchCanonicalBatch(input.batchId, topic, envelopes);
+    return this.dispatchCanonicalBatch(
+      input.batchId,
+      topic,
+      envelopes,
+      newEvents.map(({ eventId }) => eventId)
+    );
   }
 
   private async dispatchCanonicalBatch(
     batchId: string,
     topic: string,
-    envelopes: CanonicalRealtimeEnvelope[]
+    envelopes: CanonicalRealtimeEnvelope[],
+    acceptedEventIds: string[]
   ): Promise<Response> {
     const startedAt = Date.now();
     const results = await Promise.allSettled(
@@ -460,8 +495,10 @@ export class RealtimeSequencerV1DO extends DurableObject<Env> {
     });
     return Response.json({
       ok: true,
+      duplicate: acceptedEventIds.length === 0,
       topic,
       sequences: envelopes.map((event) => event.sequence),
+      acceptedEventIds,
       delivered,
       timestamp: Date.now(),
     });
@@ -605,6 +642,17 @@ function parseCanonicalEnvelopes(value: string): CanonicalRealtimeEnvelope[] | n
   try {
     const parsed = JSON.parse(value) as unknown;
     return Array.isArray(parsed) && parsed.every(isCanonicalEnvelope) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseEventIds(value: string): string[] | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) && parsed.every((eventId) => realtimeEventId({ eventId }) !== null)
+      ? parsed
+      : null;
   } catch {
     return null;
   }

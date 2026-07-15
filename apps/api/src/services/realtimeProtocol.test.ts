@@ -4,6 +4,7 @@ import {
   REALTIME_V2_PROTOCOL,
   acceptsRealtimeV2,
   createBatchEnvelope,
+  filterAcceptedRealtimeEvents,
   realtimeEventId,
   timingSafeStringEqual,
   type CanonicalRealtimeEnvelope,
@@ -39,6 +40,18 @@ describe('realtime v2 protocol', () => {
     expect(realtimeEventId({ eventId: 'bybit:trade:12345' })).toBe('bybit:trade:12345');
     expect(realtimeEventId({ eventId: 'short' })).toBe(null);
     expect(realtimeEventId({ eventId: 'bad value with spaces' })).toBe(null);
+  });
+
+  test('selects each sequencer-accepted event exactly once', () => {
+    const events = [
+      { eventId: 'bybit:trade:12345', price: 100 },
+      { eventId: 'bybit:trade:12345', price: 101 },
+      { eventId: 'bybit:trade:67890', price: 102 },
+      { eventId: 'bybit:trade:ignored', price: 103 },
+    ];
+    expect(
+      filterAcceptedRealtimeEvents(events, ['bybit:trade:12345', 'bybit:trade:67890'])
+    ).toEqual([events[0], events[2]]);
   });
 
   test('compares secrets without a prefix match', () => {

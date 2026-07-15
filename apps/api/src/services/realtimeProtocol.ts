@@ -27,6 +27,17 @@ export function realtimeEventId(value: unknown): string | null {
   return typeof eventId === 'string' && /^[A-Za-z0-9._:-]{8,160}$/.test(eventId) ? eventId : null;
 }
 
+export function filterAcceptedRealtimeEvents<T extends Record<string, unknown>>(
+  events: T[],
+  acceptedEventIds: Iterable<string>
+): T[] {
+  const pending = new Set(acceptedEventIds);
+  return events.filter((event) => {
+    const eventId = realtimeEventId(event);
+    return eventId !== null && pending.delete(eventId);
+  });
+}
+
 export function acceptsRealtimeV2(header: string | null): boolean {
   return (header ?? '')
     .split(',')
