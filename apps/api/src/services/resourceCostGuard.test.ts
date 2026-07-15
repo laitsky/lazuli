@@ -11,6 +11,8 @@ describe('Cloudflare cost regression guards', () => {
   test('Durable Objects avoid scheduled callbacks and bound realtime persistence', async () => {
     const marketCache = await Bun.file(`${servicesDirectory}/MarketDataCacheDO.ts`).text();
     const realtimeHub = await Bun.file(`${servicesDirectory}/RealtimeHubDO.ts`).text();
+    const sequencer = await Bun.file(`${servicesDirectory}/RealtimeSequencerV1DO.ts`).text();
+    const fanout = await Bun.file(`${servicesDirectory}/RealtimeFanoutV3DO.ts`).text();
 
     expect(/\.storage\b/.test(marketCache)).toBe(false);
     expect(realtimeHub.includes('MAX_DEDUPE_EVENTS')).toBe(true);
@@ -20,7 +22,11 @@ describe('Cloudflare cost regression guards', () => {
     expect(realtimeHub.includes('await this.persistBatchCheckpoint(batchId)')).toBe(true);
     expect(realtimeHub.includes('recent: this.recent')).toBe(false);
     expect(realtimeHub.includes('eventSequences: this.eventSequences')).toBe(false);
-    for (const source of [marketCache, realtimeHub]) {
+    expect(sequencer.match(/blockConcurrencyWhile/g) ?? []).toHaveLength(1);
+    expect(fanout.match(/blockConcurrencyWhile/g) ?? []).toHaveLength(1);
+    expect(sequencer.includes('MAX_RECENT_STORAGE_BYTES')).toBe(true);
+    expect(fanout.includes('MAX_REALTIME_FRAME_BYTES')).toBe(true);
+    for (const source of [marketCache, realtimeHub, sequencer, fanout]) {
       expect(/\b(?:alarm|getAlarm|setAlarm|deleteAlarm)\s*\(/.test(source)).toBe(false);
     }
     expect(await Bun.file(`${servicesDirectory}/RateLimiterDO.ts`).exists()).toBe(false);
@@ -29,6 +35,9 @@ describe('Cloudflare cost regression guards', () => {
   test('Wrangler uses only the fresh SQLite-backed classes', async () => {
     const config = await Bun.file(`${apiDirectory}/wrangler.jsonc`).text();
     expect(config.includes('"tag": "resource-safe-v1"')).toBe(true);
+    expect(config.includes('"tag": "realtime-batched-fanout-v2"')).toBe(true);
+    expect(config.includes('"class_name": "RealtimeSequencerV1DO"')).toBe(true);
+    expect(config.includes('"class_name": "RealtimeFanoutV3DO"')).toBe(true);
     expect(config.includes('"new_sqlite_classes"')).toBe(true);
     expect(/"new_classes"\s*:/.test(config)).toBe(false);
     expect(config.includes('"class_name": "RateLimiterDO"')).toBe(false);

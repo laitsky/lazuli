@@ -54,7 +54,7 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Preflight public realtime route
+      - name: Preflight workers.dev service-isolation route
         run: |
           status="$(curl --silent --show-error --max-time 15 \
             --output /tmp/realtime-preflight.json \
@@ -63,6 +63,24 @@ jobs:
           echo "Public realtime preflight returned HTTP $status"
           if [ "$status" != '426' ]; then
             head --bytes 1000 /tmp/realtime-preflight.json || true
+            exit 1
+          fi
+
+      - name: Preflight custom-domain API and realtime routes
+        run: |
+          health_status="$(curl --silent --show-error --max-time 15 \
+            --output /tmp/custom-health.json \
+            --write-out '%{http_code}' \
+            'https://api-staging.lazuli.now/health')"
+          realtime_status="$(curl --silent --show-error --max-time 15 \
+            --output /tmp/custom-realtime.json \
+            --write-out '%{http_code}' \
+            'https://api-staging.lazuli.now/api/v1/ws?topic=ticker:bybit:btcusdt.p')"
+          echo "Custom-domain health returned HTTP $health_status"
+          echo "Custom-domain realtime preflight returned HTTP $realtime_status"
+          if [ "$health_status" != '200' ] || [ "$realtime_status" != '426' ]; then
+            head --bytes 1000 /tmp/custom-health.json || true
+            head --bytes 1000 /tmp/custom-realtime.json || true
             exit 1
           fi
 

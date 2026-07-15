@@ -10,12 +10,18 @@ describe('realtime client latency sampling', () => {
             type: 'liquidation-print',
             eventId: 'evt_native_1',
             exchangeTimestamp: 1_000,
+            ingestedAt: 1_250,
             provenance: { provider: 'Bybit' },
           },
         },
         1_550
       )
-    ).toEqual({ eventId: 'evt_native_1', provider: 'bybit', latencyMs: 550 });
+    ).toEqual({
+      eventId: 'evt_native_1',
+      provider: 'bybit',
+      sourceToClientMs: 550,
+      ingestToClientMs: 300,
+    });
   });
 
   test('rejects modeled, future, and stale observations', () => {

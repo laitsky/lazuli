@@ -151,6 +151,14 @@
         "name": "REALTIME_HUB",
         "class_name": "RealtimeHubV2DO",
       },
+      {
+        "name": "REALTIME_SEQUENCER",
+        "class_name": "RealtimeSequencerV1DO",
+      },
+      {
+        "name": "REALTIME_FANOUT",
+        "class_name": "RealtimeFanoutV3DO",
+      },
     ],
   },
 
@@ -158,6 +166,10 @@
     {
       "tag": "resource-safe-v1",
       "new_sqlite_classes": ["MarketDataCacheV2DO", "RealtimeHubV2DO"],
+    },
+    {
+      "tag": "realtime-batched-fanout-v2",
+      "new_sqlite_classes": ["RealtimeSequencerV1DO", "RealtimeFanoutV3DO"],
     },
   ],
 
@@ -317,6 +329,14 @@
             "name": "REALTIME_HUB",
             "class_name": "RealtimeHubV2DO",
           },
+          {
+            "name": "REALTIME_SEQUENCER",
+            "class_name": "RealtimeSequencerV1DO",
+          },
+          {
+            "name": "REALTIME_FANOUT",
+            "class_name": "RealtimeFanoutV3DO",
+          },
         ],
       },
     },
@@ -474,6 +494,14 @@
           {
             "name": "REALTIME_HUB",
             "class_name": "RealtimeHubV2DO",
+          },
+          {
+            "name": "REALTIME_SEQUENCER",
+            "class_name": "RealtimeSequencerV1DO",
+          },
+          {
+            "name": "REALTIME_FANOUT",
+            "class_name": "RealtimeFanoutV3DO",
           },
         ],
       },

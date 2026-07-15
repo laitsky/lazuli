@@ -36,6 +36,15 @@ export interface ProviderHealth {
   parseErrors: number;
   eventsEmitted: number;
   lastError: string | null;
+  channels?: Record<string, ProviderChannelHealth>;
+}
+
+export interface ProviderChannelHealth {
+  state: 'connecting' | 'connected' | 'degraded' | 'disconnected' | 'stopped';
+  connectedAt: number | null;
+  lastMessageAt: number | null;
+  reconnects: number;
+  lastError: string | null;
 }
 
 export interface BatchHealth {

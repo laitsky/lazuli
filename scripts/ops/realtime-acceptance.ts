@@ -36,6 +36,7 @@ type Counters = {
   events: number;
   sequenceGaps: number;
   latencySamples: number;
+  ingestLatencySamples: number;
   latencyMissing: number;
   reconnectCyclesCompleted: number;
 };
@@ -125,6 +126,7 @@ async function main(): Promise<void> {
     events: 0,
     sequenceGaps: 0,
     latencySamples: 0,
+    ingestLatencySamples: 0,
     latencyMissing: 0,
     reconnectCyclesCompleted: 0,
   };
@@ -132,6 +134,7 @@ async function main(): Promise<void> {
   const expectedClose = new WeakSet<WebSocket>();
   const socketSequences = new WeakMap<WebSocket, Map<string, number>>();
   const latencyReservoir: number[] = [];
+  const ingestLatencyReservoir: number[] = [];
   const diagnostics: {
     errors: Array<{ phase: 'opening' | 'open'; message: string }>;
     unexpectedCloses: Array<{ code: number; reason: string; wasClean: boolean }>;
@@ -158,20 +161,27 @@ async function main(): Promise<void> {
     });
   };
 
-  const observeLatency = (milliseconds: number) => {
-    counters.latencySamples += 1;
-    if (latencyReservoir.length < 20_000) {
-      latencyReservoir.push(milliseconds);
+  const observeLatency = (
+    milliseconds: number,
+    reservoir: number[],
+    sampleKind: 'source' | 'ingest'
+  ) => {
+    if (sampleKind === 'source') counters.latencySamples += 1;
+    else counters.ingestLatencySamples += 1;
+    const totalSamples =
+      sampleKind === 'source' ? counters.latencySamples : counters.ingestLatencySamples;
+    if (reservoir.length < 20_000) {
+      reservoir.push(milliseconds);
       return;
     }
-    const replacement = Math.floor(Math.random() * counters.latencySamples);
-    if (replacement < latencyReservoir.length) latencyReservoir[replacement] = milliseconds;
+    const replacement = Math.floor(Math.random() * totalSamples);
+    if (replacement < reservoir.length) reservoir[replacement] = milliseconds;
   };
 
   const connect = (): Promise<void> =>
     new Promise((resolve) => {
       counters.attempted += 1;
-      const socket = new WebSocket(target.toString());
+      const socket = new WebSocket(target.toString(), 'lazuli.realtime.v2');
       let settled = false;
       const settle = (opened: boolean) => {
         if (settled) return;
@@ -197,33 +207,47 @@ async function main(): Promise<void> {
         if (typeof message.data !== 'string') return;
         try {
           const value = JSON.parse(message.data) as Record<string, unknown>;
-          if (value.type !== 'event') return;
-          counters.events += 1;
-          const topic = String(value.topic ?? target.searchParams.get('topic'));
-          const sequence = Number(value.sequence);
-          const sequences = socketSequences.get(socket) ?? new Map<string, number>();
-          socketSequences.set(socket, sequences);
-          const previous = sequences.get(topic);
-          if (Number.isSafeInteger(sequence)) {
-            if (previous !== undefined && sequence > previous + 1) {
-              counters.sequenceGaps += sequence - previous - 1;
-            }
-            if (previous === undefined || sequence > previous) sequences.set(topic, sequence);
-          }
-          const event =
-            value.event !== null && typeof value.event === 'object'
-              ? (value.event as Record<string, unknown>)
-              : value;
-          const exchangeTimestamp = Number(event.exchangeTimestamp);
-          if (Number.isFinite(exchangeTimestamp) && exchangeTimestamp > 0) {
-            observeLatency(Math.max(0, Date.now() - exchangeTimestamp));
-          } else {
-            counters.latencyMissing += 1;
-          }
+          const envelopes =
+            value.type === 'batch' && Array.isArray(value.events)
+              ? value.events.filter(isRecord)
+              : value.type === 'event'
+                ? [value]
+                : [];
+          for (const envelope of envelopes) observeEnvelope(socket, envelope);
         } catch {
           // Non-JSON heartbeat/provider messages are counted but do not affect sequence assertions.
         }
       });
+
+      const observeEnvelope = (currentSocket: WebSocket, value: Record<string, unknown>) => {
+        if (value.type !== 'event') return;
+        counters.events += 1;
+        const topic = String(value.topic ?? target.searchParams.get('topic'));
+        const sequence = Number(value.sequence);
+        const sequences = socketSequences.get(currentSocket) ?? new Map<string, number>();
+        socketSequences.set(currentSocket, sequences);
+        const previous = sequences.get(topic);
+        if (Number.isSafeInteger(sequence)) {
+          if (previous !== undefined && sequence > previous + 1) {
+            counters.sequenceGaps += sequence - previous - 1;
+          }
+          if (previous === undefined || sequence > previous) sequences.set(topic, sequence);
+        }
+        const event =
+          value.event !== null && typeof value.event === 'object'
+            ? (value.event as Record<string, unknown>)
+            : value;
+        const exchangeTimestamp = Number(event.exchangeTimestamp);
+        if (Number.isFinite(exchangeTimestamp) && exchangeTimestamp > 0) {
+          observeLatency(Math.max(0, Date.now() - exchangeTimestamp), latencyReservoir, 'source');
+        } else {
+          counters.latencyMissing += 1;
+        }
+        const ingestedAt = Number(event.ingestedAt);
+        if (Number.isFinite(ingestedAt) && ingestedAt > 0) {
+          observeLatency(Math.max(0, Date.now() - ingestedAt), ingestLatencyReservoir, 'ingest');
+        }
+      };
       socket.addEventListener('error', (event) => {
         counters.errors += 1;
         if (diagnostics.errors.length < 32) {
@@ -326,6 +350,21 @@ async function main(): Promise<void> {
     p95Ms: percentile(0.95),
     p99Ms: percentile(0.99),
   };
+  const sortedIngestLatencies = ingestLatencyReservoir.toSorted((left, right) => left - right);
+  const ingestPercentile = (ratio: number): number | null => {
+    if (sortedIngestLatencies.length === 0) return null;
+    const index = Math.min(
+      sortedIngestLatencies.length - 1,
+      Math.ceil(sortedIngestLatencies.length * ratio) - 1
+    );
+    return sortedIngestLatencies[index] ?? null;
+  };
+  const ingestLatency = {
+    boundedReservoirSize: sortedIngestLatencies.length,
+    p50Ms: ingestPercentile(0.5),
+    p95Ms: ingestPercentile(0.95),
+    p99Ms: ingestPercentile(0.99),
+  };
   const checks = {
     peakConnections: counters.peakOpen >= config.connections,
     openFailures: counters.openFailures <= config.maxOpenFailures,
@@ -356,6 +395,7 @@ async function main(): Promise<void> {
     endMemoryMiB: endMemory / 1024 / 1024,
     memoryGrowthMiB,
     latency,
+    ingestLatency,
     diagnostics,
     counters,
     samples,
@@ -370,3 +410,7 @@ async function main(): Promise<void> {
 }
 
 await main();
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}

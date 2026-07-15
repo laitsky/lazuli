@@ -13,6 +13,16 @@ export interface RealtimeEnvelope<T = unknown> {
   publishedAt: number;
 }
 
+interface RealtimeBatchEnvelope {
+  type: 'batch';
+  schemaVersion: 1;
+  topic: string;
+  firstSequence: number;
+  lastSequence: number;
+  events: RealtimeEnvelope[];
+  publishedAt: number;
+}
+
 interface TopicSubscription {
   listeners: Set<(event: RealtimeEnvelope) => void>;
   client: TopicClient;
@@ -24,6 +34,7 @@ const LATENCY_REPORT_INTERVAL_MS = 10_000;
 const LATENCY_REPORT_SAMPLE_PERCENT = 10;
 const latencyReportTimes = new Map<string, number>();
 const latencySamplerSeed = crypto.randomUUID();
+const REALTIME_V2_PROTOCOL = 'lazuli.realtime.v2';
 
 function realtimeApiOrigin(): URL {
   const configured = import.meta.env.VITE_API_URL as string | undefined;
@@ -42,6 +53,7 @@ class TopicClient {
   private lastSequence = 0;
   private readonly seenEventIds = new BoundedEventIds(MAX_SEEN_EVENT_IDS);
   private stopped = false;
+  private preferV2 = true;
   private readonly statusListeners = new Set<(status: RealtimeStatus) => void>();
 
   constructor(
@@ -80,15 +92,22 @@ class TopicClient {
     const protocol = origin.protocol === 'https:' ? 'wss:' : 'ws:';
     const url = new URL(`${protocol}//${origin.host}/api/v1/ws`);
     url.searchParams.set('topic', this.topic);
-    const socket = new WebSocket(url);
+    const requestedV2 = this.preferV2;
+    const socket = requestedV2 ? new WebSocket(url, REALTIME_V2_PROTOCOL) : new WebSocket(url);
     this.socket = socket;
+    let opened = false;
 
     socket.addEventListener('open', () => {
+      opened = true;
       this.reconnectAttempt = 0;
       this.setStatus('open');
+      if (this.lastSequence > 0) void this.recover(this.lastSequence);
     });
     socket.addEventListener('message', (message) => void this.handleMessage(String(message.data)));
-    socket.addEventListener('close', () => this.scheduleReconnect());
+    socket.addEventListener('close', () => {
+      if (!opened && requestedV2) this.preferV2 = false;
+      this.scheduleReconnect();
+    });
     socket.addEventListener('error', () => {
       this.setStatus('degraded');
       socket.close();
@@ -103,15 +122,19 @@ class TopicClient {
       return;
     }
     if (isSubscribedEnvelope(message) && message.topic === this.topic) {
-      // A broker with no connected sockets may restart its in-memory sequence.
-      // Reset the browser cursor explicitly so new events are not discarded.
-      if (message.sequence < this.lastSequence) {
-        this.lastSequence = message.sequence;
-        this.setStatus('degraded');
-      }
+      // The leaf is deliberately stateless about the canonical cursor. Recovery
+      // always comes from the per-topic sequencer, never a leaf-local sequence.
+      return;
+    }
+    if (isRealtimeBatchEnvelope(message) && message.topic === this.topic) {
+      for (const event of message.events) await this.handleEnvelope(event);
       return;
     }
     if (!isRealtimeEnvelope(message) || message.topic !== this.topic) return;
+    await this.handleEnvelope(message);
+  }
+
+  private async handleEnvelope(message: RealtimeEnvelope): Promise<void> {
     if (this.lastSequence > 0 && message.sequence > this.lastSequence + 1) {
       await this.recover(this.lastSequence);
     }
@@ -247,6 +270,22 @@ function isRealtimeEnvelope(value: unknown): value is RealtimeEnvelope {
   );
 }
 
+function isRealtimeBatchEnvelope(value: unknown): value is RealtimeBatchEnvelope {
+  if (!value || typeof value !== 'object') return false;
+  const batch = value as Partial<RealtimeBatchEnvelope>;
+  return (
+    batch.type === 'batch' &&
+    batch.schemaVersion === 1 &&
+    typeof batch.topic === 'string' &&
+    Number.isSafeInteger(batch.firstSequence) &&
+    Number.isSafeInteger(batch.lastSequence) &&
+    Array.isArray(batch.events) &&
+    batch.events.length > 0 &&
+    batch.events.every(isRealtimeEnvelope) &&
+    typeof batch.publishedAt === 'number'
+  );
+}
+
 function isSubscribedEnvelope(
   value: unknown
 ): value is { type: 'subscribed'; topic: string; sequence: number } {
@@ -277,21 +316,28 @@ function reportRealtimeLatency(envelope: RealtimeEnvelope): void {
   )
     return;
   const now = Date.now();
-  const lastReportedAt = latencyReportTimes.get(sample.provider) ?? 0;
-  if (now - lastReportedAt < LATENCY_REPORT_INTERVAL_MS) return;
-  latencyReportTimes.set(sample.provider, now);
-  const url = new URL('/api/v1/metrics/events', realtimeApiOrigin());
-  void fetch(url, {
-    method: 'POST',
-    credentials: 'include',
-    keepalive: true,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      metric: 'liquidation_latency_ms',
-      value: sample.latencyMs,
-      dimensions: { provider: sample.provider, segment: 'exchange-to-client' },
-    }),
-  }).catch(() => undefined);
+  for (const [segment, value] of [
+    ['exchange-to-client', sample.sourceToClientMs],
+    ['ingest-to-client', sample.ingestToClientMs],
+  ] as const) {
+    if (value === null) continue;
+    const key = `${sample.provider}:${segment}`;
+    const lastReportedAt = latencyReportTimes.get(key) ?? 0;
+    if (now - lastReportedAt < LATENCY_REPORT_INTERVAL_MS) continue;
+    latencyReportTimes.set(key, now);
+    const url = new URL('/api/v1/metrics/events', realtimeApiOrigin());
+    void fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        metric: 'liquidation_latency_ms',
+        value,
+        dimensions: { provider: sample.provider, segment },
+      }),
+    }).catch(() => undefined);
+  }
 }
 
 function stableSamplePercent(value: string): number {

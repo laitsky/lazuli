@@ -1,9 +1,44 @@
 import { describe, expect, test } from 'bun:test';
 import { validateReleaseEvidence } from './release-evidence';
 
-const result = { passed: true, report: 'docs/operations/evidence/release/report.json' };
+const startedAt = '2026-07-01T00:00:00.000Z';
+const endedAt = '2026-07-04T00:00:00.000Z';
+const result = {
+  passed: true,
+  report: 'docs/operations/evidence/release/report.json',
+  startedAt,
+  endedAt,
+};
+const itemIds = [
+  'A0',
+  'A1',
+  'A2',
+  'A3',
+  'A4',
+  'A5',
+  'B1',
+  'B2',
+  'B3',
+  'B4',
+  'B5',
+  'C1',
+  'C2',
+  'C3',
+  'C4',
+  'D1',
+  'D2',
+  'D3',
+  'D4',
+  'D5',
+  'D6',
+  'E1',
+  'E2',
+  'E3',
+  'E4',
+  'E5',
+];
 const complete = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   releaseId: '2026-07-11.1',
   environment: 'production',
   commitSha: 'a'.repeat(40),
@@ -40,10 +75,32 @@ const complete = {
   ),
   rollout: ['internal', '5', '25', '100'].map((cohort) => ({
     cohort,
-    startedAt: new Date().toISOString(),
-    endedAt: new Date().toISOString(),
+    startedAt,
+    endedAt,
     passed: true,
   })),
+  items: Object.fromEntries(
+    itemIds.map((id) => [
+      id,
+      Object.fromEntries(
+        [
+          'implementation',
+          'test',
+          'deployment',
+          'dashboard',
+          'drill',
+          'rollback',
+          'production',
+        ].map((kind) => [
+          kind,
+          [{ ref: `https://evidence.example/${id}/${kind}`, description: `${id} ${kind}` }],
+        ])
+      ),
+    ])
+  ),
+  rejectedBaselines: [
+    { passed: false, report: 'docs/operations/evidence/rejected-load-baseline.json' },
+  ],
 };
 
 describe('release evidence gate', () => {
@@ -56,5 +113,21 @@ describe('release evidence gate', () => {
     const errors = validateReleaseEvidence(incomplete, true);
     expect(errors.some((error) => error.includes('production evidence'))).toBe(true);
     expect(errors.some((error) => error.includes('dashboard'))).toBe(true);
+  });
+
+  test('rejects missing item evidence and shortened observation windows', () => {
+    const incomplete = {
+      ...complete,
+      items: {},
+      acceptance: {
+        ...complete.acceptance,
+        soak: { ...result, endedAt: '2026-07-01T01:00:00.000Z' },
+      },
+      rollout: complete.rollout.map((item) => ({ ...item, endedAt: item.startedAt })),
+    };
+    const errors = validateReleaseEvidence(incomplete, true);
+    expect(errors.some((error) => error.includes('A0 item evidence'))).toBe(true);
+    expect(errors.some((error) => error.includes('72 continuous hours'))).toBe(true);
+    expect(errors.some((error) => error.includes('rollout duration'))).toBe(true);
   });
 });

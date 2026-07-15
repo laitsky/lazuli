@@ -177,6 +177,8 @@ export interface Env {
   API_ANALYTICS?: AnalyticsEngineDataset;
   MARKET_DATA_CACHE: DurableObjectNamespace;
   REALTIME_HUB: DurableObjectNamespace;
+  REALTIME_SEQUENCER: DurableObjectNamespace;
+  REALTIME_FANOUT: DurableObjectNamespace;
   PUBLIC_RATE_LIMITER: RateLimit;
   EXPENSIVE_RATE_LIMITER: RateLimit;
   BUILDER_PUBLIC_RATE_LIMITER: RateLimit;

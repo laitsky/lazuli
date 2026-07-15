@@ -3,7 +3,8 @@ const MAX_CLIENT_LATENCY_MS = 300_000;
 export interface RealtimeLatencySample {
   eventId: string;
   provider: string;
-  latencyMs: number;
+  sourceToClientMs: number;
+  ingestToClientMs: number | null;
 }
 
 export function extractRealtimeLatencySample(
@@ -22,14 +23,22 @@ export function extractRealtimeLatencySample(
     ) {
       continue;
     }
-    const latencyMs = receivedAt - exchangeTimestamp;
-    if (latencyMs < 0 || latencyMs > MAX_CLIENT_LATENCY_MS) return null;
+    const sourceToClientMs = receivedAt - exchangeTimestamp;
+    if (sourceToClientMs < 0 || sourceToClientMs > MAX_CLIENT_LATENCY_MS) return null;
+    const ingestedAt = candidate.ingestedAt;
+    const ingestToClientMs =
+      typeof ingestedAt === 'number' &&
+      Number.isFinite(ingestedAt) &&
+      receivedAt >= ingestedAt &&
+      receivedAt - ingestedAt <= MAX_CLIENT_LATENCY_MS
+        ? receivedAt - ingestedAt
+        : null;
     const provenance = isRecord(candidate.provenance) ? candidate.provenance : null;
     const provider =
       provenance && typeof provenance.provider === 'string'
         ? provenance.provider.toLowerCase().slice(0, 40)
         : 'unknown';
-    return { eventId, provider, latencyMs };
+    return { eventId, provider, sourceToClientMs, ingestToClientMs };
   }
   return null;
 }

@@ -87,7 +87,7 @@ import {
   completeRealtimeIngestBatch,
   releaseRealtimeIngestBatch,
 } from './services/realtimeIngestService';
-import { realtimeHubNameForConnection, realtimeHubNames } from './services/realtimeFanout';
+import { realtimeFanoutNameForConnection, realtimeSequencerName } from './services/realtimeFanout';
 import {
   getOperationalDashboard,
   listOperationalIncidents,
@@ -257,6 +257,8 @@ import {
 
 export { MarketDataCacheV2DO } from './services/MarketDataCacheDO';
 export { RealtimeHubV2DO } from './services/RealtimeHubDO';
+export { RealtimeSequencerV1DO } from './services/RealtimeSequencerV1DO';
+export { RealtimeFanoutV3DO } from './services/RealtimeFanoutV3DO';
 
 const exchanges = [
   { name: 'Bybit', id: 'bybit', supported: true, hasSpot: true, hasPerp: true },
@@ -455,7 +457,7 @@ app.get('/', (c) => c.redirect('/api/v1/docs'));
 app.get('/health', async (c) => ok(c, buildPublicHealth()));
 
 const handleRealtimeSocket = async (c: Context<{ Bindings: Env }>): Promise<Response> => {
-  if (!c.env.REALTIME_HUB) {
+  if (!c.env.REALTIME_FANOUT) {
     return c.json(
       {
         success: false,
@@ -502,12 +504,12 @@ const handleRealtimeSocket = async (c: Context<{ Bindings: Env }>): Promise<Resp
     }
   }
 
-  const hubName = realtimeHubNameForConnection(
+  const hubName = realtimeFanoutNameForConnection(
     topic,
     c.req.header('Sec-WebSocket-Key') ?? crypto.randomUUID()
   );
-  const id = c.env.REALTIME_HUB.idFromName(hubName);
-  return c.env.REALTIME_HUB.get(id).fetch(c.req.raw);
+  const id = c.env.REALTIME_FANOUT.idFromName(hubName);
+  return c.env.REALTIME_FANOUT.get(id).fetch(c.req.raw);
 };
 
 app.get('/ws', handleRealtimeSocket);
@@ -735,12 +737,12 @@ api.get('/realtime/snapshot', async (c) => {
       throw invalidParameter('token', 'A valid private-topic token is required');
     }
   }
-  const id = c.env.REALTIME_HUB.idFromName(realtimeHubNames(topic)[0] ?? topic);
+  const id = c.env.REALTIME_SEQUENCER.idFromName(realtimeSequencerName(topic));
   const url = new URL('https://realtime/snapshot');
   url.searchParams.set('topic', topic);
   const after = c.req.query('after');
   if (after) url.searchParams.set('after', after);
-  return c.env.REALTIME_HUB.get(id).fetch(url.toString());
+  return c.env.REALTIME_SEQUENCER.get(id).fetch(url.toString());
 });
 
 api.get('/docs', (c) =>
@@ -771,23 +773,30 @@ api.post('/metrics/events', async (c) => {
     const provider = /^[a-z0-9_-]{2,40}$/.test(dimensions.provider ?? '')
       ? dimensions.provider
       : 'unknown';
-    const persistD1 = claimLatencyD1Sample('exchange-to-client', provider);
+    const segment =
+      dimensions.segment === 'ingest-to-client' ? 'ingest-to-client' : 'exchange-to-client';
+    const persistD1 = claimLatencyD1Sample(segment, provider);
     await Promise.all(
       [
-        recordProductMetric(
-          c.env,
-          'liquidation_latency_ms',
-          value,
-          { provider, segment: 'exchange-to-client' },
-          { persistD1 }
-        ),
+        segment === 'exchange-to-client'
+          ? recordProductMetric(
+              c.env,
+              'liquidation_latency_ms',
+              value,
+              { provider, segment },
+              { persistD1 }
+            )
+          : null,
         persistD1
           ? recordOperationalSli(c.env, {
-              sli: 'liquidation_latency_ms',
+              sli:
+                segment === 'exchange-to-client'
+                  ? 'liquidation_latency_ms'
+                  : 'realtime_ingest_to_client_latency_ms',
               value,
               source: 'browser-receipt',
               dimensionKey: provider,
-              details: { segment: 'exchange-to-client' },
+              details: { segment },
             })
           : null,
       ].filter((task): task is Promise<void> => task !== null)
@@ -1522,7 +1531,7 @@ api.get('/liquidations/:exchange/:symbol', async (c) => {
   const nativePrints = await loadRealtimeLiquidationPrints(c.env, exchange, symbol).catch(() => []);
   response.nativePrints = nativePrints;
   response.nativeCoverage = {
-    status: c.env.REALTIME_HUB ? (nativePrints.length > 0 ? 'live' : 'empty') : 'unavailable',
+    status: c.env.REALTIME_SEQUENCER ? (nativePrints.length > 0 ? 'live' : 'empty') : 'unavailable',
     count: nativePrints.length,
     latestExchangeTimestamp: nativePrints.at(-1)?.exchangeTimestamp ?? null,
     sequence: nativePrints.at(-1)?.sequence ?? null,
@@ -2557,17 +2566,17 @@ async function loadRealtimeTrades(
   exchange: SupportedExchange,
   symbol: string
 ): Promise<Array<{ timestamp: number; price: number; quantity: number; side: 'buy' | 'sell' }>> {
-  if (!env.REALTIME_HUB) return [];
+  if (!env.REALTIME_SEQUENCER) return [];
   const topic = buildRealtimeTopic(
     'trades',
     exchange,
     symbol,
     symbol.endsWith('.P') ? 'perp' : 'spot'
   );
-  const id = env.REALTIME_HUB.idFromName(realtimeHubNames(topic)[0] ?? topic);
+  const id = env.REALTIME_SEQUENCER.idFromName(realtimeSequencerName(topic));
   const url = new URL('https://realtime/snapshot');
   url.searchParams.set('topic', topic);
-  const response = await env.REALTIME_HUB.get(id).fetch(url.toString());
+  const response = await env.REALTIME_SEQUENCER.get(id).fetch(url.toString());
   if (!response.ok) return [];
   const snapshot = (await response.json()) as { events?: unknown[] };
   return (snapshot.events ?? []).flatMap((entry) => {
@@ -2597,11 +2606,11 @@ async function loadRealtimeLiquidationPrints(
   symbol: string
 ): Promise<LiquidationPrint[]> {
   const topic = buildRealtimeTopic('liquidations', exchange, symbol, 'perp');
-  if (env.REALTIME_HUB) {
-    const id = env.REALTIME_HUB.idFromName(realtimeHubNames(topic)[0] ?? topic);
+  if (env.REALTIME_SEQUENCER) {
+    const id = env.REALTIME_SEQUENCER.idFromName(realtimeSequencerName(topic));
     const url = new URL('https://realtime/snapshot');
     url.searchParams.set('topic', topic);
-    const response = await env.REALTIME_HUB.get(id).fetch(url.toString());
+    const response = await env.REALTIME_SEQUENCER.get(id).fetch(url.toString());
     if (response.ok) {
       const snapshot = (await response.json()) as { events?: unknown[] };
       const live = parseLiquidationPrints(snapshot.events ?? []);
@@ -2810,33 +2819,28 @@ async function publishRealtimeTopicBatch(
   batchId: string,
   events: Record<string, unknown>[]
 ): Promise<{ topic: string; sequences: number[]; delivered: number }> {
-  if (!env.REALTIME_HUB || !env.ADMIN_API_KEY) {
+  if (!env.REALTIME_SEQUENCER || !env.ADMIN_API_KEY) {
     throw new Error('Realtime publishing is not configured');
   }
   const adminApiKey = env.ADMIN_API_KEY;
   const url = new URL('https://realtime/publish-batch');
   url.searchParams.set('topic', topic);
   const body = JSON.stringify({ batchId, events });
-  const results = await Promise.all(
-    realtimeHubNames(topic).map(async (hubName) => {
-      const id = env.REALTIME_HUB.idFromName(hubName);
-      const response = await env.REALTIME_HUB.get(id).fetch(url.toString(), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Admin-API-Key': adminApiKey,
-        },
-        body,
-      });
-      if (!response.ok) throw new Error(`Realtime publish failed with HTTP ${response.status}`);
-      return (await response.json()) as { sequences: number[]; delivered: number };
-    })
-  );
-  const primary = results[0] ?? { sequences: [], delivered: 0 };
+  const id = env.REALTIME_SEQUENCER.idFromName(realtimeSequencerName(topic));
+  const response = await env.REALTIME_SEQUENCER.get(id).fetch(url.toString(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Admin-API-Key': adminApiKey,
+    },
+    body,
+  });
+  if (!response.ok) throw new Error(`Realtime publish failed with HTTP ${response.status}`);
+  const result = (await response.json()) as { sequences: number[]; delivered: number };
   return {
     topic,
-    sequences: primary.sequences,
-    delivered: results.reduce((sum, result) => sum + result.delivered, 0),
+    sequences: result.sequences,
+    delivered: result.delivered,
   };
 }
 

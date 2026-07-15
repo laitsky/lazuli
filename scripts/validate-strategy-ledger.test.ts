@@ -80,9 +80,14 @@ describe('strategy completion ledger', () => {
 });
 
 function completeReleaseEvidence() {
-  const result = { passed: true, report: 'report.json' };
+  const result = {
+    passed: true,
+    report: 'report.json',
+    startedAt: '2026-07-01T00:00:00.000Z',
+    endedAt: '2026-07-04T00:00:00.000Z',
+  };
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     releaseId: 'test-release',
     environment: 'production',
     commitSha: 'a'.repeat(40),
@@ -119,8 +124,28 @@ function completeReleaseEvidence() {
     rollout: ['internal', '5', '25', '100'].map((cohort) => ({
       cohort,
       startedAt: '2026-07-11T00:00:00.000Z',
-      endedAt: '2026-07-11T01:00:00.000Z',
+      endedAt: '2026-07-14T00:00:00.000Z',
       passed: true,
     })),
+    items: Object.fromEntries(
+      EXPECTED_IDS.map((id) => [
+        id,
+        Object.fromEntries(
+          [
+            'implementation',
+            'test',
+            'deployment',
+            'dashboard',
+            'drill',
+            'rollback',
+            'production',
+          ].map((kind) => [
+            kind,
+            [{ ref: `https://evidence.example/${id}/${kind}`, description: `${id} ${kind}` }],
+          ])
+        ),
+      ])
+    ),
+    rejectedBaselines: [{ passed: false, report: 'rejected-load-baseline.json' }],
   };
 }

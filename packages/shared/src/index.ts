@@ -1042,7 +1042,30 @@ export type RealtimeServerMessage =
     }
   | { type: 'subscribed'; requestId: string; topics: RealtimeTopic[] }
   | { type: 'unsubscribed'; requestId: string; topics: RealtimeTopic[] }
-  | { type: 'event'; event: RealtimeEvent }
+  | {
+      type: 'event';
+      topic: RealtimeTopic;
+      sequence: number;
+      event: RealtimeEvent;
+      data: RealtimeEvent;
+      publishedAt: number;
+    }
+  | {
+      type: 'batch';
+      schemaVersion: typeof REALTIME_SCHEMA_VERSION;
+      topic: RealtimeTopic;
+      firstSequence: number;
+      lastSequence: number;
+      events: Array<{
+        type: 'event';
+        topic: RealtimeTopic;
+        sequence: number;
+        event: RealtimeEvent;
+        data: RealtimeEvent;
+        publishedAt: number;
+      }>;
+      publishedAt: number;
+    }
   | { type: 'heartbeat'; serverTime: number }
   | { type: 'pong'; requestId?: string; sentAt: number; serverTime: number }
   | {

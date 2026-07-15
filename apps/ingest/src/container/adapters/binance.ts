@@ -1,6 +1,6 @@
 import type { RealtimeEvent, RealtimeTopic } from '@lazuli/shared';
 
-import type { EmitEvent } from '../types.ts';
+import type { EmitEvent, ProviderChannelHealth } from '../types.ts';
 import { ExchangeAdapter } from './base.ts';
 import { canonicalSymbol, createEvent, record, requiredNumber, rows } from './event.ts';
 import {
@@ -21,6 +21,10 @@ const MAX_DEPTH_BUFFER = 5_000;
 const SNAPSHOT_BRIDGE_TIMEOUT_MS = 2_000;
 const SNAPSHOT_BRIDGE_POLL_MS = 25;
 const SNAPSHOT_FETCH_ATTEMPTS = 5;
+const BINANCE_PUBLIC_URL = 'wss://fstream.binance.com/public';
+const BINANCE_MARKET_URL = 'wss://fstream.binance.com/market';
+const CHANNEL_HEARTBEAT_MS = 15_000;
+const CHANNEL_STALE_MS = 45_000;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -31,13 +35,21 @@ export class BinanceAdapter extends ExchangeAdapter {
   readonly #depthBuffers = new Map<string, BufferedDepth[]>();
   readonly #readySymbols = new Set<string>();
   readonly #frozenSymbols = new Set<string>();
+  #marketSocket: WebSocket | null = null;
+  #marketReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  #marketHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  #marketReconnectAttempt = 0;
 
   constructor(symbols: string[], emit: EmitEvent) {
     super('binance', symbols, emit);
+    this.health.channels = {
+      public: channelHealth(),
+      market: channelHealth(),
+    };
   }
 
   protected get websocketUrl(): string {
-    return 'wss://fstream.binance.com/ws';
+    return BINANCE_PUBLIC_URL;
   }
 
   protected subscribe(socket: WebSocket): void {
@@ -48,15 +60,47 @@ export class BinanceAdapter extends ExchangeAdapter {
     this.health.pendingSnapshots = this.symbols.length;
     const streams = this.symbols.flatMap((symbol) => {
       const id = canonicalSymbol(symbol).toLowerCase();
-      return [
-        `${id}@aggTrade`,
-        `${id}@bookTicker`,
-        `${id}@forceOrder`,
-        `${id}@depth@100ms`,
-        `${id}@markPrice@1s`,
-      ];
+      return [`${id}@bookTicker`, `${id}@depth@100ms`];
     });
     socket.send(JSON.stringify({ method: 'SUBSCRIBE', params: streams, id: Date.now() }));
+    this.refreshAggregateHealth();
+  }
+
+  protected onStart(): void {
+    this.connectMarket();
+  }
+
+  protected onStop(): void {
+    if (this.#marketReconnectTimer) clearTimeout(this.#marketReconnectTimer);
+    if (this.#marketHeartbeatTimer) clearInterval(this.#marketHeartbeatTimer);
+    this.#marketReconnectTimer = null;
+    this.#marketHeartbeatTimer = null;
+    this.#marketSocket?.close(1000, 'shutdown');
+    this.#marketSocket = null;
+    for (const channel of Object.values(this.health.channels ?? {})) channel.state = 'stopped';
+  }
+
+  protected onPrimaryOpen(): void {
+    const channel = this.publicChannel;
+    channel.state = 'connected';
+    channel.connectedAt = Date.now();
+    channel.lastMessageAt = Date.now();
+    channel.lastError = null;
+  }
+
+  protected onPrimaryMessage(): void {
+    this.publicChannel.lastMessageAt = Date.now();
+  }
+
+  protected onPrimaryClose(code: number, reason: string): void {
+    const channel = this.publicChannel;
+    channel.state = 'disconnected';
+    channel.reconnects += 1;
+    channel.lastError = `public websocket closed (${code}): ${reason || 'no reason'}`;
+  }
+
+  protected afterProtocolRecovery(): void {
+    this.refreshAggregateHealth();
   }
 
   protected heartbeat(): void {
@@ -240,6 +284,108 @@ export class BinanceAdapter extends ExchangeAdapter {
     }
   }
 
+  private connectMarket(): void {
+    if (this.stopped) return;
+    const channel = this.marketChannel;
+    channel.state = 'connecting';
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(BINANCE_MARKET_URL);
+    } catch (error) {
+      this.scheduleMarketReconnect(error);
+      return;
+    }
+    this.#marketSocket = socket;
+    socket.addEventListener('open', () => {
+      if (socket !== this.#marketSocket) return;
+      this.#marketReconnectAttempt = 0;
+      channel.state = 'connected';
+      channel.connectedAt = Date.now();
+      channel.lastMessageAt = Date.now();
+      channel.lastError = null;
+      const streams = this.symbols.flatMap((symbol) => {
+        const id = canonicalSymbol(symbol).toLowerCase();
+        return [`${id}@aggTrade`, `${id}@forceOrder`, `${id}@markPrice@1s`];
+      });
+      socket.send(JSON.stringify({ method: 'SUBSCRIBE', params: streams, id: Date.now() }));
+      this.startMarketHeartbeat(socket);
+      this.refreshAggregateHealth();
+    });
+    socket.addEventListener('message', (event) => {
+      if (socket !== this.#marketSocket) return;
+      channel.lastMessageAt = Date.now();
+      void decodeWebSocketMessage(event.data)
+        .then((message) => this.handleMessage(message))
+        .catch((error: unknown) => this.parseError(error));
+    });
+    socket.addEventListener('error', () => {
+      channel.lastError = 'market websocket transport error';
+    });
+    socket.addEventListener('close', (event) => {
+      if (socket !== this.#marketSocket) return;
+      this.#marketSocket = null;
+      this.scheduleMarketReconnect(
+        `market websocket closed (${event.code}): ${event.reason || 'no reason'}`
+      );
+    });
+  }
+
+  private startMarketHeartbeat(socket: WebSocket): void {
+    if (this.#marketHeartbeatTimer) clearInterval(this.#marketHeartbeatTimer);
+    this.#marketHeartbeatTimer = setInterval(() => {
+      if (socket !== this.#marketSocket || socket.readyState !== WebSocket.OPEN) return;
+      if (Date.now() - (this.marketChannel.lastMessageAt ?? 0) <= CHANNEL_STALE_MS) return;
+      this.marketChannel.state = 'degraded';
+      this.marketChannel.lastError = 'market websocket heartbeat timeout';
+      this.refreshAggregateHealth();
+      socket.close(4000, 'heartbeat timeout');
+    }, CHANNEL_HEARTBEAT_MS);
+  }
+
+  private scheduleMarketReconnect(error: unknown): void {
+    if (this.stopped) return;
+    if (this.#marketHeartbeatTimer) clearInterval(this.#marketHeartbeatTimer);
+    this.#marketHeartbeatTimer = null;
+    const channel = this.marketChannel;
+    channel.state = 'disconnected';
+    channel.lastError = error instanceof Error ? error.message : String(error);
+    channel.reconnects += 1;
+    const base = Math.min(30_000, 500 * 2 ** Math.min(this.#marketReconnectAttempt, 6));
+    const wait = Math.floor(base / 2 + Math.random() * base);
+    this.#marketReconnectAttempt += 1;
+    this.#marketReconnectTimer = setTimeout(() => this.connectMarket(), wait);
+    this.refreshAggregateHealth();
+  }
+
+  private refreshAggregateHealth(): void {
+    if (this.stopped) return;
+    const publicReady = this.publicChannel.state === 'connected';
+    const marketReady = this.marketChannel.state === 'connected';
+    if (publicReady && marketReady && this.health.pendingSnapshots === 0) {
+      this.health.state = 'connected';
+      this.health.lastError = null;
+      return;
+    }
+    this.health.state = publicReady || marketReady ? 'degraded' : 'disconnected';
+    this.health.lastError = [
+      !publicReady ? (this.publicChannel.lastError ?? 'Binance public channel unavailable') : null,
+      !marketReady ? (this.marketChannel.lastError ?? 'Binance market channel unavailable') : null,
+      this.health.pendingSnapshots > 0
+        ? `${this.health.pendingSnapshots} Binance order books awaiting snapshots`
+        : null,
+    ]
+      .filter((value): value is string => Boolean(value))
+      .join('; ');
+  }
+
+  private get publicChannel(): ProviderChannelHealth {
+    return this.health.channels?.public as ProviderChannelHealth;
+  }
+
+  private get marketChannel(): ProviderChannelHealth {
+    return this.health.channels?.market as ProviderChannelHealth;
+  }
+
   private async reconcile(symbol: string): Promise<void> {
     const id = canonicalSymbol(symbol);
     let snapshot: Record<string, unknown> | null = null;
@@ -387,4 +533,36 @@ export class BinanceAdapter extends ExchangeAdapter {
       })
     );
   }
+}
+
+export function binanceChannelConfiguration(): {
+  publicUrl: string;
+  marketUrl: string;
+  publicStreams: readonly string[];
+  marketStreams: readonly string[];
+} {
+  return {
+    publicUrl: BINANCE_PUBLIC_URL,
+    marketUrl: BINANCE_MARKET_URL,
+    publicStreams: ['bookTicker', 'depth@100ms'],
+    marketStreams: ['aggTrade', 'forceOrder', 'markPrice@1s'],
+  };
+}
+
+function channelHealth(): ProviderChannelHealth {
+  return {
+    state: 'stopped',
+    connectedAt: null,
+    lastMessageAt: null,
+    reconnects: 0,
+    lastError: null,
+  };
+}
+
+async function decodeWebSocketMessage(data: unknown): Promise<string> {
+  if (typeof data === 'string') return data;
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
+  if (ArrayBuffer.isView(data)) return new TextDecoder().decode(data);
+  if (data instanceof Blob) return data.text();
+  throw new Error('unsupported websocket message type');
 }

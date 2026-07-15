@@ -53,14 +53,28 @@ export abstract class ExchangeAdapter {
 
   protected async reconcileAll(): Promise<void> {}
 
+  protected onStart(): void {}
+
+  protected onStop(): void {}
+
+  protected onPrimaryOpen(): void {}
+
+  protected onPrimaryMessage(): void {}
+
+  protected onPrimaryClose(_code: number, _reason: string): void {}
+
+  protected afterProtocolRecovery(): void {}
+
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
+    this.onStart();
     this.connect();
   }
 
   stop(): void {
     this.stopped = true;
+    this.onStop();
     this.health.state = 'stopped';
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -140,6 +154,7 @@ export abstract class ExchangeAdapter {
       this.health.connectedAt = Date.now();
       this.health.lastMessageAt = Date.now();
       this.health.lastError = null;
+      this.onPrimaryOpen();
       try {
         this.subscribe(socket);
         if (this.reconcileOnConnect) void this.reconcileSafely();
@@ -153,6 +168,7 @@ export abstract class ExchangeAdapter {
     socket.addEventListener('message', (event) => {
       if (socket !== this.socket) return;
       this.health.lastMessageAt = Date.now();
+      this.onPrimaryMessage();
       void this.decode(event.data)
         .then((message) => this.handleMessage(message))
         .catch((error: unknown) => this.parseError(error));
@@ -165,6 +181,7 @@ export abstract class ExchangeAdapter {
     socket.addEventListener('close', (event) => {
       if (socket !== this.socket) return;
       this.socket = null;
+      this.onPrimaryClose(event.code, event.reason);
       this.scheduleReconnect(`websocket closed (${event.code}): ${event.reason || 'no reason'}`);
     });
   }
@@ -208,6 +225,7 @@ export abstract class ExchangeAdapter {
     try {
       await this.reconcileAll();
       this.markProtocolRecovery();
+      this.afterProtocolRecovery();
     } catch (error) {
       this.health.reconciliationFailures += 1;
       this.health.state = 'degraded';

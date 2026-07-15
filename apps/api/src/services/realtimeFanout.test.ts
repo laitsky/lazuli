@@ -2,11 +2,33 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   PUBLIC_REALTIME_FANOUT_SHARDS,
+  realtimeFanoutNameForConnection,
+  realtimeFanoutNames,
   realtimeHubNameForConnection,
   realtimeHubNames,
+  realtimeSequencerName,
 } from './realtimeFanout';
 
 describe('realtime public fan-out sharding', () => {
+  test('uses one canonical sequencer and four v3 leaves per public topic', () => {
+    const topic = 'ticker:bybit:btcusdt.p';
+    expect(realtimeSequencerName(topic)).toBe(`${topic}:sequencer:v1`);
+    expect(realtimeFanoutNames(topic)).toHaveLength(PUBLIC_REALTIME_FANOUT_SHARDS);
+    expect(new Set(realtimeFanoutNames(topic)).size).toBe(PUBLIC_REALTIME_FANOUT_SHARDS);
+    expect(realtimeFanoutNames(topic).every((name) => name.includes(':fanout:v3:'))).toBe(true);
+  });
+
+  test('assigns v3 connection leaves deterministically', () => {
+    const topic = 'ticker:bybit:btcusdt.p';
+    const assignments = Array.from({ length: 100 }, (_, index) =>
+      realtimeFanoutNameForConnection(topic, `websocket-key-${index}`)
+    );
+    expect(realtimeFanoutNameForConnection(topic, 'stable-key')).toBe(
+      realtimeFanoutNameForConnection(topic, 'stable-key')
+    );
+    expect(new Set(assignments)).toEqual(new Set(realtimeFanoutNames(topic)));
+  });
+
   test('replicates public topics across a fixed bounded shard set', () => {
     const names = realtimeHubNames('ticker:bybit:btcusdt.p');
     expect(names).toHaveLength(PUBLIC_REALTIME_FANOUT_SHARDS);

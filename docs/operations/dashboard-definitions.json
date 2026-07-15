@@ -20,7 +20,19 @@
         "realtime_unresolved_gaps",
         "reconciliations",
         "realtime_event_drops",
-        "ingestion_checkpoints"
+        "ingestion_checkpoints",
+        "sequencer_requests",
+        "sequencer_partial_dispatches",
+        "sequencer_dispatch_retries",
+        "leaf_dispatch_latency_ms",
+        "logical_events_per_frame",
+        "bytes_per_frame",
+        "realtime_v1_connections",
+        "realtime_v2_connections",
+        "durable_object_cpu_ms",
+        "fanout_deduplicated_events",
+        "slow_consumer_evictions",
+        "canonical_snapshot_resets"
       ]
     },
     {

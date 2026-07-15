@@ -120,7 +120,7 @@ describe('growth retention service', () => {
     const realtimeRequests: Array<{ url: string; init?: RequestInit }> = [];
     const env = {
       ADMIN_API_KEY: 'test-admin-key',
-      REALTIME_HUB: {
+      REALTIME_SEQUENCER: {
         idFromName(topic: string) {
           return topic;
         },
@@ -163,7 +163,7 @@ describe('growth retention service', () => {
     expect(second).toEqual({ triggered: false, eventId: null });
     expect(successfulClaims).toBe(1);
     expect(realtimeRequests).toHaveLength(1);
-    expect(realtimeRequests[0]?.url.includes('/publish-batch?topic=alerts%3Aprice%3Ausr_1')).toBe(
+    expect(realtimeRequests[0]?.url.includes('/publish-batch?topic=alerts%3Auser%3Ausr_1')).toBe(
       true
     );
     const realtimeBody = JSON.parse(String(realtimeRequests[0]?.init?.body)) as {

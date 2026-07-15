@@ -30,8 +30,9 @@ One local source is not accepted as proof when its network path caps concurrent 
 manual `Staging Realtime Acceptance` workflow runs four synchronized 500-client shards on
 independent hosted runners and machine-validates their reports with
 `scripts/ops/realtime-aggregate.ts`. Every child must pass; aggregate totals never hide a shard
-failure. It targets the staging Worker's `workers.dev` hostname so Cloudflare's browser challenge
-on the custom zone cannot misclassify hosted load generators; custom-domain DNS, WAF, and browser
+failure. It probes both the staging Worker's `workers.dev` hostname for service isolation and the
+custom API domain from an external GitHub runner. API and WebSocket paths must be exempt from
+browser challenges while the web application retains its browser protections; custom-domain DNS, WAF, and browser
 upgrades are verified separately. The workflow is staging-only and cannot target production.
 
 ## Reconnect storm

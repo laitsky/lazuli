@@ -35,6 +35,7 @@ import {
 } from './notificationDeliveryService';
 import { sendAlertEmail, sendMagicLinkEmail } from './emailDeliveryService';
 import { createSecretRing, signWithCurrentSecret } from '../utils/rotatingSecrets';
+import { realtimeSequencerName } from './realtimeFanout';
 
 const MAGIC_LINK_TTL_SECONDS = 15 * 60;
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -989,7 +990,11 @@ export async function evaluateAlertTrigger(
   }
 
   const eventId = `ae_${crypto.randomUUID()}`;
-  const topic = input.alert.topic ?? DEFAULT_ALERT_TOPIC;
+  // Never reuse a legacy public-looking alert topic for an owned alert. The
+  // account-scoped authorization boundary is canonical regardless of stored data age.
+  const topic = input.alert.userId
+    ? `alerts:user:${input.alert.userId}`
+    : (input.alert.topic ?? DEFAULT_ALERT_TOPIC);
   const payload = {
     eventId,
     alertId: input.alert.id,
@@ -1540,12 +1545,12 @@ async function deliverMagicLink(
 }
 
 async function publishRealtime(env: Env, topic: string, payload: unknown): Promise<boolean> {
-  if (!env.REALTIME_HUB || !env.ADMIN_API_KEY) return false;
+  if (!env.REALTIME_SEQUENCER || !env.ADMIN_API_KEY) return false;
   if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return false;
-  const id = env.REALTIME_HUB.idFromName(topic);
+  const id = env.REALTIME_SEQUENCER.idFromName(realtimeSequencerName(topic));
   const url = new URL('https://realtime/publish-batch');
   url.searchParams.set('topic', topic);
-  const response = await env.REALTIME_HUB.get(id).fetch(url.toString(), {
+  const response = await env.REALTIME_SEQUENCER.get(id).fetch(url.toString(), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
