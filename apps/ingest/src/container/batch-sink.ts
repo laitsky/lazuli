@@ -4,6 +4,16 @@ import type { BatchHealth, IngestConfig, ProviderHealth } from './types.ts';
 
 const encoder = new TextEncoder();
 const MAX_BATCH_EVENT_BYTES = 450_000;
+// Bybit and Binance already batch liquidation prints upstream. Preserve that
+// small upstream batch while avoiding the generic 400 ms high-throughput lane
+// delay, which would consume most of the 800 ms source-to-client SLO.
+const LIQUIDATION_BATCH_DELAY_MS = 20;
+
+interface TopicLane {
+  queue: RealtimeEvent[];
+  flushing: Promise<void> | null;
+  priorityTimer: ReturnType<typeof setTimeout> | null;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,7 +36,7 @@ export async function signBatch(secret: string, timestamp: number, body: string)
 }
 
 export class BatchSink {
-  readonly #lanes = new Map<string, { queue: RealtimeEvent[]; flushing: Promise<void> | null }>();
+  readonly #lanes = new Map<string, TopicLane>();
   readonly #health: BatchHealth;
   #timer: ReturnType<typeof setInterval> | null = null;
   #queued = 0;
@@ -57,6 +67,10 @@ export class BatchSink {
   stop(): void {
     if (this.#timer) clearInterval(this.#timer);
     this.#timer = null;
+    for (const lane of this.#lanes.values()) {
+      if (lane.priorityTimer) clearTimeout(lane.priorityTimer);
+      lane.priorityTimer = null;
+    }
   }
 
   enqueue(event: RealtimeEvent): void {
@@ -69,12 +83,22 @@ export class BatchSink {
       this.#health.dropped += 1;
       return;
     }
-    const lane = this.#lanes.get(event.topic) ?? { queue: [], flushing: null };
+    const lane = this.#lanes.get(event.topic) ?? {
+      queue: [],
+      flushing: null,
+      priorityTimer: null,
+    };
     if (!this.#lanes.has(event.topic)) this.#lanes.set(event.topic, lane);
     lane.queue.push(event);
     this.#queued += 1;
     this.#health.queued = this.#queued;
     if (lane.queue.length >= this.config.batchSize) void this.flushLane(event.topic, lane);
+    else if (event.type === 'liquidation-print' && lane.priorityTimer === null) {
+      lane.priorityTimer = setTimeout(() => {
+        lane.priorityTimer = null;
+        void this.flushLane(event.topic, lane);
+      }, LIQUIDATION_BATCH_DELAY_MS);
+    }
   }
 
   getHealth(): BatchHealth {
@@ -85,10 +109,7 @@ export class BatchSink {
     await Promise.all([...this.#lanes].map(([topic, lane]) => this.flushLane(topic, lane)));
   }
 
-  private async flushLane(
-    topic: string,
-    lane: { queue: RealtimeEvent[]; flushing: Promise<void> | null }
-  ): Promise<void> {
+  private async flushLane(topic: string, lane: TopicLane): Promise<void> {
     if (lane.flushing) return lane.flushing;
     if (lane.queue.length === 0) return;
     const operation = (async () => {
@@ -111,6 +132,7 @@ export class BatchSink {
       this.#health.queued = this.#queued;
       lane.flushing = null;
       if (lane.queue.length === 0 && this.#lanes.get(topic) === lane) {
+        if (lane.priorityTimer) clearTimeout(lane.priorityTimer);
         this.#lanes.delete(topic);
       }
     });

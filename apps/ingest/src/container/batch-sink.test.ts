@@ -56,7 +56,70 @@ function trade(topic: RealtimeTopic, sequence: number): RealtimeEvent {
   };
 }
 
+function liquidation(sequence: number): RealtimeEvent {
+  return {
+    schemaVersion: 1,
+    type: 'liquidation-print',
+    eventId: `liquidation-${sequence}`,
+    sequence,
+    topic: 'liquidations:bybit:btcusdt.p',
+    exchangeTimestamp: sequence,
+    ingestedAt: sequence,
+    publishedAt: sequence,
+    provenance: {
+      kind: 'exchange-native',
+      provider: 'bybit',
+      quality: 'live',
+      upstreamSequence: sequence,
+    },
+    payload: {
+      exchange: 'bybit',
+      symbol: 'BTCUSDT',
+      side: 'long',
+      price: 100,
+      quantity: 1,
+      notionalUsd: 100,
+    },
+  };
+}
+
 describe('BatchSink topic lanes', () => {
+  test('flushes an upstream liquidation burst without waiting for the generic interval', async () => {
+    const payloads: RealtimeEvent[][] = [];
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      payloads.push((JSON.parse(String(init?.body)) as { events: RealtimeEvent[] }).events);
+      return Response.json({ success: true });
+    }) as typeof fetch;
+
+    const sink = new BatchSink(config(), () => []);
+    sink.start();
+    sink.enqueue(liquidation(1));
+    sink.enqueue(liquidation(2));
+    await Bun.sleep(80);
+    sink.stop();
+
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]?.map((event) => event.sequence)).toEqual([1, 2]);
+    expect(sink.getHealth()).toMatchObject({ queued: 0, dropped: 0, batchesSent: 1 });
+  });
+
+  test('does not accelerate high-volume trade lanes', async () => {
+    let requests = 0;
+    globalThis.fetch = (async () => {
+      requests += 1;
+      return Response.json({ success: true });
+    }) as unknown as typeof fetch;
+
+    const sink = new BatchSink(config(), () => []);
+    sink.start();
+    sink.enqueue(trade('trades:binance:btcusdt.p', 1));
+    await Bun.sleep(80);
+    sink.stop();
+
+    expect(requests).toBe(0);
+    expect(sink.getHealth()).toMatchObject({ queued: 1, dropped: 0, batchesSent: 0 });
+  });
+
   test('flushes independent topics concurrently while retaining per-topic order', async () => {
     let active = 0;
     let maxActive = 0;
