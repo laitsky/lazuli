@@ -48,6 +48,7 @@ type Counters = {
   reconnectRecoveries: number;
   snapshotRecoveries: number;
   snapshotResets: number;
+  replayEventsExcludedFromLatency: number;
   deduplicatedEvents: number;
 };
 
@@ -157,6 +158,7 @@ async function main(): Promise<void> {
     reconnectRecoveries: 0,
     snapshotRecoveries: 0,
     snapshotResets: 0,
+    replayEventsExcludedFromLatency: 0,
     deduplicatedEvents: 0,
   };
   const sockets = new Set<WebSocket>();
@@ -215,7 +217,11 @@ async function main(): Promise<void> {
     if (replacement < reservoir.length) reservoir[replacement] = milliseconds;
   };
 
-  const observeEnvelope = (client: ClientState, value: Record<string, unknown>) => {
+  const observeEnvelope = (
+    client: ClientState,
+    value: Record<string, unknown>,
+    sampleLiveLatency = true
+  ) => {
     if (value.type !== 'event') return;
     const event =
       value.event !== null && typeof value.event === 'object'
@@ -236,15 +242,19 @@ async function main(): Promise<void> {
       }
       if (previous === undefined || sequence > previous) client.sequences.set(topic, sequence);
     }
-    const exchangeTimestamp = Number(event.exchangeTimestamp);
-    if (Number.isFinite(exchangeTimestamp) && exchangeTimestamp > 0) {
-      observeLatency(Math.max(0, Date.now() - exchangeTimestamp), latencyReservoir, 'source');
+    if (sampleLiveLatency) {
+      const exchangeTimestamp = Number(event.exchangeTimestamp);
+      if (Number.isFinite(exchangeTimestamp) && exchangeTimestamp > 0) {
+        observeLatency(Math.max(0, Date.now() - exchangeTimestamp), latencyReservoir, 'source');
+      } else {
+        counters.latencyMissing += 1;
+      }
+      const ingestedAt = Number(event.ingestedAt);
+      if (Number.isFinite(ingestedAt) && ingestedAt > 0) {
+        observeLatency(Math.max(0, Date.now() - ingestedAt), ingestLatencyReservoir, 'ingest');
+      }
     } else {
-      counters.latencyMissing += 1;
-    }
-    const ingestedAt = Number(event.ingestedAt);
-    if (Number.isFinite(ingestedAt) && ingestedAt > 0) {
-      observeLatency(Math.max(0, Date.now() - ingestedAt), ingestLatencyReservoir, 'ingest');
+      counters.replayEventsExcludedFromLatency += 1;
     }
   };
 
@@ -271,7 +281,9 @@ async function main(): Promise<void> {
       return;
     }
     if (Array.isArray(snapshot.events)) {
-      for (const event of snapshot.events) if (isRecord(event)) observeEnvelope(client, event);
+      for (const event of snapshot.events) {
+        if (isRecord(event)) observeEnvelope(client, event, false);
+      }
     }
     counters.snapshotRecoveries += 1;
   };

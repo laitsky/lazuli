@@ -20,5 +20,7 @@ describe('staging realtime acceptance workflow', () => {
     expect(harness.includes("new URL('/api/v1/realtime/snapshot',")).toBe(true);
     expect(harness.includes('rememberRealtimeClientEvent(client, eventId)')).toBe(true);
     expect(harness.includes('scheduleReconnect(client)')).toBe(true);
+    expect(harness.includes('observeEnvelope(client, event, false)')).toBe(true);
+    expect(harness.includes('replayEventsExcludedFromLatency')).toBe(true);
   });
 });
