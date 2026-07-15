@@ -238,6 +238,7 @@ export interface Env {
   INGEST_HEALTH_URL?: string;
   PUBLIC_API_BASE_URL?: string;
   SERVICE_ISOLATION_API_BASE_URL?: string;
+  EXTERNAL_SYNTHETIC_PROBES?: string;
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   parseProviderFaultPath,
 } from './control';
 import { withTimeout } from './timeout';
+import { runHealthProbe } from './probe';
 
 const CONTAINER_PORT = 8080;
 const SHARD_HEALTH_TIMEOUT_MS = 40_000;
@@ -27,6 +28,7 @@ interface Env {
   INGEST_SIGNING_SECRET_ID?: string;
   CONTROL_API_TOKEN?: string;
   OPS_READ_SECRET?: string;
+  PROBE_API_BASE_URL?: string;
 }
 
 function json(data: unknown, status = 200): Response {
@@ -122,6 +124,16 @@ async function ensureStarted(
 }
 
 async function signedApiReady(env: Env): Promise<void> {
+  const response = await signedApiRequest(env, '/internal/realtime/health', 'GET', '');
+  if (!response.ok) throw new Error(`signed ingest API readiness returned ${response.status}`);
+}
+
+async function signedApiRequest(
+  env: Env,
+  path: string,
+  method: 'GET' | 'POST',
+  body: string
+): Promise<Response> {
   if (!env.INGEST_SIGNING_SECRET) throw new Error('INGEST_SIGNING_SECRET is not configured');
   const timestamp = Date.now();
   const key = await crypto.subtle.importKey(
@@ -135,15 +147,25 @@ async function signedApiReady(env: Env): Promise<void> {
   const signature = [...new Uint8Array(bytes)]
     .map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
-  const response = await fetch(new URL('/internal/realtime/health', env.API_BASE_URL), {
+  return fetch(new URL(path, env.API_BASE_URL), {
+    method,
     headers: {
+      ...(body ? { 'content-type': 'application/json' } : {}),
       'x-lazuli-timestamp': String(timestamp),
       'x-lazuli-key-id': env.INGEST_SIGNING_SECRET_ID ?? 'ingest-current',
       'x-lazuli-signature': `sha256=${signature}`,
     },
+    ...(body ? { body } : {}),
     signal: AbortSignal.timeout(10_000),
   });
-  if (!response.ok) throw new Error(`signed ingest API readiness returned ${response.status}`);
+}
+
+async function runExternalApiProbe(env: Env): Promise<void> {
+  if (!env.PROBE_API_BASE_URL) return;
+  const result = await runHealthProbe(env.PROBE_API_BASE_URL);
+  const body = JSON.stringify(result);
+  const response = await signedApiRequest(env, '/internal/observability/probe', 'POST', body);
+  if (!response.ok) throw new Error(`external probe report returned ${response.status}`);
 }
 
 function delayedProvider<T>(index: number, operation: () => Promise<T>): Promise<T> {
@@ -348,6 +370,7 @@ export default {
       return;
     }
     await signedApiReady(env);
+    await runExternalApiProbe(env);
     await Promise.all(
       configuredProviders(env).map((provider, index) =>
         delayedProvider(index, () => ensureStarted(env, provider))

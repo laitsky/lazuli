@@ -36,6 +36,8 @@ describe('ingest control safety', () => {
     expect(worker.includes('return `market-ingest-${provider}`')).toBe(true);
     expect(worker.includes('SHARD_START_STAGGER_MS = 2_000')).toBe(true);
     expect(worker.includes('await signedApiReady(env)')).toBe(true);
+    expect(worker.includes('await runExternalApiProbe(env)')).toBe(true);
+    expect(worker.includes("'/internal/observability/probe'")).toBe(true);
     expect(worker.includes('await waitForStopped(container, provider)')).toBe(true);
     expect(worker.includes('{ INGEST_MAX_BUFFERED_EVENTS: env.INGEST_MAX_BUFFERED_EVENTS }')).toBe(
       true
@@ -50,5 +52,6 @@ describe('ingest control safety', () => {
     expect((config.match(/"regions": \["APAC"\]/g) ?? []).length).toBe(3);
     expect(config.includes('"WEUR"')).toBe(false);
     expect(config.includes('"REALTIME_PUBLISH_ENABLED": "false"')).toBe(true);
+    expect(config.includes('"PROBE_API_BASE_URL"')).toBe(true);
   });
 });

@@ -424,6 +424,7 @@ export function getSyntheticProbeBaseUrl(
 }
 
 async function runSyntheticProbes(env: Env): Promise<void> {
+  if (env.EXTERNAL_SYNTHETIC_PROBES === 'true') return;
   const probeBaseUrl = getSyntheticProbeBaseUrl(env);
   if (!probeBaseUrl) return;
   await probe(env, 'api', new URL('/health', probeBaseUrl));
@@ -459,6 +460,27 @@ async function probe(env: Env, name: 'api' | 'ws', target: URL, websocket = fals
     errorCode = (error instanceof Error ? error.name : 'probe_error').slice(0, 80);
   }
   const latency = Date.now() - startedAt;
+  await recordSyntheticProbeResult(env, {
+    probe: name,
+    target: `${target.origin}${target.pathname}`,
+    success,
+    statusCode,
+    latencyMs: latency,
+    errorCode,
+  });
+}
+
+export async function recordSyntheticProbeResult(
+  env: Env,
+  input: {
+    probe: 'api' | 'ws';
+    target: string;
+    success: boolean;
+    statusCode: number | null;
+    latencyMs: number;
+    errorCode: string | null;
+  }
+): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO synthetic_probe_results
       (id, probe, target, success, status_code, latency_ms, error_code, observed_at)
@@ -466,20 +488,25 @@ async function probe(env: Env, name: 'api' | 'ws', target: URL, websocket = fals
   )
     .bind(
       crypto.randomUUID(),
-      name,
-      `${target.origin}${target.pathname}`,
-      success ? 1 : 0,
-      statusCode,
-      latency,
-      errorCode
+      input.probe,
+      input.target,
+      input.success ? 1 : 0,
+      input.statusCode,
+      input.latencyMs,
+      input.errorCode
     )
     .run();
   await recordOperationalSli(env, {
-    sli: `${name}_availability`,
-    value: success ? 1 : 0,
-    success,
-    source: 'synthetic-probe',
-    details: { statusCode, errorCode, latency },
+    sli: `${input.probe}_availability`,
+    value: input.success ? 1 : 0,
+    success: input.success,
+    source: 'external-synthetic-probe',
+    details: {
+      statusCode: input.statusCode,
+      errorCode: input.errorCode,
+      latency: input.latencyMs,
+      target: input.target,
+    },
   });
 }
 

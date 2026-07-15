@@ -92,6 +92,7 @@ import {
   getOperationalDashboard,
   listOperationalIncidents,
   recordOperationalSli,
+  recordSyntheticProbeResult,
   runOperationalMonitoring,
   transitionOperationalIncident,
 } from './services/operationalObservabilityService';
@@ -695,6 +696,50 @@ app.post('/internal/realtime/batch', async (c) => {
     await releaseRealtimeIngestBatch(c.env, batchId);
     throw error;
   }
+});
+
+app.post('/internal/observability/probe', async (c) => {
+  const rawBody = await c.req.text();
+  await requireRealtimeIngestSignature(c.env, c.req.raw.headers, rawBody);
+  if (rawBody.length > 4_096) throw invalidParameter('body', 'Probe report is too large');
+  const body = parseJsonRecord(rawBody);
+  if (body.probe !== 'api' && body.probe !== 'ws') {
+    throw invalidParameter('probe', 'Probe must be api or ws');
+  }
+  if (typeof body.target !== 'string') throw invalidParameter('target', 'Target is required');
+  let target: URL;
+  try {
+    target = new URL(body.target);
+  } catch {
+    throw invalidParameter('target', 'Target must be a valid URL');
+  }
+  const allowedOrigins = [c.env.SERVICE_ISOLATION_API_BASE_URL, c.env.PUBLIC_API_BASE_URL]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new URL(value).origin);
+  if (target.protocol !== 'https:' || !allowedOrigins.includes(target.origin)) {
+    throw invalidParameter('target', 'Target is not an approved API origin');
+  }
+  const statusCode = body.statusCode === null ? null : Number(body.statusCode);
+  const latencyMs = Number(body.latencyMs);
+  if (
+    (statusCode !== null &&
+      (!Number.isInteger(statusCode) || statusCode < 100 || statusCode > 599)) ||
+    !Number.isFinite(latencyMs) ||
+    latencyMs < 0 ||
+    latencyMs > 60_000 ||
+    typeof body.success !== 'boolean'
+  ) {
+    throw invalidParameter('result', 'Probe result fields are invalid');
+  }
+  await recordSyntheticProbeResult(c.env, {
+    probe: body.probe,
+    target: `${target.origin}${target.pathname}`,
+    success: body.success,
+    statusCode,
+    latencyMs,
+    errorCode: typeof body.errorCode === 'string' ? body.errorCode.slice(0, 80) : null,
+  });
+  return ok(c, { accepted: true });
 });
 
 app.post('/internal/metrics/event', async (c) => {

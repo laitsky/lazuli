@@ -66,6 +66,7 @@
       "vars": {
         "ENVIRONMENT": "staging",
         "API_BASE_URL": "https://api-staging.lazuli.now",
+        "PROBE_API_BASE_URL": "https://lazuli-api-staging.vincent-diamond15.workers.dev",
         "INGEST_SIGNING_SECRET_ID": "ingest-staging-v1",
         "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
         "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",
@@ -105,6 +106,7 @@
       "vars": {
         "ENVIRONMENT": "production",
         "API_BASE_URL": "https://api.lazuli.now",
+        "PROBE_API_BASE_URL": "https://lazuli-api.vincent-diamond15.workers.dev",
         "INGEST_SIGNING_SECRET_ID": "ingest-production-v1",
         "INGEST_PROVIDERS": "binance,bybit,okx,hyperliquid,upbit",
         "INGEST_SYMBOLS": "BTC/USDT,ETH/USDT",

@@ -46,4 +46,17 @@ describe('operational observability', () => {
       'https://public.example'
     );
   });
+
+  test('external probe reports remain signed and origin constrained', async () => {
+    const directory = (import.meta as ImportMeta & { dir: string }).dir;
+    const [worker, config] = await Promise.all([
+      Bun.file(`${directory}/../index.ts`).text(),
+      Bun.file(`${directory}/../../wrangler.jsonc`).text(),
+    ]);
+    expect(worker.includes("app.post('/internal/observability/probe'")).toBe(true);
+    expect(worker.includes('await requireRealtimeIngestSignature')).toBe(true);
+    expect(worker.includes("target.protocol !== 'https:'")).toBe(true);
+    expect(worker.includes('allowedOrigins.includes(target.origin)')).toBe(true);
+    expect(config.includes('"EXTERNAL_SYNTHETIC_PROBES": "true"')).toBe(true);
+  });
 });
