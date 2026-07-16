@@ -2,6 +2,8 @@
 
 This document mirrors the live Cloudflare-native implementation. Older Bun + Elysia + Supabase assumptions are retired.
 
+**Release channel:** Beta (`0.1.0-beta.0`). This is a controlled-evaluation label, not production verification. Production flags remain off and the unchecked acceptance work below is intentionally deferred rather than represented as passed.
+
 ## Completed Platform Capabilities
 
 - [x] Hono API on Cloudflare Workers

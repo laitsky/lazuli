@@ -19,11 +19,28 @@ function checkedInLedger(): Record<string, any> {
 
 describe('strategy completion ledger', () => {
   test('accepts the checked-in ledger while items remain partial', () => {
-    const result = validateLedger(checkedInLedger(), repositoryRoot);
+    const ledger = checkedInLedger();
+    const result = validateLedger(ledger, repositoryRoot);
 
     expect(result.errors).toEqual([]);
+    expect(ledger.releaseStatus).toEqual({
+      channel: 'beta',
+      version: '0.1.0-beta.0',
+      declaredAt: '2026-07-16',
+      qualification: 'repository-verified',
+      productionAuthorized: false,
+    });
     expect(result.summary.partial).toBe(EXPECTED_IDS.length);
     expect(result.summary.complete).toBe(0);
+  });
+
+  test('rejects a beta declaration that claims production authorization', () => {
+    const ledger = checkedInLedger();
+    ledger.releaseStatus.productionAuthorized = true;
+
+    expect(validateLedger(ledger, repositoryRoot).errors).toContain(
+      'releaseStatus.productionAuthorized must remain false for this beta'
+    );
   });
 
   test('rejects a complete item without all six verified evidence sets', () => {

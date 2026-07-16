@@ -2,6 +2,8 @@
 
 > **Vision:** The real-time, all-in-one crypto market intelligence platform — Coinglass's depth, Laevitas's institutional intelligence, delivered at the edge with push alerts nobody else offers. Free.
 
+> **Current milestone: Beta (`0.1.0-beta.0`, declared 2026-07-16).** Beta means the product implementation and automated CI baseline are ready for controlled evaluation with feature flags and documented fallbacks. It does **not** mean the 2,000-client gate, reconnect storm, 72-hour soak, provider-delivery acceptance, production rollout windows, or 26/26 production verification have passed. Production remains unauthorized and the strategy ledger remains `partial=26`. See the [beta declaration](docs/releases/0.1.0-beta.0.md).
+
 ## 1. Strategic Positioning
 
 | Competitor    | Moat                                                      | Weakness                                                            | Price  | Our Answer                                    |
@@ -19,7 +21,7 @@
 
 **One-sentence strategy:** Ship the real-time liquidation radar + push alerts as the wedge, compound with free institutional depth (Greeks + backtesting), and grow via viral snapshots + SEO — all enabled by agent parallelization that lets one builder ship like a team.
 
-**Completion evidence:** The versioned [strategy completion ledger](docs/strategy/completion-ledger.json) tracks A0–E5 against the six production-completion conditions. An item is complete only when its implementation, tests, production enablement, observability, recovery, and strategy evidence pass the machine-checked gate documented in [the ledger guide](docs/strategy/README.md).
+**Completion evidence:** The versioned [strategy completion ledger](docs/strategy/completion-ledger.json) tracks A0–E5 against the six production-completion conditions. An item is complete only when its implementation, tests, production enablement, observability, recovery, and strategy evidence pass the machine-checked gate documented in [the ledger guide](docs/strategy/README.md). Beta status is a release channel, not a waiver or substitute for this contract.
 
 ---
 

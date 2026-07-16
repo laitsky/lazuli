@@ -1,6 +1,6 @@
 {
   "name": "@lazuli/web",
-  "version": "0.1.0-alpha",
+  "version": "0.1.0-beta.0",
   "description": "Lazuli Web Frontend - Command the Hidden Markets",
   "private": true,
   "type": "module",

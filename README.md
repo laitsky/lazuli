@@ -2,6 +2,8 @@
 
 A modern full-stack Cloudflare application that provides **real-time** cryptocurrency data from Binance, Bybit, OKX, Hyperliquid, and Upbit.
 
+> **Release status: Beta (`0.1.0-beta.0`).** The implementation and CI baseline are suitable for controlled beta evaluation. Production rollout, scale/soak qualification, and the 26/26 product-strategy completion gate have not been claimed. See the [beta declaration](docs/releases/0.1.0-beta.0.md).
+
 **Production is Cloudflare-native**: Workers serve the API and web app, Durable Objects cache live market data, D1 stores metadata/control-plane state, R2 stores historical OHLCV archives, and Queues/Workflows coordinate backfills.
 
 ## Features

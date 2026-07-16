@@ -112,6 +112,28 @@ export function validateLedger(ledger: unknown, repositoryRoot: string): Validat
   if (typeof ledger.updatedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(ledger.updatedAt)) {
     errors.push('updatedAt must use YYYY-MM-DD');
   }
+  if (!isRecord(ledger.releaseStatus)) {
+    errors.push('releaseStatus must be an object');
+  } else {
+    if (ledger.releaseStatus.channel !== 'beta') {
+      errors.push('releaseStatus.channel must be beta');
+    }
+    if (ledger.releaseStatus.version !== '0.1.0-beta.0') {
+      errors.push('releaseStatus.version must be 0.1.0-beta.0');
+    }
+    if (
+      typeof ledger.releaseStatus.declaredAt !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(ledger.releaseStatus.declaredAt)
+    ) {
+      errors.push('releaseStatus.declaredAt must use YYYY-MM-DD');
+    }
+    if (ledger.releaseStatus.qualification !== 'repository-verified') {
+      errors.push('releaseStatus.qualification must be repository-verified');
+    }
+    if (ledger.releaseStatus.productionAuthorized !== false) {
+      errors.push('releaseStatus.productionAuthorized must remain false for this beta');
+    }
+  }
   if (!Array.isArray(ledger.items)) {
     return { errors: [...errors, 'items must be an array'], summary };
   }

@@ -2,6 +2,10 @@
 
 [`completion-ledger.json`](./completion-ledger.json) is the machine-readable source of truth for the 26 delivery items in [`PRODUCT-STRATEGY.md`](../../PRODUCT-STRATEGY.md). Its structure is versioned by [`completion-ledger.schema.json`](./completion-ledger.schema.json), and CI validates it with `bun run strategy:validate`.
 
+## Current release channel
+
+Lazuli is declared **Beta (`0.1.0-beta.0`)** as of 2026-07-16. The beta declaration records a repository-verified implementation baseline for controlled evaluation; it does not assert production authorization, production enablement, completion of the long-running staging gates, or 26/26 strategy completion. The machine-readable ledger therefore remains `partial=26`. See [`docs/releases/0.1.0-beta.0.md`](../releases/0.1.0-beta.0.md) for the exact scope and waivers.
+
 The human-readable [`implementation-evidence.md`](./implementation-evidence.md) index maps all 26 IDs to current code, tests, and runbooks. It deliberately distinguishes repository evidence from production acceptance evidence.
 
 ## Completion contract

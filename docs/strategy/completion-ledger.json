@@ -2,7 +2,14 @@
   "$schema": "./completion-ledger.schema.json",
   "schemaVersion": 1,
   "strategy": "PRODUCT-STRATEGY.md",
-  "updatedAt": "2026-07-11",
+  "updatedAt": "2026-07-16",
+  "releaseStatus": {
+    "channel": "beta",
+    "version": "0.1.0-beta.0",
+    "declaredAt": "2026-07-16",
+    "qualification": "repository-verified",
+    "productionAuthorized": false
+  },
   "completionPolicy": {
     "requiredConditions": [
       "endToEndFlow",
