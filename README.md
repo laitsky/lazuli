@@ -135,6 +135,9 @@ Production Web URL: `https://lazuli-web.vincent-diamond15.workers.dev`
 - `POST /admin/backfills` - Create an admin-only OHLCV archive backfill
 - `GET /admin/backfills/:id` - Check backfill progress and coverage
 - `POST /admin/backfills/:id/retry` - Retry failed or incomplete chunks
+- `POST /admin/backfill-campaigns` - Dry-run or start a full-history campaign
+- `GET /admin/backfill-campaigns/:id` - Inspect campaign waves, circuits, and gaps
+- `POST /admin/backfill-campaigns/:id/{pause|resume|cancel|retry-gaps}` - Control a campaign
 
 ## Web Interface
 

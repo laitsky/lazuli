@@ -1,0 +1,3 @@
+# Copy to .dev.vars for local Worker development. Never commit real values.
+ADMIN_API_KEY=replace-with-a-random-local-admin-key
+OPS_READ_SECRET=replace-with-a-random-local-ops-secret

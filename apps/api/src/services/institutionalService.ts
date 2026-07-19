@@ -265,6 +265,33 @@ export async function getEtfFlows(
   return response;
 }
 
+/** Single-attempt source read for coordinator-owned historical retries. */
+export async function fetchEtfFlowsBackfill(asset: InstitutionalAsset): Promise<EtfDailyFlow[]> {
+  return parseFarsideTable(asset, await fetchText(FARSIDE_URLS[asset], 12_000));
+}
+
+export function mergeArchivedEtfFlows(
+  response: EtfFlowResponse,
+  archived: Array<Record<string, unknown> & { t: number }>
+): EtfFlowResponse {
+  const flows = [
+    ...new Map(
+      [
+        ...archived.map(({ t: _timestamp, ...row }) => row as unknown as EtfDailyFlow),
+        ...response.flows,
+      ].map((row) => [row.date, row])
+    ).values(),
+  ].sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    ...response,
+    flows,
+    funds: buildEtfFunds(response.asset, flows),
+    latest: flows.at(-1) ?? null,
+    streak: buildFlowStreak(flows),
+    totals: buildFlowTotals(flows),
+  };
+}
+
 /**
  * Returns ETF fund-level metadata and aggregate flow leadership.
  */
@@ -396,6 +423,49 @@ export async function getOptionsVolatility(
   return response;
 }
 
+/** Single-attempt Deribit history page for coordinator-owned retries. */
+export async function fetchOptionsVolatilityBackfill(
+  asset: InstitutionalAsset,
+  startTime: number,
+  endTime: number
+): Promise<VolatilityCandle[]> {
+  const payload = await deribitFetch<unknown>('/public/get_volatility_index_data', {
+    currency: asset,
+    start_timestamp: String(startTime),
+    end_timestamp: String(endTime),
+    resolution: '1D',
+  });
+  return parseVolatilityCandles(payload);
+}
+
+export function mergeArchivedOptionsVolatility(
+  response: OptionsVolatilityResponse,
+  archived: Array<Record<string, unknown> & { t: number }>
+): OptionsVolatilityResponse {
+  const candles = [
+    ...new Map(
+      [
+        ...archived.map((row) => ({
+          timestamp: row.t,
+          open: Number(row.o),
+          high: Number(row.h),
+          low: Number(row.l),
+          close: Number(row.c),
+        })),
+        ...response.candles,
+      ].map((row) => [row.timestamp, row])
+    ).values(),
+  ].sort((a, b) => a.timestamp - b.timestamp);
+  const closes = candles.map((row) => row.close);
+  const current = closes.at(-1) ?? null;
+  return {
+    ...response,
+    candles,
+    current,
+    rank: current === null ? null : percentileRank(closes, current),
+  };
+}
+
 /**
  * Loads the three macro inputs independently. A failed provider falls back to
  * its own D1 history without making healthy series appear unavailable.
@@ -454,6 +524,53 @@ export async function getMacroHistory(
   };
   setCached(cacheKey, response);
   return response;
+}
+
+/** Single-attempt macro source read for coordinator-owned historical retries. */
+export async function fetchMacroHistoryBackfill(
+  metric: MacroMetric,
+  startTime: number,
+  endTime: number
+): Promise<MacroHistoryPoint[]> {
+  if (metric === 'btcDominance') {
+    return parseCoinGeckoGlobal(await fetchJson(COINGECKO_GLOBAL_URL, 10_000), endTime).filter(
+      (row) => row.observedAt >= startTime && row.observedAt <= endTime
+    );
+  }
+  if (metric === 'stablecoinSupplyUsd') {
+    return parseDefiLlamaStablecoinHistory(
+      await fetchJson(DEFILLAMA_STABLECOIN_URL, 12_000)
+    ).filter((row) => row.observedAt >= startTime && row.observedAt <= endTime);
+  }
+  const url = new URL(ALTERNATIVE_FNG_URL);
+  url.searchParams.set('limit', String(Math.max(1, Math.ceil((endTime - startTime) / DAY_MS) + 1)));
+  url.searchParams.set('format', 'json');
+  return parseAlternativeFearGreed(await fetchJson(url.toString(), 10_000)).filter(
+    (row) => row.observedAt >= startTime && row.observedAt <= endTime
+  );
+}
+
+export function mergeArchivedMacroHistory(
+  response: MacroHistoryResponse,
+  archived: Partial<Record<MacroMetric, Array<Record<string, unknown> & { t: number }>>>
+): MacroHistoryResponse {
+  const series = { ...response.series };
+  for (const metric of ['btcDominance', 'stablecoinSupplyUsd', 'fearGreedIndex'] as const) {
+    const current = response.series[metric];
+    const points = [
+      ...new Map(
+        [
+          ...(archived[metric] ?? []).map((row) => ({
+            observedAt: row.t,
+            value: Number(row.value),
+          })),
+          ...current.points,
+        ].map((row) => [row.observedAt, row])
+      ).values(),
+    ].sort((a, b) => a.observedAt - b.observedAt);
+    series[metric] = { ...current, points, latest: points.at(-1) ?? null };
+  }
+  return { ...response, series };
 }
 
 /**

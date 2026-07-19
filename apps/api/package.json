@@ -16,6 +16,7 @@
     "db:migrate:production": "wrangler d1 migrations apply lazuli-db-prod --env production --remote",
     "test": "bun test src/**/*.test.ts",
     "test:routes": "node scripts/smoke-routes.mjs",
+    "backfill:campaign": "node scripts/backfill-campaign.mjs",
     "lint": "eslint src --max-warnings 0",
     "clean": "rm -rf dist .turbo .wrangler"
   },

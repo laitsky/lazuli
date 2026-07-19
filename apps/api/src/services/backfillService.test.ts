@@ -2,12 +2,14 @@ import { describe, expect, test } from 'bun:test';
 import {
   archiveKey,
   assertBackfillTaskLimit,
+  backfillRetryDelaySeconds,
   backfillFailureStatus,
   buildBackfillTasks,
   DEFAULT_BACKFILL_END,
   DEFAULT_BACKFILL_START,
   DEFAULT_BACKFILL_TIMEFRAMES,
   gzipNdjsonForTest,
+  isPreferredArchiveQuote,
   MAX_BACKFILL_ATTEMPTS,
   MAX_BACKFILL_TASKS,
   prepareBackfillUniverse,
@@ -100,10 +102,16 @@ describe('backfill service planning helpers', () => {
   });
 
   test('keeps retryable failures pending until the terminal attempt', () => {
-    expect(MAX_BACKFILL_ATTEMPTS).toBe(5);
+    expect(MAX_BACKFILL_ATTEMPTS).toBe(10);
     expect(backfillFailureStatus(1)).toBe('pending');
     expect(backfillFailureStatus(MAX_BACKFILL_ATTEMPTS - 1)).toBe('pending');
     expect(backfillFailureStatus(MAX_BACKFILL_ATTEMPTS)).toBe('failed');
+  });
+
+  test('uses longer bounded full-jitter windows for provider rate limits', () => {
+    expect(backfillRetryDelaySeconds(1, 'provider_rate_limit', () => 1)).toBe(30);
+    expect(backfillRetryDelaySeconds(10, 'provider_rate_limit', () => 1)).toBe(1800);
+    expect(backfillRetryDelaySeconds(10, 'provider_network', () => 1)).toBe(300);
   });
 
   test('caps task fan-out and uses bounded exponential queue delays', () => {
@@ -116,5 +124,12 @@ describe('backfill service planning helpers', () => {
     }
     expect(limitError.includes('5000 task limit')).toBe(true);
     expect([1, 2, 3, 4, 5, 20].map(queueRetryDelaySeconds)).toEqual([10, 20, 40, 80, 160, 300]);
+  });
+
+  test('uses venue-appropriate liquid quote currencies for the default universe', () => {
+    expect(isPreferredArchiveQuote('upbit', 'KRW')).toBe(true);
+    expect(isPreferredArchiveQuote('upbit', 'BTC')).toBe(false);
+    expect(isPreferredArchiveQuote('okx', 'USDT')).toBe(true);
+    expect(isPreferredArchiveQuote('bybit', 'EUR')).toBe(false);
   });
 });

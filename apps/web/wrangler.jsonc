@@ -44,7 +44,6 @@
   "vars": {
     "ENVIRONMENT": "local",
     "METRICS_INGEST_SECRET_ID": "metrics-local-v1",
-    "OPS_READ_SECRET": "local-ops",
   },
 
   "env": {

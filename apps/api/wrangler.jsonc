@@ -36,12 +36,15 @@
     "MAGIC_LINK_EMAIL_FROM": "signin@lazuli.now",
     "ALERT_EMAIL_FROM": "alerts@lazuli.now",
     "OPERATIONAL_OWNER": "lazuli-operations",
-    "OPS_READ_SECRET": "local-ops",
     "INGEST_HEALTH_URL": "http://localhost:8790/control/health",
     "ALERT_USER_WEBHOOKS_ENABLED": "true",
     "ACCOUNT_FEATURES_ENABLED": "true",
     "ALERT_EVALUATION_ENABLED": "true",
     "ADMIN_ROUTES_ENABLED": "true",
+    "HISTORY_DAILY_REFRESH_ENABLED": "false",
+    "HISTORY_DAILY_TASK_BUDGET": "10",
+    "HISTORY_DAILY_ATTEMPT_BUDGET": "30",
+    "HISTORY_DAILY_EXCLUDED_PROVIDERS": "",
   },
 
   "d1_databases": [
@@ -76,7 +79,7 @@
         "queue": "lazuli-backfill-local",
         "max_batch_size": 10,
         "max_batch_timeout": 5,
-        "max_retries": 5,
+        "max_retries": 10,
         "dead_letter_queue": "lazuli-backfill-dlq-local",
       },
       {
@@ -150,6 +153,10 @@
         "name": "REALTIME_HUB",
         "class_name": "RealtimeHubV2DO",
       },
+      {
+        "name": "BACKFILL_COORDINATOR",
+        "class_name": "BackfillCoordinatorDO",
+      },
     ],
   },
 
@@ -157,6 +164,14 @@
     {
       "tag": "resource-safe-v1",
       "new_sqlite_classes": ["MarketDataCacheV2DO", "RealtimeHubV2DO"],
+    },
+    {
+      "tag": "realtime-batched-fanout-v2",
+      "new_sqlite_classes": ["RealtimeSequencerV1DO", "RealtimeFanoutV3DO"],
+    },
+    {
+      "tag": "backfill-coordinator-v1",
+      "new_sqlite_classes": ["BackfillCoordinatorDO"],
     },
   ],
 
@@ -198,6 +213,10 @@
         "ACCOUNT_FEATURES_ENABLED": "false",
         "ALERT_EVALUATION_ENABLED": "false",
         "ADMIN_ROUTES_ENABLED": "false",
+        "HISTORY_DAILY_REFRESH_ENABLED": "true",
+        "HISTORY_DAILY_TASK_BUDGET": "10",
+        "HISTORY_DAILY_ATTEMPT_BUDGET": "30",
+        "HISTORY_DAILY_EXCLUDED_PROVIDERS": "",
       },
       "send_email": [
         {
@@ -245,7 +264,7 @@
             "queue": "lazuli-backfill-staging",
             "max_batch_size": 10,
             "max_batch_timeout": 5,
-            "max_retries": 5,
+            "max_retries": 10,
             "dead_letter_queue": "lazuli-backfill-dlq-staging",
           },
           {
@@ -315,6 +334,10 @@
             "name": "REALTIME_HUB",
             "class_name": "RealtimeHubV2DO",
           },
+          {
+            "name": "BACKFILL_COORDINATOR",
+            "class_name": "BackfillCoordinatorDO",
+          },
         ],
       },
     },
@@ -355,6 +378,10 @@
         "ACCOUNT_FEATURES_ENABLED": "false",
         "ALERT_EVALUATION_ENABLED": "false",
         "ADMIN_ROUTES_ENABLED": "false",
+        "HISTORY_DAILY_REFRESH_ENABLED": "false",
+        "HISTORY_DAILY_TASK_BUDGET": "10",
+        "HISTORY_DAILY_ATTEMPT_BUDGET": "30",
+        "HISTORY_DAILY_EXCLUDED_PROVIDERS": "",
       },
       "send_email": [
         {
@@ -402,7 +429,7 @@
             "queue": "lazuli-backfill-prod",
             "max_batch_size": 10,
             "max_batch_timeout": 5,
-            "max_retries": 5,
+            "max_retries": 10,
             "dead_letter_queue": "lazuli-backfill-dlq-prod",
           },
           {
@@ -471,6 +498,10 @@
           {
             "name": "REALTIME_HUB",
             "class_name": "RealtimeHubV2DO",
+          },
+          {
+            "name": "BACKFILL_COORDINATOR",
+            "class_name": "BackfillCoordinatorDO",
           },
         ],
       },

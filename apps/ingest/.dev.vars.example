@@ -1,0 +1,2 @@
+# Copy to .dev.vars and replace each value. Never commit .dev.vars.
+OPS_READ_SECRET=replace-with-a-shared-local-operations-secret

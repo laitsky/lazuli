@@ -6,6 +6,7 @@
  */
 
 import type { BackfillQueueMessage, Env, OHLCV, Timeframe } from '../types';
+import { ErrorCode, ExchangeError, ValidationError } from '../errors';
 import { ccxtService } from './ccxtService';
 
 export const TIMEFRAME_MS: Record<Timeframe, number> = {
@@ -20,17 +21,26 @@ export const TIMEFRAME_MS: Record<Timeframe, number> = {
 };
 
 export const DEFAULT_BACKFILL_TIMEFRAMES: Timeframe[] = ['1h', '4h', '1d'];
-export const MAX_BACKFILL_ATTEMPTS = 5;
+export const MAX_BACKFILL_ATTEMPTS = 10;
+export const MAX_BACKFILL_AGE_MS = 24 * 60 * 60 * 1_000;
 export const MAX_BACKFILL_TASKS = 5_000;
-const SUPPORTED_EXCHANGES = ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'] as const;
+export const SUPPORTED_BACKFILL_EXCHANGES = [
+  'binance',
+  'bybit',
+  'okx',
+  'hyperliquid',
+  'upbit',
+] as const;
+const SUPPORTED_EXCHANGES = SUPPORTED_BACKFILL_EXCHANGES;
 const SUPPORTED_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d', '3d', '1w'] as const;
-const EXCHANGE_CAPABILITIES: Record<string, Array<'spot' | 'perp'>> = {
+export const BACKFILL_EXCHANGE_CAPABILITIES: Record<string, Array<'spot' | 'perp'>> = {
   binance: ['spot', 'perp'],
   bybit: ['spot', 'perp'],
   okx: ['spot', 'perp'],
   hyperliquid: ['perp'],
   upbit: ['spot'],
 };
+const EXCHANGE_CAPABILITIES = BACKFILL_EXCHANGE_CAPABILITIES;
 
 interface ArchiveWriteResult {
   objectKey: string;
@@ -56,7 +66,7 @@ interface D1StatusCount {
   count: number;
 }
 
-interface PreparedUniverse {
+export interface PreparedUniverse {
   exchanges: Array<(typeof SUPPORTED_EXCHANGES)[number]>;
   timeframes: Timeframe[];
   typesByExchange: Record<string, Array<'spot' | 'perp'>>;
@@ -88,6 +98,17 @@ export class TerminalBackfillError extends Error {
   }
 }
 
+export class RetryableBackfillError extends Error {
+  constructor(
+    message: string,
+    readonly delaySeconds: number,
+    readonly failureClass: string
+  ) {
+    super(message);
+    this.name = 'RetryableBackfillError';
+  }
+}
+
 export function assertBackfillTaskLimit(taskCount: number): void {
   if (taskCount > MAX_BACKFILL_TASKS) {
     throw new Error(`Backfill request exceeds the ${MAX_BACKFILL_TASKS} task limit`);
@@ -97,6 +118,17 @@ export function assertBackfillTaskLimit(taskCount: number): void {
 export function queueRetryDelaySeconds(attempts: number): number {
   const retryIndex = Math.max(0, Math.floor(attempts) - 1);
   return Math.min(300, 10 * 2 ** retryIndex);
+}
+
+export function backfillRetryDelaySeconds(
+  attempts: number,
+  failureClass: string,
+  random: () => number = Math.random
+): number {
+  const base = failureClass === 'provider_rate_limit' ? 30 : 10;
+  const cap = failureClass === 'provider_rate_limit' ? 1_800 : 300;
+  const ceiling = Math.min(cap, base * 2 ** Math.max(0, attempts - 1));
+  return Math.max(1, Math.ceil(ceiling * random()));
 }
 
 /**
@@ -196,16 +228,19 @@ export async function enqueuePendingTasks(env: Env, jobId: string): Promise<numb
  */
 export async function processBackfillMessage(
   env: Env,
-  message: BackfillQueueMessage
+  message: BackfillQueueMessage,
+  beforePage?: () => Promise<void>
 ): Promise<void> {
   assertD1(env);
   if (!env.OHLCV_ARCHIVE) {
     throw new Error('OHLCV_ARCHIVE R2 binding is not configured');
   }
 
-  const task = await env.DB.prepare(`SELECT status, attempts FROM backfill_tasks WHERE id = ?`)
+  const task = await env.DB.prepare(
+    `SELECT status, attempts, first_attempt_at FROM backfill_tasks WHERE id = ?`
+  )
     .bind(message.taskId)
-    .first<{ status: string; attempts: number }>();
+    .first<{ status: string; attempts: number; first_attempt_at: number | null }>();
   if (!task) {
     throw new TerminalBackfillError(`Backfill task '${message.taskId}' does not exist`);
   }
@@ -215,28 +250,71 @@ export async function processBackfillMessage(
   if (task.status === 'failed') {
     throw new TerminalBackfillError(`Backfill task '${message.taskId}' is already terminal`);
   }
+  if (task.status === 'cancelled') {
+    throw new TerminalBackfillError(`Backfill task '${message.taskId}' was cancelled`);
+  }
+
+  const objectKey = archiveKey(message);
+  const reusable = await env.DB.prepare(
+    `SELECT row_count, coverage_state FROM r2_ohlcv_manifests
+     WHERE object_key = ? AND status = 'complete' AND row_count > 0`
+  )
+    .bind(objectKey)
+    .first<{ row_count: number; coverage_state: string }>();
+  if (reusable && (await env.OHLCV_ARCHIVE.head(objectKey))) {
+    await env.DB.prepare(
+      `UPDATE backfill_tasks
+       SET status = 'complete', object_key = ?, row_count = ?, coverage_state = ?,
+           failure_class = NULL, next_attempt_at = NULL, updated_at = unixepoch()
+       WHERE id = ?`
+    )
+      .bind(objectKey, reusable.row_count, reusable.coverage_state, message.taskId)
+      .run();
+    await syncBackfillJobStatus(env, message.jobId);
+    return;
+  }
+
   const nextAttempt = task.attempts + 1;
+  const firstAttemptAt = task.first_attempt_at ?? Math.floor(Date.now() / 1_000);
 
   await env.DB.prepare(
     `UPDATE backfill_tasks
-     SET status = 'running', attempts = ?, updated_at = unixepoch(), last_error = NULL
+     SET status = 'running', attempts = ?, first_attempt_at = ?, coverage_state = 'fetching',
+         updated_at = unixepoch(), last_error = NULL, next_attempt_at = NULL
      WHERE id = ?`
   )
-    .bind(nextAttempt, message.taskId)
+    .bind(nextAttempt, firstAttemptAt, message.taskId)
     .run();
   await syncBackfillJobStatus(env, message.jobId);
 
   try {
     await acquireRateLimit(env, message.exchange);
-    const candles = await fetchOhlcvRange(message);
+    const candles = await fetchOhlcvRange(message, beforePage);
+    if (candles.length === 0) {
+      await env.DB.prepare(
+        `UPDATE backfill_tasks
+         SET status = 'complete', row_count = 0, object_key = NULL,
+             coverage_state = 'no_data', failure_class = NULL, next_attempt_at = NULL,
+             updated_at = unixepoch()
+         WHERE id = ?`
+      )
+        .bind(message.taskId)
+        .run();
+      await syncBackfillJobStatus(env, message.jobId);
+      return;
+    }
     const archive = await writeArchiveObject(env, message, candles);
+    const finalizedAt = isClosedMonth(message.endTime) ? Math.floor(Date.now() / 1_000) : null;
+    const coverageState = JSON.parse(archive.gapSummary).gaps > 0 ? 'partial' : 'complete';
 
     await env.DB.batch([
       env.DB.prepare(
         `INSERT INTO r2_ohlcv_manifests
           (object_key, exchange, symbol, type, timeframe, first_timestamp, last_timestamp,
-           row_count, checksum, source, status, gap_summary_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ccxt', 'complete', ?, unixepoch(), unixepoch())
+           row_count, checksum, source, status, gap_summary_json, coverage_state, finalized_at,
+           created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ccxt', 'complete', ?, ?, ?,
+                 unixepoch(), unixepoch())
          ON CONFLICT(object_key) DO UPDATE SET
            row_count = excluded.row_count,
            first_timestamp = excluded.first_timestamp,
@@ -244,6 +322,8 @@ export async function processBackfillMessage(
            checksum = excluded.checksum,
            status = 'complete',
            gap_summary_json = excluded.gap_summary_json,
+           coverage_state = excluded.coverage_state,
+           finalized_at = excluded.finalized_at,
            updated_at = unixepoch()`
       ).bind(
         archive.objectKey,
@@ -255,26 +335,46 @@ export async function processBackfillMessage(
         archive.lastTimestamp,
         archive.rowCount,
         archive.checksum,
-        archive.gapSummary
+        archive.gapSummary,
+        coverageState,
+        finalizedAt
       ),
       env.DB.prepare(
         `UPDATE backfill_tasks
-         SET status = 'complete', object_key = ?, row_count = ?, updated_at = unixepoch()
+         SET status = 'complete', object_key = ?, row_count = ?, coverage_state = ?,
+             failure_class = NULL, next_attempt_at = NULL, updated_at = unixepoch()
          WHERE id = ?`
-      ).bind(archive.objectKey, archive.rowCount, message.taskId),
+      ).bind(archive.objectKey, archive.rowCount, coverageState, message.taskId),
     ]);
 
     await syncBackfillJobStatus(env, message.jobId);
   } catch (error) {
-    const terminal = backfillFailureStatus(nextAttempt) === 'failed';
+    const failureClass = classifyBackfillFailure(error);
+    const ageMs = Date.now() - firstAttemptAt * 1_000;
+    const terminal =
+      error instanceof ValidationError ||
+      backfillFailureStatus(nextAttempt) === 'failed' ||
+      ageMs >= MAX_BACKFILL_AGE_MS;
+    const retryAfterSeconds =
+      error instanceof ExchangeError && typeof error.details?.retryAfterSeconds === 'number'
+        ? Math.min(1_800, Math.max(1, Math.ceil(error.details.retryAfterSeconds)))
+        : 0;
+    const delaySeconds = Math.max(
+      retryAfterSeconds,
+      backfillRetryDelaySeconds(nextAttempt, failureClass)
+    );
     await env.DB.prepare(
       `UPDATE backfill_tasks
-       SET status = ?, last_error = ?, updated_at = unixepoch()
+       SET status = ?, last_error = ?, failure_class = ?, coverage_state = ?,
+           next_attempt_at = ?, updated_at = unixepoch()
        WHERE id = ?`
     )
       .bind(
         terminal ? 'failed' : 'pending',
         error instanceof Error ? error.message : String(error),
+        failureClass,
+        terminal ? coverageStateForFailure(failureClass) : 'retrying',
+        terminal ? null : Math.floor(Date.now() / 1_000) + delaySeconds,
         message.taskId
       )
       .run();
@@ -282,10 +382,14 @@ export async function processBackfillMessage(
 
     if (terminal) {
       throw new TerminalBackfillError(
-        `Backfill task '${message.taskId}' failed after ${nextAttempt} attempts`
+        `Backfill task '${message.taskId}' failed after ${nextAttempt} attempts: ${failureClass}`
       );
     }
-    throw error;
+    throw new RetryableBackfillError(
+      error instanceof Error ? error.message : String(error),
+      delaySeconds,
+      failureClass
+    );
   }
 }
 
@@ -492,19 +596,21 @@ async function loadActiveSymbols(
   maxSymbols: number | null
 ): Promise<string[]> {
   const markets = await ccxtService.getMarkets(exchange);
-  const activeSymbols = markets
-    .filter((market) => market.type === type && market.active)
-    .map((market) => market.symbol);
-  if (maxSymbols === null) return activeSymbols;
+  const activeMarkets = markets.filter((market) => market.type === type && market.active);
+  if (maxSymbols === null) return activeMarkets.map((market) => market.symbol);
+  const preferredMarkets = activeMarkets.filter((market) =>
+    isPreferredArchiveQuote(exchange, market.quote)
+  );
+  const activeSymbols = (preferredMarkets.length > 0 ? preferredMarkets : activeMarkets).map(
+    (market) => market.symbol
+  );
 
   try {
     const tickers = await ccxtService.getAllTickers(exchange);
     const activeSet = new Set(activeSymbols);
     const ranked = tickers
       .filter((ticker) => ticker.type === type && activeSet.has(ticker.symbol))
-      .sort(
-        (a, b) => (b.quoteVolume24h ?? b.volume24h ?? 0) - (a.quoteVolume24h ?? a.volume24h ?? 0)
-      )
+      .sort((a, b) => archiveQuoteVolume(b) - archiveQuoteVolume(a))
       .map((ticker) => ticker.symbol);
     if (ranked.length > 0) {
       return ranked.slice(0, maxSymbols);
@@ -517,7 +623,25 @@ async function loadActiveSymbols(
   return activeSymbols.slice(0, maxSymbols);
 }
 
-async function fetchOhlcvRange(message: BackfillQueueMessage): Promise<OHLCV[]> {
+export function isPreferredArchiveQuote(exchange: string, quote: string): boolean {
+  const normalized = quote.toUpperCase();
+  return exchange === 'upbit'
+    ? normalized === 'KRW'
+    : normalized === 'USDT' || normalized === 'USDC' || normalized === 'USD';
+}
+
+function archiveQuoteVolume(ticker: {
+  quoteVolume24h: number | null;
+  volume24h: number | null;
+  last: number | null;
+}): number {
+  return ticker.quoteVolume24h ?? (ticker.volume24h ?? 0) * (ticker.last ?? 0);
+}
+
+async function fetchOhlcvRange(
+  message: BackfillQueueMessage,
+  beforePage?: () => Promise<void>
+): Promise<OHLCV[]> {
   const timeframeMs = TIMEFRAME_MS[message.timeframe];
   const candles: OHLCV[] = [];
   let cursor = message.startTime;
@@ -526,7 +650,8 @@ async function fetchOhlcvRange(message: BackfillQueueMessage): Promise<OHLCV[]> 
   while (cursor <= message.endTime && pages < 250) {
     const remaining = Math.ceil((message.endTime - cursor + timeframeMs) / timeframeMs);
     const limit = Math.max(1, Math.min(1000, remaining));
-    const batch = await ccxtService.fetchOHLCV(
+    await beforePage?.();
+    const batch = await ccxtService.fetchOHLCVBackfillPage(
       message.exchange,
       message.symbol,
       message.timeframe,
@@ -556,6 +681,33 @@ async function fetchOhlcvRange(message: BackfillQueueMessage): Promise<OHLCV[]> 
   return dedupeCandles(candles).sort((a, b) => a.timestamp - b.timestamp);
 }
 
+function classifyBackfillFailure(error: unknown): string {
+  if (error instanceof ValidationError) return 'validation';
+  if (error instanceof ExchangeError) {
+    if (error.code === ErrorCode.EXCHANGE_RATE_LIMIT) return 'provider_rate_limit';
+    if (error.code === ErrorCode.EXCHANGE_NETWORK_ERROR) return 'provider_network';
+    if (error.code === ErrorCode.EXCHANGE_TIMEOUT) return 'provider_timeout';
+    if (error.code === ErrorCode.EXCHANGE_UNAVAILABLE) return 'provider_unavailable';
+  }
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (message.includes('d1')) return 'd1';
+  if (message.includes('r2') || message.includes('readable stream')) return 'r2';
+  return 'internal';
+}
+
+function coverageStateForFailure(failureClass: string): string {
+  return failureClass.startsWith('provider_') ? 'provider_unavailable' : 'partial';
+}
+
+function isClosedMonth(endTime: number, now = Date.now()): boolean {
+  const currentMonthStart = Date.UTC(
+    new Date(now).getUTCFullYear(),
+    new Date(now).getUTCMonth(),
+    1
+  );
+  return endTime < currentMonthStart;
+}
+
 async function writeArchiveObject(
   env: Env,
   message: BackfillQueueMessage,
@@ -576,9 +728,12 @@ async function writeArchiveObject(
     .join('\n');
   const body = ndjson.length > 0 ? `${ndjson}\n` : '';
   const checksum = await sha256Hex(body);
-  const gapSummary = JSON.stringify(summarizeGaps(candles, TIMEFRAME_MS[message.timeframe]));
+  const gapSummary = JSON.stringify(
+    summarizeGaps(candles, TIMEFRAME_MS[message.timeframe], message.startTime, message.endTime)
+  );
 
-  await env.OHLCV_ARCHIVE.put(objectKey, await gzipText(body), {
+  const compressedBody = await new Response(await gzipText(body)).arrayBuffer();
+  await env.OHLCV_ARCHIVE.put(objectKey, compressedBody, {
     httpMetadata: {
       contentType: 'application/x-ndjson; charset=utf-8',
       contentEncoding: 'gzip',
@@ -743,13 +898,25 @@ function dedupeCandles(candles: OHLCV[]): OHLCV[] {
 
 function summarizeGaps(
   candles: OHLCV[],
-  expectedStepMs: number
+  expectedStepMs: number,
+  requestedStart?: number,
+  requestedEnd?: number
 ): {
   gaps: number;
   largestGapMs: number;
 } {
   let gaps = 0;
   let largestGapMs = 0;
+
+  const firstTimestamp = candles[0]?.timestamp;
+  const lastTimestamp = candles[candles.length - 1]?.timestamp;
+  if (requestedStart !== undefined && firstTimestamp !== undefined) {
+    const leadingGap = firstTimestamp - requestedStart;
+    if (leadingGap >= expectedStepMs) {
+      gaps += 1;
+      largestGapMs = Math.max(largestGapMs, leadingGap);
+    }
+  }
 
   for (let i = 1; i < candles.length; i += 1) {
     const previous = candles[i - 1];
@@ -761,6 +928,14 @@ function summarizeGaps(
     if (gap > expectedStepMs) {
       gaps += 1;
       largestGapMs = Math.max(largestGapMs, gap);
+    }
+  }
+
+  if (requestedEnd !== undefined && lastTimestamp !== undefined) {
+    const trailingGap = requestedEnd - lastTimestamp;
+    if (trailingGap >= expectedStepMs) {
+      gaps += 1;
+      largestGapMs = Math.max(largestGapMs, trailingGap);
     }
   }
 

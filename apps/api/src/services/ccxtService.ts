@@ -442,6 +442,215 @@ export class CCXTService {
   }
 
   /**
+   * Fetch one archive page without the public-path retry/circuit wrapper.
+   * BackfillCoordinatorDO owns pacing and retries so provider bursts are not
+   * multiplied by nested retry loops.
+   */
+  async fetchOHLCVBackfillPage(
+    exchangeId: string,
+    symbol: string,
+    timeframe: Timeframe,
+    marketType: 'spot' | 'perp',
+    limit: number,
+    since: number
+  ): Promise<OHLCV[]> {
+    try {
+      const exchange = this.getExchange(exchangeId, marketType);
+      if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
+        await exchange.loadMarkets();
+      }
+      if (!this.isTimeframeSupported(exchangeId, timeframe, marketType)) {
+        throw invalidTimeframe(timeframe, this.getSupportedTimeframes(exchangeId, marketType));
+      }
+      const rows = (await exchange.fetchOHLCV(
+        convertToCCXTNotation(symbol, marketType),
+        timeframe,
+        since,
+        limit
+      )) as number[][];
+      return rows.map((candle) => ({
+        timestamp: candle[0],
+        open: candle[1],
+        high: candle[2],
+        low: candle[3],
+        close: candle[4],
+        volume: candle[5],
+      }));
+    } catch (error) {
+      if (error instanceof ExchangeError || error instanceof ValidationError) throw error;
+      throw classifyCcxtError(error, exchangeId);
+    }
+  }
+
+  /** Single-attempt historical funding page; the Durable Object owns retries. */
+  async fetchFundingHistoryBackfillPage(
+    exchangeId: string,
+    symbol: string,
+    since: number,
+    limit: number
+  ): Promise<Array<Record<string, unknown>>> {
+    try {
+      const exchange = this.getExchange(exchangeId, 'perp');
+      if (!exchange.markets || Object.keys(exchange.markets).length === 0)
+        await exchange.loadMarkets();
+      if (!exchange.has.fetchFundingRateHistory) {
+        throw new ValidationError(
+          ErrorCode.EXCHANGE_NOT_SUPPORTED,
+          `Exchange '${exchangeId}' does not support funding history`
+        );
+      }
+      const rows = await exchange.fetchFundingRateHistory(
+        convertToCCXTNotation(symbol, 'perp'),
+        since,
+        limit
+      );
+      return rows.map((row: any) => ({
+        t: row.timestamp ?? null,
+        rate: row.fundingRate ?? null,
+        markPrice: row.markPrice ?? null,
+        indexPrice: row.indexPrice ?? null,
+        nextFundingAt: row.nextFundingTimestamp ?? null,
+      }));
+    } catch (error) {
+      if (error instanceof ValidationError) throw error;
+      throw classifyCcxtError(error, exchangeId);
+    }
+  }
+
+  /** Single-attempt historical OI page; native units are retained with USD when available. */
+  async fetchOpenInterestHistoryBackfillPage(
+    exchangeId: string,
+    symbol: string,
+    resolution: string,
+    since: number,
+    limit: number
+  ): Promise<Array<Record<string, unknown>>> {
+    try {
+      const exchange = this.getExchange(exchangeId, 'perp');
+      if (!exchange.markets || Object.keys(exchange.markets).length === 0)
+        await exchange.loadMarkets();
+      if (!exchange.has.fetchOpenInterestHistory) {
+        throw new ValidationError(
+          ErrorCode.EXCHANGE_NOT_SUPPORTED,
+          `Exchange '${exchangeId}' does not support open-interest history`
+        );
+      }
+      const rows = await exchange.fetchOpenInterestHistory(
+        convertToCCXTNotation(symbol, 'perp'),
+        resolution,
+        since,
+        limit
+      );
+      return rows.map((row: any) => ({
+        t: row.timestamp ?? null,
+        openInterest: row.openInterestAmount ?? row.openInterestValue ?? null,
+        openInterestUsd: row.openInterestValue ?? null,
+        nativeUnit: row.openInterestValue !== undefined ? 'quote' : 'contracts',
+      }));
+    } catch (error) {
+      if (error instanceof ValidationError) throw error;
+      throw classifyCcxtError(error, exchangeId);
+    }
+  }
+
+  async fetchTradesBackfillPage(
+    exchangeId: string,
+    symbol: string,
+    marketType: 'spot' | 'perp',
+    since: number,
+    limit: number
+  ): Promise<Array<Record<string, unknown>>> {
+    try {
+      const exchange = this.getExchange(exchangeId, marketType);
+      if (!exchange.markets || Object.keys(exchange.markets).length === 0)
+        await exchange.loadMarkets();
+      const rows = await exchange.fetchTrades(
+        convertToCCXTNotation(symbol, marketType),
+        since,
+        limit
+      );
+      return rows.map((row: any) => ({
+        t: row.timestamp ?? null,
+        id: row.id ?? null,
+        price: row.price ?? null,
+        amount: row.amount ?? null,
+        cost: row.cost ?? null,
+        side: row.side ?? null,
+      }));
+    } catch (error) {
+      throw classifyCcxtError(error, exchangeId);
+    }
+  }
+
+  historicalCapabilities(exchangeId: string): Record<string, boolean> {
+    const exchange = this.getExchange(exchangeId, 'perp');
+    return {
+      fundingRate: exchange.has.fetchFundingRateHistory === true,
+      openInterest: exchange.has.fetchOpenInterestHistory === true,
+      trades: exchange.has.fetchTrades === true,
+      // CCXT capability flags alone do not establish stable historical pagination
+      // semantics. Keep this disabled until an exchange-native adapter is verified.
+      liquidations: false,
+    };
+  }
+
+  /** Single-attempt catalog snapshot used only by the history coordinator. */
+  async fetchMarketCatalogBackfill(
+    exchangeId: string,
+    pace?: () => Promise<void>
+  ): Promise<Array<Market & { quoteVolume24h: number | null; volumeRank: number | null }>> {
+    try {
+      const rows: Array<Market & { quoteVolume24h: number | null; volumeRank: number | null }> = [];
+      for (const type of ['spot', 'perp'] as const) {
+        if (type === 'spot' ? !this.hasSpotMarkets(exchangeId) : !this.hasPerpMarkets(exchangeId))
+          continue;
+        const exchange = this.getExchange(exchangeId, type);
+        if (!exchange.markets || Object.keys(exchange.markets).length === 0) {
+          await pace?.();
+          await exchange.loadMarkets();
+        }
+        let tickers: Record<string, any> = {};
+        if (exchange.has.fetchTickers === true) {
+          await pace?.();
+          tickers = await exchange.fetchTickers();
+        }
+        const typed = Object.entries(exchange.markets).flatMap(([id, value]) => {
+          const market = value as any;
+          if (market.active === false) return [];
+          const ticker = tickers[market.symbol] ?? {};
+          return [
+            {
+              id,
+              symbol: convertFromCCXTNotation(market.symbol, type),
+              base: market.base,
+              quote: market.quote,
+              type,
+              active: true,
+              exchange: exchangeId,
+              quoteVolume24h:
+                typeof ticker.quoteVolume === 'number' && Number.isFinite(ticker.quoteVolume)
+                  ? ticker.quoteVolume
+                  : null,
+              volumeRank: null,
+            },
+          ];
+        });
+        typed.sort((a, b) => Number(b.quoteVolume24h ?? 0) - Number(a.quoteVolume24h ?? 0));
+        rows.push(...typed.map((row, index) => ({ ...row, volumeRank: index + 1 })));
+      }
+      return rows;
+    } catch (error) {
+      if (error instanceof ExchangeError) throw error;
+      throw classifyCcxtError(error, exchangeId);
+    }
+  }
+
+  getExchangeRateLimitMs(exchangeId: string, marketType: 'spot' | 'perp' = 'spot'): number {
+    const configured = Number(this.getExchange(exchangeId, marketType).rateLimit);
+    return Number.isFinite(configured) && configured > 0 ? configured : 1_000;
+  }
+
+  /**
    * Fetch order book (depth) data for a specific symbol
    */
   async fetchOrderBook(

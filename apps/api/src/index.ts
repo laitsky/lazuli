@@ -133,6 +133,9 @@ import {
   getOptionsExpiries,
   getOptionsSurface,
   getOptionsVolatility,
+  mergeArchivedEtfFlows,
+  mergeArchivedMacroHistory,
+  mergeArchivedOptionsVolatility,
 } from './services/institutionalService';
 import { buildPriceArbitrageResponse } from './services/priceArbitrageService';
 import { calculateIndicators } from './services/technicalIndicatorService';
@@ -140,11 +143,38 @@ import {
   createBackfillJob,
   enqueuePendingTasks,
   getBackfillJob,
-  processBackfillMessage,
   queueRetryDelaySeconds,
   readArchivedOhlcv,
   TerminalBackfillError,
 } from './services/backfillService';
+import {
+  CoordinatorBackfillError,
+  processCoordinatedBackfill,
+} from './services/BackfillCoordinatorDO';
+import {
+  advanceBackfillCampaigns,
+  createBackfillCampaign,
+  getBackfillCampaign,
+  setBackfillCampaignState,
+  type BackfillCampaignRequest,
+  verifyBackfillCampaignPage,
+} from './services/backfillCampaignService';
+import {
+  advanceHistoricalCampaigns,
+  createHistoricalCampaign,
+  ensureDailyHistoricalRefresh,
+  finalizeClosedHistoricalPartitions,
+  getHistoricalCampaign,
+  getHistoricalRefreshStatus,
+  readHistoricalData,
+  setHistoricalCampaignState,
+  type HistoricalCampaignRequest,
+  verifyCompletedDailyHistoricalRefreshes,
+  verifyHistoricalCampaignPage,
+} from './services/historicalDataService';
+
+export { BackfillCoordinatorDO } from './services/BackfillCoordinatorDO';
+export { RealtimeFanoutV3DO, RealtimeSequencerV1DO } from './services/LegacyRealtimeDO';
 import {
   cancelAsyncBacktestJob,
   createAsyncBacktestJob,
@@ -1055,6 +1085,28 @@ api.get('/indicators/:exchange/:symbol', async (c) => {
   });
 });
 
+api.get('/orderflow/history/:exchange/:symbol', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const entity = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
+  const until = validateTimestamp(c.req.query('until'), Date.now());
+  const since = validateTimestamp(c.req.query('since'), until - 30 * 86_400_000);
+  const limit = validateInteger(c.req.query('limit'), 720, 1, 10_000);
+  return ok(
+    c,
+    await readHistoricalData(c.env, {
+      dataset: 'trade_aggregate',
+      exchange,
+      entity,
+      marketType: c.req.query('type') ?? 'spot',
+      resolution: '1h',
+      since,
+      until,
+      limit,
+    }),
+    { source: 'r2-history' }
+  );
+});
+
 api.get('/orderflow/:exchange/:symbol', async (c) => {
   const exchange = requireExchange(c.req.param('exchange'));
   const symbol = parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol');
@@ -1261,7 +1313,22 @@ api.get('/institutional/overview', async (c) => {
 api.get('/institutional/etf/flows', async (c) => {
   const asset = parseInstitutionalAsset(c.req.query('asset'));
   const range = parseInstitutionalRange(c.req.query('range'));
-  return ok(c, await getEtfFlows(asset, range, c.env), { source: 'institutional-adapters' });
+  const now = Date.now();
+  const [live, archive] = await Promise.all([
+    getEtfFlows(asset, range, c.env),
+    readHistoricalData(c.env, {
+      dataset: 'etf_flow',
+      entity: asset,
+      resolution: '1d',
+      since: institutionalRangeStart(range, now),
+      until: now,
+      limit: 10_000,
+    }),
+  ]);
+  return ok(c, mergeArchivedEtfFlows(live, archive.rows), {
+    source: archive.missingArchive ? 'institutional-adapters' : 'r2-history+live',
+    archiveObjects: archive.archiveObjects,
+  });
 });
 
 api.get('/institutional/etf/funds', async (c) => {
@@ -1294,7 +1361,19 @@ api.get('/institutional/options/volatility', async (c) => {
     range,
     fallback: () => getOptionsVolatility(asset, range),
   });
-  return ok(c, data, meta);
+  const archive = await readHistoricalData(c.env, {
+    dataset: 'options_volatility',
+    entity: asset,
+    resolution: '1d',
+    since: institutionalRangeStart(range, Date.now()),
+    until: Date.now(),
+    limit: 10_000,
+  });
+  return ok(c, mergeArchivedOptionsVolatility(data, archive.rows), {
+    ...meta,
+    source: archive.missingArchive ? meta.source : 'r2-history+live',
+    archiveObjects: archive.archiveObjects,
+  });
 });
 
 api.get('/institutional/options/surface', async (c) => {
@@ -1304,7 +1383,32 @@ api.get('/institutional/options/surface', async (c) => {
 
 api.get('/institutional/macro/history', async (c) => {
   const range = parseInstitutionalRange(c.req.query('range'));
-  return ok(c, await getMacroHistory(range, c.env), { source: 'macro-adapters' });
+  const now = Date.now();
+  const metrics = ['btcDominance', 'stablecoinSupplyUsd', 'fearGreedIndex'] as const;
+  const [live, ...archives] = await Promise.all([
+    getMacroHistory(range, c.env),
+    ...metrics.map((entity) =>
+      readHistoricalData(c.env, {
+        dataset: 'macro' as const,
+        entity,
+        resolution: '1d',
+        since: institutionalRangeStart(range, now),
+        until: now,
+        limit: 10_000,
+      })
+    ),
+  ]);
+  return ok(
+    c,
+    mergeArchivedMacroHistory(
+      live,
+      Object.fromEntries(metrics.map((metric, index) => [metric, archives[index]!.rows]))
+    ),
+    {
+      source: archives.every((item) => item.missingArchive) ? 'macro-adapters' : 'r2-history+live',
+      archiveObjects: archives.flatMap((item) => item.archiveObjects),
+    }
+  );
 });
 
 api.get('/institutional/confluence', async (c) => {
@@ -1388,6 +1492,55 @@ api.get('/funding/basis/history', async (c) => {
   });
 });
 
+api.get('/funding/history/:exchange/:symbol', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const entity = normalizePerpSymbol(
+    parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol')
+  );
+  const until = validateTimestamp(c.req.query('until'), Date.now());
+  const since = validateTimestamp(c.req.query('since'), until - 30 * 86_400_000);
+  const limit = validateInteger(c.req.query('limit'), 1000, 1, 10_000);
+  return ok(
+    c,
+    await readHistoricalData(c.env, {
+      dataset: 'funding_rate',
+      exchange,
+      entity,
+      marketType: 'perp',
+      resolution: 'native',
+      since,
+      until,
+      limit,
+    }),
+    { source: 'r2-history' }
+  );
+});
+
+api.get('/open-interest/history/:exchange/:symbol', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const entity = normalizePerpSymbol(
+    parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol')
+  );
+  const until = validateTimestamp(c.req.query('until'), Date.now());
+  const since = validateTimestamp(c.req.query('since'), until - 30 * 86_400_000);
+  const resolution = c.req.query('resolution') === '5m' ? '5m' : '1h';
+  const limit = validateInteger(c.req.query('limit'), 1000, 1, 10_000);
+  return ok(
+    c,
+    await readHistoricalData(c.env, {
+      dataset: 'open_interest',
+      exchange,
+      entity,
+      marketType: 'perp',
+      resolution,
+      since,
+      until,
+      limit,
+    }),
+    { source: 'r2-history' }
+  );
+});
+
 api.get('/funding/compare', async (c) => {
   const limit = validateInteger(c.req.query('limit'), 50, 1, 200);
   const allRates = await Promise.all(
@@ -1443,6 +1596,30 @@ api.get('/orderbook/:exchange/:symbol', async (c) => {
     timestamp: orderbook.timestamp,
   };
   return ok(c, response, meta);
+});
+
+api.get('/liquidations/history/:exchange/:symbol', async (c) => {
+  const exchange = requireExchange(c.req.param('exchange'));
+  const entity = normalizePerpSymbol(
+    parseOrThrow(symbolSchema, decodeURIComponent(c.req.param('symbol')), 'symbol')
+  );
+  const until = validateTimestamp(c.req.query('until'), Date.now());
+  const since = validateTimestamp(c.req.query('since'), until - 30 * 86_400_000);
+  const limit = validateInteger(c.req.query('limit'), 720, 1, 10_000);
+  return ok(
+    c,
+    await readHistoricalData(c.env, {
+      dataset: 'liquidation_aggregate',
+      exchange,
+      entity,
+      marketType: 'perp',
+      resolution: '1h',
+      since,
+      until,
+      limit,
+    }),
+    { source: 'r2-history' }
+  );
 });
 
 api.get('/liquidations/:exchange/:symbol', async (c) => {
@@ -2189,6 +2366,103 @@ api.post('/admin/backfills/:id/retry', async (c) => {
   return ok(c, { jobId: c.req.param('id'), enqueued });
 });
 
+api.post('/admin/backfill-campaigns', async (c) => {
+  await requireAdminRequest(c);
+  const body = (await c.req.json().catch(() => ({}))) as BackfillCampaignRequest;
+  return ok(c, await createBackfillCampaign(c.env, body));
+});
+
+api.get('/admin/backfill-campaigns/:id', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await getBackfillCampaign(c.env, c.req.param('id')));
+});
+
+api.get('/admin/backfill-campaigns/:id/verification', async (c) => {
+  await requireAdminRequest(c);
+  const limit = validateInteger(c.req.query('limit'), 100, 1, 250);
+  return ok(
+    c,
+    await verifyBackfillCampaignPage(c.env, c.req.param('id'), c.req.query('cursor') ?? null, limit)
+  );
+});
+
+api.post('/admin/backfill-campaigns/:id/pause', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await setBackfillCampaignState(c.env, c.req.param('id'), 'pause'));
+});
+
+api.post('/admin/backfill-campaigns/:id/resume', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await setBackfillCampaignState(c.env, c.req.param('id'), 'resume'));
+});
+
+api.post('/admin/backfill-campaigns/:id/cancel', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await setBackfillCampaignState(c.env, c.req.param('id'), 'cancel'));
+});
+
+api.post('/admin/backfill-campaigns/:id/retry-gaps', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await setBackfillCampaignState(c.env, c.req.param('id'), 'retry-gaps'));
+});
+
+api.post('/admin/history-campaigns', async (c) => {
+  await requireAdminRequest(c);
+  const body = (await c.req.json().catch(() => ({}))) as HistoricalCampaignRequest;
+  return ok(c, await createHistoricalCampaign(c.env, body));
+});
+
+api.get('/admin/history-campaigns/:id', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await getHistoricalCampaign(c.env, c.req.param('id')));
+});
+
+api.get('/admin/history-campaigns/:id/verification', async (c) => {
+  await requireAdminRequest(c);
+  const limit = validateInteger(c.req.query('limit'), 100, 1, 250);
+  return ok(
+    c,
+    await verifyHistoricalCampaignPage(
+      c.env,
+      c.req.param('id'),
+      c.req.query('cursor') ?? null,
+      limit
+    )
+  );
+});
+
+api.post('/admin/history-campaigns/:id/pause', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await setHistoricalCampaignState(c.env, c.req.param('id'), 'pause'));
+});
+
+api.post('/admin/history-campaigns/:id/resume', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await setHistoricalCampaignState(c.env, c.req.param('id'), 'resume'));
+});
+
+api.post('/admin/history-campaigns/:id/cancel', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await setHistoricalCampaignState(c.env, c.req.param('id'), 'cancel'));
+});
+
+api.post('/admin/history-campaigns/:id/retry-gaps', async (c) => {
+  await requireAdminRequest(c);
+  return ok(c, await setHistoricalCampaignState(c.env, c.req.param('id'), 'retry-gaps'));
+});
+
+api.get('/admin/history-refresh', async (c) => {
+  await requireAdminRequest(c);
+  c.header('Cache-Control', 'private, no-store');
+  return ok(c, await getHistoricalRefreshStatus(c.env));
+});
+
+api.post('/admin/history-refresh/run', async (c) => {
+  await requireAdminRequest(c);
+  c.header('Cache-Control', 'private, no-store');
+  return ok(c, await ensureDailyHistoricalRefresh(c.env));
+});
+
 api.get('/openapi.json', (c) => c.json(OPENAPI_DOCUMENT));
 
 app.route('/api/v1', api);
@@ -2303,8 +2577,9 @@ export default {
       }
       try {
         await assertFaultNotInjected(env, 'queue');
+        await assertFaultNotInjected(env, 'd1');
         await assertFaultNotInjected(env, 'r2');
-        await processBackfillMessage(env, message.body);
+        await processCoordinatedBackfill(env, message.body);
         message.ack();
       } catch (error) {
         console.error(
@@ -2316,10 +2591,18 @@ export default {
             error: error instanceof Error ? error.message : String(error),
           })
         );
-        if (error instanceof TerminalBackfillError) {
+        if (
+          error instanceof TerminalBackfillError ||
+          (error instanceof CoordinatorBackfillError && error.terminal)
+        ) {
           message.ack();
         } else {
-          message.retry({ delaySeconds: queueRetryDelaySeconds(message.attempts) });
+          message.retry({
+            delaySeconds:
+              error instanceof CoordinatorBackfillError
+                ? error.delaySeconds
+                : queueRetryDelaySeconds(message.attempts),
+          });
         }
       }
     }
@@ -2338,6 +2621,7 @@ function buildPublicHealth(): HealthResponse {
 
 async function buildDeepHealth(env: Env): Promise<HealthResponse & Record<string, unknown>> {
   let cacheReachable = false;
+  let historicalRefresh: unknown = null;
   try {
     if (env.MARKET_DATA_CACHE) {
       const id = env.MARKET_DATA_CACHE.idFromName('bybit');
@@ -2346,6 +2630,14 @@ async function buildDeepHealth(env: Env): Promise<HealthResponse & Record<string
     }
   } catch {
     cacheReachable = false;
+  }
+  try {
+    historicalRefresh = await getHistoricalRefreshStatus(env);
+  } catch (error) {
+    historicalRefresh = {
+      unavailable: true,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 
   return {
@@ -2359,6 +2651,7 @@ async function buildDeepHealth(env: Env): Promise<HealthResponse & Record<string
       storage: env.DB && env.OHLCV_ARCHIVE ? 'ready' : 'partial',
       backgroundJobs: env.BACKFILL_QUEUE && env.BACKFILL_WORKFLOW ? 'ready' : 'partial',
     },
+    historicalRefresh,
   };
 }
 
@@ -3490,6 +3783,13 @@ function parseInstitutionalRange(value: string | undefined): InstitutionalRange 
   throw invalidParameter('range', 'range must be 30d, 90d, ytd, or all');
 }
 
+function institutionalRangeStart(range: InstitutionalRange, now: number): number {
+  if (range === '30d') return now - 30 * 86_400_000;
+  if (range === '90d') return now - 90 * 86_400_000;
+  if (range === 'ytd') return Date.UTC(new Date(now).getUTCFullYear(), 0, 1);
+  return Date.UTC(2019, 0, 1);
+}
+
 async function loadInstitutionalMarketInputs(
   env: Env,
   asset: InstitutionalAsset
@@ -4465,6 +4765,36 @@ async function runReleaseControlledScheduledWork(env: Env, scheduledTime: number
     await runScheduledAlertEvaluation(env, scheduledTime);
   }
   await reconcilePendingAlertDeliveries(env);
+  try {
+    await advanceBackfillCampaigns(env);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        module: 'backfill-campaigns',
+        msg: 'campaign reconciliation cycle failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
+  try {
+    if (env.HISTORY_DAILY_REFRESH_ENABLED === 'true') {
+      await finalizeClosedHistoricalPartitions(env, scheduledTime);
+      await ensureDailyHistoricalRefresh(env, scheduledTime);
+    }
+    await advanceHistoricalCampaigns(env);
+    if (env.HISTORY_DAILY_REFRESH_ENABLED === 'true')
+      await verifyCompletedDailyHistoricalRefreshes(env);
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        module: 'history-campaigns',
+        msg: 'historical campaign reconciliation cycle failed',
+        error: error instanceof Error ? error.message : String(error),
+      })
+    );
+  }
   try {
     await runOperationalMonitoring(env);
   } catch (error) {

@@ -177,6 +177,7 @@ export interface Env {
   API_ANALYTICS?: AnalyticsEngineDataset;
   MARKET_DATA_CACHE: DurableObjectNamespace;
   REALTIME_HUB: DurableObjectNamespace;
+  BACKFILL_COORDINATOR?: DurableObjectNamespace;
   PUBLIC_RATE_LIMITER: RateLimit;
   EXPENSIVE_RATE_LIMITER: RateLimit;
   BUILDER_PUBLIC_RATE_LIMITER: RateLimit;
@@ -215,6 +216,10 @@ export interface Env {
   ACCOUNT_FEATURES_ENABLED?: string;
   ALERT_EVALUATION_ENABLED?: string;
   ADMIN_ROUTES_ENABLED?: string;
+  HISTORY_DAILY_REFRESH_ENABLED?: string;
+  HISTORY_DAILY_TASK_BUDGET?: string;
+  HISTORY_DAILY_ATTEMPT_BUDGET?: string;
+  HISTORY_DAILY_EXCLUDED_PROVIDERS?: string;
   MAGIC_LINK_DELIVERY_WEBHOOK_SECRET?: string;
   MAGIC_LINK_DELIVERY_WEBHOOK_URL?: string;
   ALERT_DISCORD_WEBHOOK_URL?: string;
@@ -253,6 +258,34 @@ export interface BackfillQueueMessage {
   attempt?: number;
 }
 
+export type HistoricalDataset =
+  | 'funding_rate'
+  | 'funding_basis'
+  | 'open_interest'
+  | 'options_volatility'
+  | 'trade_aggregate'
+  | 'liquidation_aggregate'
+  | 'macro'
+  | 'etf_flow'
+  | 'market_catalog';
+
+export interface HistoricalBackfillQueueMessage {
+  kind: 'history-backfill';
+  campaignId: string;
+  componentId: string;
+  taskId: string;
+  dataset: HistoricalDataset;
+  provider: string;
+  exchange?: SupportedExchange;
+  entity: string;
+  marketType?: 'spot' | 'perp';
+  resolution: string;
+  startTime: number;
+  endTime: number;
+  /** Internal marker added after the Queue delivery reserves the daily attempt budget. */
+  dailyAttemptReserved?: boolean;
+}
+
 /** One bounded, sequential archive partition for an asynchronous backtest. */
 export interface AsyncBacktestQueueMessage {
   kind: 'async-backtest';
@@ -269,6 +302,7 @@ export interface AlertDeliveryQueueMessage {
 /** Shared Queue payload union; legacy backfill payloads intentionally remain unchanged. */
 export type WorkerQueueMessage =
   | BackfillQueueMessage
+  | HistoricalBackfillQueueMessage
   | AsyncBacktestQueueMessage
   | AlertDeliveryQueueMessage;
 

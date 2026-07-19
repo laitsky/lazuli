@@ -1,8 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import { ErrorCode, ExchangeError, ValidationError } from '../errors';
+import { classifyCcxtError } from '../errors';
 import { isTransientExchangeError } from './ccxtService';
 
 describe('exchange transient error classification', () => {
+  test('preserves provider Retry-After metadata', () => {
+    const original = Object.assign(new Error('429 too many requests'), {
+      name: 'RateLimitExceeded',
+      headers: { 'Retry-After': '47' },
+    });
+    expect(classifyCcxtError(original, 'bybit').details?.retryAfterSeconds).toBe(47);
+  });
   test('treats timeout, rate limit, unavailable, and network exchange errors as transient', () => {
     expect(
       isTransientExchangeError(new ExchangeError(ErrorCode.EXCHANGE_TIMEOUT, 'timeout', 'bybit'))

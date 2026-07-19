@@ -13,6 +13,37 @@ export interface FaultInjectionRecord {
   updatedBy: string;
 }
 
+export async function getActiveFaultInjection(
+  env: Env,
+  target: FaultTarget
+): Promise<FaultInjectionRecord | null> {
+  if (env.ENVIRONMENT !== 'staging') return null;
+  const row = await env.DB.prepare(
+    `SELECT target, enabled, expires_at, config_json, change_id, updated_by
+     FROM staging_fault_injections WHERE target = ?`
+  )
+    .bind(target)
+    .first<{
+      target: FaultTarget;
+      enabled: number;
+      expires_at: number | null;
+      config_json: string;
+      change_id: string;
+      updated_by: string;
+    }>();
+  if (row?.enabled !== 1 || row.expires_at === null || row.expires_at <= Date.now() / 1_000) {
+    return null;
+  }
+  return {
+    target: row.target,
+    enabled: true,
+    expiresAt: row.expires_at * 1_000,
+    config: safeJson(row.config_json),
+    changeId: row.change_id,
+    updatedBy: row.updated_by,
+  };
+}
+
 export function requireFaultTarget(value: unknown): FaultTarget {
   if (typeof value !== 'string' || !TARGETS.has(value as FaultTarget)) {
     throw new ApiError(ErrorCode.VALIDATION_INVALID_PARAMETER, 'Invalid fault target', 400);
@@ -115,16 +146,12 @@ export async function listFaultInjections(env: Env): Promise<FaultInjectionRecor
 }
 
 export async function assertFaultNotInjected(env: Env, target: FaultTarget): Promise<void> {
-  if (env.ENVIRONMENT !== 'staging') return;
-  const row = await env.DB.prepare(
-    `SELECT enabled, expires_at FROM staging_fault_injections WHERE target = ?`
-  )
-    .bind(target)
-    .first<{ enabled: number; expires_at: number | null }>();
-  if (row?.enabled === 1 && row.expires_at !== null && row.expires_at > Date.now() / 1_000) {
+  const fault = await getActiveFaultInjection(env, target);
+  if (fault) {
     throw new ApiError(ErrorCode.INTERNAL_SERVICE_ERROR, `Staging ${target} fault injected`, 503, {
       faultInjected: true,
       target,
+      changeId: fault.changeId,
     });
   }
 }

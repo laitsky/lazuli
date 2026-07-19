@@ -268,11 +268,12 @@ export function exchangeTimeout(exchange: string, operation?: string): ExchangeE
 /**
  * Creates a rate limit exceeded error
  */
-export function rateLimitExceeded(exchange: string): ExchangeError {
+export function rateLimitExceeded(exchange: string, retryAfterSeconds?: number): ExchangeError {
   return new ExchangeError(
     ErrorCode.EXCHANGE_RATE_LIMIT,
     `Rate limit exceeded for exchange '${exchange}'. Please try again later.`,
-    exchange
+    exchange,
+    retryAfterSeconds === undefined ? undefined : { retryAfterSeconds }
   );
 }
 
@@ -554,7 +555,7 @@ export function classifyCcxtError(error: unknown, exchange: string): ExchangeErr
     errorMessage.includes('too many requests') ||
     errorMessage.includes('429')
   ) {
-    return rateLimitExceeded(exchange);
+    return rateLimitExceeded(exchange, extractRetryAfterSeconds(error));
   }
 
   // Timeout errors - CCXT throws RequestTimeout
@@ -626,6 +627,22 @@ export function classifyCcxtError(error: unknown, exchange: string): ExchangeErr
 
   // Default to generic exchange API error
   return exchangeApiError(exchange, error.message);
+}
+
+function extractRetryAfterSeconds(error: Error): number | undefined {
+  const record = error as Error & {
+    headers?: Record<string, unknown>;
+    responseHeaders?: Record<string, unknown>;
+  };
+  const headers = record.headers ?? record.responseHeaders;
+  if (!headers) return undefined;
+  const raw = Object.entries(headers).find(([key]) => key.toLowerCase() === 'retry-after')?.[1];
+  if (raw === undefined) return undefined;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds)) return Math.max(1, Math.ceil(seconds));
+  const date = Date.parse(String(raw));
+  if (!Number.isFinite(date)) return undefined;
+  return Math.max(1, Math.ceil((date - Date.now()) / 1_000));
 }
 
 /**

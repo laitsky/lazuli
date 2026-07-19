@@ -2763,6 +2763,195 @@ paths:
         default:
           $ref: '#/components/responses/InternalServerError'
 
+  /admin/backfill-campaigns:
+    post:
+      summary: Plan or start a full-history OHLCV backfill campaign
+      tags: [Admin]
+      security:
+        - AdminSignedRequest: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dryRun: { type: boolean, default: false }
+                exchanges:
+                  type: array
+                  items: { type: string, enum: [binance, bybit, okx, hyperliquid, upbit] }
+                types:
+                  type: array
+                  items: { type: string, enum: [spot, perp] }
+                timeframes:
+                  type: array
+                  items: { type: string, enum: [1m, 5m, 15m, 1h, 4h, 1d, 3d, 1w] }
+                startTime: { type: integer, format: int64 }
+                cutoffTime: { type: integer, format: int64 }
+                maxSymbolsPerExchange: { type: integer, minimum: 1, maximum: 5000 }
+      responses:
+        '200':
+          description: Frozen campaign plan or newly started campaign
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/backfill-campaigns/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, pattern: '^bfc_[A-Za-z0-9_:-]+$' }
+    get:
+      summary: Read campaign progress, provider circuits, and coverage gaps
+      tags: [Admin]
+      security:
+        - AdminSignedRequest: []
+      responses:
+        '200':
+          description: Campaign status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/backfill-campaigns/{id}/pause:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Pause campaign wave advancement
+      tags: [Admin]
+      security:
+        - AdminSignedRequest: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '200':
+          description: Paused campaign
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/backfill-campaigns/{id}/verification:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      summary: Verify campaign R2 objects and D1 checksums in bounded pages
+      tags: [Admin]
+      security:
+        - AdminSignedRequest: []
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 250, default: 100 }
+      responses:
+        '200':
+          description: Bounded verification page with one-percent full checksum sampling
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/backfill-campaigns/{id}/resume:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Resume campaign wave advancement
+      tags: [Admin]
+      security:
+        - AdminSignedRequest: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '200':
+          description: Resumed campaign
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/backfill-campaigns/{id}/cancel:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Cancel campaign and pending tasks
+      tags: [Admin]
+      security:
+        - AdminSignedRequest: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '200':
+          description: Cancelled campaign
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
+  /admin/backfill-campaigns/{id}/retry-gaps:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      summary: Re-plan and retry campaign gaps
+      tags: [Admin]
+      security:
+        - AdminSignedRequest: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '200':
+          description: Campaign with gap repair started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiSuccessResponse'
+        default:
+          $ref: '#/components/responses/InternalServerError'
+
   /openapi.json:
     get:
       summary: Get /openapi.json
@@ -2777,6 +2966,204 @@ paths:
               $ref: '#/components/schemas/ApiSuccessResponse'
         default:
           $ref: '#/components/responses/InternalServerError'
+  /funding/history/{exchange}/{symbol}:
+    parameters: &historyMarketParameters
+      - { name: exchange, in: path, required: true, schema: { type: string } }
+      - { name: symbol, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Read archived funding-rate history
+      tags: [Funding]
+      responses:
+        '200': &historyReadResponse
+          description: Canonical archived observations
+          content:
+            { application/json: { schema: { $ref: '#/components/schemas/ApiSuccessResponse' } } }
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /open-interest/history/{exchange}/{symbol}:
+    parameters:
+      - { name: exchange, in: path, required: true, schema: { type: string } }
+      - { name: symbol, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Read archived open-interest history
+      tags: [Market Intelligence]
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /orderflow/history/{exchange}/{symbol}:
+    parameters:
+      - { name: exchange, in: path, required: true, schema: { type: string } }
+      - { name: symbol, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Read archived hourly trade aggregates
+      tags: [Market Intelligence]
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /liquidations/history/{exchange}/{symbol}:
+    parameters:
+      - { name: exchange, in: path, required: true, schema: { type: string } }
+      - { name: symbol, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Read archived hourly liquidation aggregates
+      tags: [Market Intelligence]
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /admin/history-campaigns:
+    post:
+      summary: Plan or start a multi-dataset history campaign
+      tags: [Admin]
+      security: [{ AdminSignedRequest: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dryRun: { type: boolean }
+                datasets:
+                  type: array
+                  items:
+                    {
+                      type: string,
+                      enum:
+                        [
+                          funding_rate,
+                          funding_basis,
+                          open_interest,
+                          options_volatility,
+                          trade_aggregate,
+                          liquidation_aggregate,
+                          macro,
+                          etf_flow,
+                          market_catalog,
+                        ],
+                    }
+                exchanges:
+                  type: array
+                  items: { type: string, enum: [binance, bybit, okx, hyperliquid, upbit] }
+                symbols:
+                  type: array
+                  items: { type: string }
+                types:
+                  type: array
+                  items: { type: string, enum: [spot, perp] }
+                assets:
+                  type: array
+                  items: { type: string, enum: [BTC, ETH] }
+                startTime: { type: integer, format: int64 }
+                cutoffTime: { type: integer, format: int64 }
+                maxSymbolsPerExchange: { type: integer, minimum: 1, maximum: 5000 }
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /admin/history-refresh:
+    get:
+      summary: Read the latest bounded daily historical refresh state
+      tags: [Admin]
+      security: [{ AdminSignedRequest: [] }]
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /admin/history-refresh/run:
+    post:
+      summary: Idempotently start the current UTC daily historical refresh
+      tags: [Admin]
+      security: [{ AdminSignedRequest: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /admin/history-campaigns/{id}:
+    parameters: &historyCampaignId
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Read multi-dataset campaign progress and gaps
+      tags: [Admin]
+      security: [{ AdminSignedRequest: [] }]
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /admin/history-campaigns/{id}/verification:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: Verify campaign archive objects and checksums
+      tags: [Admin]
+      security: [{ AdminSignedRequest: [] }]
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /admin/history-campaigns/{id}/pause:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Control a multi-dataset history campaign
+      tags: [Admin]
+      security: [{ AdminSignedRequest: [] }]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, additionalProperties: false } } }
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /admin/history-campaigns/{id}/resume:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Resume a multi-dataset history campaign
+      tags: [Admin]
+      security: [{ AdminSignedRequest: [] }]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, additionalProperties: false } } }
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /admin/history-campaigns/{id}/cancel:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Cancel a multi-dataset history campaign
+      tags: [Admin]
+      security: [{ AdminSignedRequest: [] }]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, additionalProperties: false } } }
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
+  /admin/history-campaigns/{id}/retry-gaps:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Retry declared multi-dataset history gaps
+      tags: [Admin]
+      security: [{ AdminSignedRequest: [] }]
+      requestBody:
+        required: false
+        content: { application/json: { schema: { type: object, additionalProperties: false } } }
+      responses:
+        '200': *historyReadResponse
+        default: { $ref: '#/components/responses/InternalServerError' }
+
 components:
   securitySchemes:
     AdminSignedRequest:
