@@ -46,20 +46,20 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/postcss": "^4.3.1",
-    "@types/node": "^20.19.43",
-    "@types/react": "^18.3.31",
-    "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@types/node": "^26.1.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
     "eslint": "^9.39.4",
-    "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.26",
-    "globals": "^15.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
     "tailwindcss": "^4.3.1",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.61.1",
-    "vite": "^6.4.3",
+    "vite": "^8.1.5",
     "wrangler": "^4.103.0"
   }
 }

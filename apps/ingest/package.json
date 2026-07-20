@@ -21,9 +21,9 @@
     "@lazuli/shared": "*"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260711.1",
+    "@cloudflare/workers-types": "5.20260719.1",
     "@types/bun": "^1.2.19",
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "wrangler": "^4.103.0"
   }
 }
