@@ -34,12 +34,12 @@
   "devDependencies": {
     "@lazuli/eslint-config": "*",
     "@lazuli/typescript-config": "*",
-    "eslint": "^9.39.4",
+    "eslint": "^10.7.0",
     "typescript": "^5.9.3",
     "wrangler": "^4.103.0"
   },
   "dependencies": {
-    "@hono/zod-validator": "^0.8.0",
+    "@hono/zod-validator": "^0.9.0",
     "@lazuli/shared": "*",
     "@simplewebauthn/server": "^13.3.2",
     "ccxt": "^4.5.59",
