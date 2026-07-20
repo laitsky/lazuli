@@ -28,13 +28,19 @@ import type {
   FundingArbitrageResponse,
   HealthResponse,
   InstitutionalAsset,
+  InstitutionalConfluenceResponse,
   InstitutionalRange,
   IndexPerformancePoint,
   LiquidationRadarResponse,
   LiquidationPrint,
   Market,
   MarketsResponse,
+  MarketReplay,
   OHLCVResponse,
+  Opportunity,
+  OpportunityHorizon,
+  OpportunityKind,
+  OpportunityListResponse,
   OrderBook,
   OrderBookResponse,
   OrderFlowResponse,
@@ -63,6 +69,7 @@ import type {
   BackfillWorkflowParams,
   Env,
   OHLCV,
+  OpportunityOutcomeQueueMessage,
   WorkerQueueMessage,
 } from './types';
 import {
@@ -119,6 +126,7 @@ import {
   requireAdminRequest,
   requireProductionCors,
   resolveCorsOrigin,
+  trustedCookieWriteOrigin,
 } from './utils/security';
 import { verifyOpsReadSecret } from './utils/opsAuth';
 import { ccxtService } from './services/ccxtService';
@@ -264,6 +272,34 @@ import {
   type VerifyPasskeyRegistrationInput,
 } from './services/growthRetentionService';
 import {
+  buildConvictionOpportunities,
+  buildMarketReplay,
+  hydrateOpportunityCalibrations,
+  enqueueDueOpportunityOutcomes,
+  enrichOpportunityOpenInterest,
+  markOpportunityOutcomeCoverageFailure,
+  marketReplayNeedsRefresh,
+  persistMarketReplay,
+  persistOpportunities,
+  readMarketReplay,
+  readOpportunityEvent,
+  readPendingOpportunityOutcome,
+  readRecentOpportunityEvents,
+  rebuildCalibrationArtifacts,
+  resolveOpportunityOutcome,
+  validateOutcomeCandleCoverage,
+} from './services/convictionEngineService';
+import {
+  createSignalRecipe,
+  createSignalRecipeVersion,
+  deleteSignalRecipe,
+  evaluateActiveSignalRecipes,
+  listSignalRecipes,
+  updateSignalRecipe,
+  type SignalRecipeInput,
+  type SignalRecipeUpdate,
+} from './services/signalRecipeService';
+import {
   isReleaseControlFlag,
   isReleaseControlState,
   listReleaseControlAudit,
@@ -329,7 +365,16 @@ const latencyD1SampleTimes = new Map<string, number>();
 
 const SESSION_COOKIE = 'lazuli_session';
 
-const app = new Hono<{ Bindings: Env }>();
+type AppContextEnv = {
+  Bindings: Env;
+  Variables: { sessionAuthorization: string };
+};
+
+const app = new Hono<AppContextEnv>();
+
+function requestAuthorization(c: Context<AppContextEnv>): string | null {
+  return c.req.header('Authorization') ?? c.get('sessionAuthorization') ?? null;
+}
 
 app.use('*', async (c, next) => {
   const startedAt = Date.now();
@@ -392,7 +437,19 @@ app.use('/api/v1/*', async (c, next) => {
   if (!explicitAuthorization && cookieToken) {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method)) {
       const origin = c.req.header('Origin');
-      if (!origin || !resolveCorsOrigin(origin, c.env)) {
+      const fetchSite = c.req.header('Sec-Fetch-Site');
+      const sameOriginProxy = c.req.header('X-Lazuli-Same-Origin-Proxy');
+      if (!trustedCookieWriteOrigin(origin, fetchSite, c.env, sameOriginProxy)) {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            module: 'security',
+            msg: 'cookie-authenticated write rejected by origin policy',
+            origin: origin ?? null,
+            fetchSite: fetchSite ?? null,
+            sameOriginProxy: sameOriginProxy ?? null,
+          })
+        );
         return c.json(
           {
             success: false,
@@ -404,7 +461,7 @@ app.use('/api/v1/*', async (c, next) => {
         );
       }
     }
-    c.req.raw.headers.set('Authorization', `Bearer ${cookieToken}`);
+    c.set('sessionAuthorization', `Bearer ${cookieToken}`);
   }
   return next();
 });
@@ -437,6 +494,11 @@ app.use('/api/v1/me/alerts/evaluate', async (c, next) => {
   }
   return next();
 });
+
+app.use('/api/v1/opportunities', requireConvictionEngine);
+app.use('/api/v1/opportunities/*', requireConvictionEngine);
+app.use('/api/v1/me/signal-recipes', requireConvictionEngine);
+app.use('/api/v1/me/signal-recipes/*', requireConvictionEngine);
 
 app.use('/api/v1/me', requireAccountFeatures);
 app.use('/api/v1/me/*', requireAccountFeatures);
@@ -482,7 +544,7 @@ app.get('/', (c) => c.redirect('/api/v1/docs'));
 
 app.get('/health', async (c) => ok(c, buildPublicHealth()));
 
-const handleRealtimeSocket = async (c: Context<{ Bindings: Env }>): Promise<Response> => {
+const handleRealtimeSocket = async (c: Context<AppContextEnv>): Promise<Response> => {
   if (!c.env.REALTIME_HUB) {
     return c.json(
       {
@@ -691,20 +753,23 @@ app.post('/internal/metrics/event', async (c) => {
   return ok(c, { accepted: true });
 });
 
-const api = new Hono<{ Bindings: Env }>();
+const api = new Hono<AppContextEnv>();
 
 api.get('/ws', handleRealtimeSocket);
 
 api.post('/realtime/token', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const body = await readJsonRecord(c.req.raw);
   const requested = Array.isArray(body.topics)
     ? body.topics.filter((topic): topic is string => typeof topic === 'string')
-    : [`alerts:user:${user.id}`];
-  const allowed = new Set([`alerts:user:${user.id}`]);
+    : [`alerts:user:${user.id}`, `recipes:user:${user.id}`];
+  const allowed = new Set([`alerts:user:${user.id}`, `recipes:user:${user.id}`]);
   const topics = requested.map((topic) => sanitizeRealtimeTopic(topic)).filter(Boolean) as string[];
   if (topics.length === 0 || topics.some((topic) => !allowed.has(topic))) {
-    throw invalidParameter('topics', 'Only the current user alert topic may be requested');
+    throw invalidParameter(
+      'topics',
+      'Only the current user alert and signal-recipe topics may be requested'
+    );
   }
   return ok(c, await createRealtimeToken(c.env, user.id, topics));
 });
@@ -1705,7 +1770,7 @@ api.post('/backtest/:exchange/:symbol', async (c) => {
 });
 
 api.post('/backtests/jobs', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const body = await readJsonRecord(c.req.raw);
   const request = parseAsyncBacktestJobRequest(body);
   const idempotencyKey = (c.req.header('Idempotency-Key') ?? request.idempotencyKey)?.trim();
@@ -1728,7 +1793,7 @@ api.post('/backtests/jobs', async (c) => {
 });
 
 api.get('/backtests/jobs/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const job = await getAsyncBacktestJob(c.env, user.id, c.req.param('id'));
   if (!job) {
     throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Backtest job not found', 'backtest job');
@@ -1737,7 +1802,7 @@ api.get('/backtests/jobs/:id', async (c) => {
 });
 
 api.post('/backtests/jobs/:id/cancel', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const job = await cancelAsyncBacktestJob(c.env, user.id, c.req.param('id'));
   if (!job) {
     throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Backtest job not found', 'backtest job');
@@ -1746,7 +1811,7 @@ api.post('/backtests/jobs/:id/cancel', async (c) => {
 });
 
 api.get('/backtests/jobs/:id/result', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const object = await getAsyncBacktestResultObject(c.env, user.id, c.req.param('id'));
   if (!object) {
     throw new NotFoundError(
@@ -1785,12 +1850,12 @@ api.post('/auth/magic-link/verify', async (c) => {
 });
 
 api.post('/auth/passkeys/registration/options', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await createPasskeyRegistrationOptions(c.env, user));
 });
 
 api.post('/auth/passkeys/registration/verify', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const body = await readJsonRecord(c.req.raw);
   return ok(c, await verifyPasskeyRegistration(c.env, user, parsePasskeyRegistrationInput(body)));
 });
@@ -1811,33 +1876,33 @@ api.post('/auth/passkeys/authentication/verify', async (c) => {
 });
 
 api.get('/me', async (c) => {
-  const authorization = c.req.header('Authorization') ?? null;
+  const authorization = requestAuthorization(c);
   return ok(c, authorization ? await requireUser(c.env, authorization) : null);
 });
 
 api.post('/auth/logout', async (c) => {
-  const result = await revokeSession(c.env, c.req.header('Authorization') ?? null);
+  const result = await revokeSession(c.env, requestAuthorization(c));
   deleteCookie(c, SESSION_COOKIE, { path: '/' });
   return ok(c, result);
 });
 
 api.get('/me/passkeys', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await listPasskeys(c.env, user.id));
 });
 
 api.delete('/me/passkeys/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await deletePasskey(c.env, user.id, c.req.param('id')));
 });
 
 api.get('/me/workspaces', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await listWorkspaces(c.env, user.id));
 });
 
 api.post('/me/workspaces', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(
     c,
     await saveWorkspace(c.env, user.id, parseWorkspaceInput(await readJsonRecord(c.req.raw)))
@@ -1845,17 +1910,17 @@ api.post('/me/workspaces', async (c) => {
 });
 
 api.delete('/me/workspaces/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await deleteWorkspace(c.env, user.id, c.req.param('id')));
 });
 
 api.get('/me/watchlists', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await listWatchlists(c.env, user.id));
 });
 
 api.post('/me/watchlists', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(
     c,
     await saveWatchlist(c.env, user.id, parseWatchlistInput(await readJsonRecord(c.req.raw)))
@@ -1863,17 +1928,17 @@ api.post('/me/watchlists', async (c) => {
 });
 
 api.delete('/me/watchlists/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await deleteWatchlist(c.env, user.id, c.req.param('id')));
 });
 
 api.get('/me/backtests', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await listSavedBacktests(c.env, user.id));
 });
 
 api.post('/me/backtests', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(
     c,
     await saveBacktest(c.env, user.id, parseSavedBacktestInput(await readJsonRecord(c.req.raw)))
@@ -1881,17 +1946,17 @@ api.post('/me/backtests', async (c) => {
 });
 
 api.delete('/me/backtests/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await deleteSavedBacktest(c.env, user.id, c.req.param('id')));
 });
 
 api.get('/me/signal-strategies', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await listSignalLabStrategies(c.env, user.id));
 });
 
 api.post('/me/signal-strategies', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const body = await readJsonRecord(c.req.raw);
   const input = parseSignalLabStrategyInput(body);
   const latestBacktest =
@@ -1906,7 +1971,7 @@ api.post('/me/signal-strategies', async (c) => {
 });
 
 api.post('/me/signal-strategies/:id/versions', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const body = await readJsonRecord(c.req.raw);
   const input = parseSignalLabStrategyInput(body);
   const latestBacktest =
@@ -1921,7 +1986,7 @@ api.post('/me/signal-strategies/:id/versions', async (c) => {
 });
 
 api.post('/me/signal-strategies/:id/backtest', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const body = await readJsonRecord(c.req.raw);
   const input = parseSignalLabStrategyInput(body);
   const latestBacktest = await runSignalLabBacktest(c.env, input);
@@ -1932,17 +1997,17 @@ api.post('/me/signal-strategies/:id/backtest', async (c) => {
 });
 
 api.delete('/me/signal-strategies/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await deleteSignalLabStrategy(c.env, user.id, c.req.param('id')));
 });
 
 api.get('/me/alerts', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await listPriceAlerts(c.env, user.id));
 });
 
 api.post('/me/alerts', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   let created;
   try {
     created = await createPriceAlert(
@@ -1961,23 +2026,23 @@ api.post('/me/alerts', async (c) => {
 });
 
 api.delete('/me/alerts/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const id = validateInteger(c.req.param('id'), 0, 1, Number.MAX_SAFE_INTEGER);
   return ok(c, await deletePriceAlert(c.env, user.id, id));
 });
 
 api.post('/me/alerts/evaluate', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await evaluateUserAlerts(c.env, user.id));
 });
 
 api.get('/me/notification-channels', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await listNotificationChannels(c.env, user.id));
 });
 
 api.post('/me/notification-channels', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const input = parseNotificationChannelInput(await readJsonRecord(c.req.raw), false);
   try {
     return ok(c, await createNotificationChannel(c.env, user.id, input));
@@ -1987,7 +2052,7 @@ api.post('/me/notification-channels', async (c) => {
 });
 
 api.patch('/me/notification-channels/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const input = parseNotificationChannelInput(await readJsonRecord(c.req.raw), true);
   try {
     const channel = await updateNotificationChannel(c.env, user.id, c.req.param('id'), input);
@@ -2006,28 +2071,28 @@ api.patch('/me/notification-channels/:id', async (c) => {
 });
 
 api.delete('/me/notification-channels/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await deleteNotificationChannel(c.env, user.id, c.req.param('id')));
 });
 
 api.get('/me/alert-deliveries', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const limit = validateInteger(c.req.query('limit'), 100, 1, 250);
   return ok(c, await listNotificationDeliveryAttempts(c.env, user.id, limit));
 });
 
 api.post('/me/alert-deliveries/:id/retry', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await retryNotificationDelivery(c.env, user.id, c.req.param('id')));
 });
 
 api.get('/me/api-keys', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await listApiKeys(c.env, user.id));
 });
 
 api.post('/me/api-keys', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   const body = await readJsonRecord(c.req.raw);
   const scopes = Array.isArray(body.scopes)
     ? body.scopes.filter((scope): scope is string => typeof scope === 'string')
@@ -2038,8 +2103,138 @@ api.post('/me/api-keys', async (c) => {
 });
 
 api.delete('/me/api-keys/:id', async (c) => {
-  const user = await requireUser(c.env, c.req.header('Authorization') ?? null);
+  const user = await requireUser(c.env, requestAuthorization(c));
   return ok(c, await revokeApiKey(c.env, user.id, c.req.param('id')));
+});
+
+api.get('/opportunities', async (c) => {
+  const exchange = requireExchange(c.req.query('exchange') ?? 'bybit');
+  const marketType = parseOpportunityMarketType(c.req.query('marketType'));
+  const horizon = parseOpportunityHorizon(c.req.query('horizon'));
+  const kind = parseOpportunityKind(c.req.query('kind'));
+  const symbol = c.req.query('symbol')?.trim().toUpperCase() || null;
+  const minScore = readBoundedNumber(c.req.query(), 'minScore', 0, 0, 100);
+  const limit = validateInteger(c.req.query('limit'), 12, 1, 50);
+  const response = await buildOpportunityBoard(c.env, {
+    exchange,
+    marketType,
+    horizon,
+    kind,
+    symbol,
+    minScore,
+    limit,
+  });
+  return ok(c, response, { source: 'live-cache+d1', deterministic: true });
+});
+
+api.get('/opportunities/:id/calibration', async (c) => {
+  const opportunity = await readOpportunityEvent(c.env, decodeURIComponent(c.req.param('id')));
+  if (!opportunity) {
+    throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Opportunity was not found', 'opportunity');
+  }
+  return ok(c, opportunity.calibration, { source: 'walk-forward-outcomes' });
+});
+
+api.get('/opportunities/:id', async (c) => {
+  const opportunity = await readOpportunityEvent(c.env, decodeURIComponent(c.req.param('id')));
+  if (!opportunity) {
+    throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Opportunity was not found', 'opportunity');
+  }
+  return ok(c, opportunity, { source: 'immutable-event+d1' });
+});
+
+api.get('/replays/:id', async (c) => {
+  const id = decodeURIComponent(c.req.param('id'));
+  const window = parseReplayWindow(c.req.query('window'));
+  const persisted = await readMarketReplay(c.env, id, window);
+  if (persisted && persisted.window === window && !marketReplayNeedsRefresh(persisted)) {
+    return ok(c, persisted, { source: 'r2+d1' });
+  }
+  const opportunityId = id.startsWith('replay:') ? `opp:${id.slice('replay:'.length)}` : null;
+  const opportunity = opportunityId ? await readOpportunityEvent(c.env, opportunityId) : null;
+  if (!opportunity) {
+    throw new NotFoundError(
+      ErrorCode.NOT_FOUND_DATA,
+      'Market replay was not found',
+      'market replay'
+    );
+  }
+  const windowMs =
+    window === '1h' ? 60 * 60_000 : window === '6h' ? 6 * 60 * 60_000 : 24 * 60 * 60_000;
+  const timeframe: Timeframe = window === '1h' ? '1m' : window === '6h' ? '5m' : '15m';
+  const candles =
+    opportunity.exchange === 'cross'
+      ? []
+      : (
+          await loadOhlcv(c.env, opportunity.exchange, opportunity.symbol, {
+            timeframe,
+            type: opportunity.marketType,
+            limit: 400,
+            since: opportunity.createdAt - Math.floor(windowMs / 2),
+            until: opportunity.createdAt + Math.floor(windowMs / 2),
+          }).catch(() => ({ candles: [] as OHLCV[] }))
+        ).candles;
+  const replay = await buildMarketReplay(c.env, opportunity, window, candles);
+  c.executionCtx.waitUntil(persistMarketReplay(c.env, replay));
+  return ok(c, replay, { source: 'derived-rollups+immutable-event' });
+});
+
+api.get('/me/signal-recipes', async (c) => {
+  const user = await requireUser(c.env, requestAuthorization(c));
+  return ok(c, await listSignalRecipes(c.env, user.id));
+});
+
+api.post('/me/signal-recipes', async (c) => {
+  const user = await requireUser(c.env, requestAuthorization(c));
+  const input = parseSignalRecipeInput(await readJsonRecord(c.req.raw));
+  const idempotencyKey = parseOptionalIdempotencyKey(c.req.header('Idempotency-Key'));
+  try {
+    return ok(c, await createSignalRecipe(c.env, user.id, input, idempotencyKey));
+  } catch (error) {
+    throw invalidParameter('signalRecipe', error instanceof Error ? error.message : String(error));
+  }
+});
+
+api.post('/me/signal-recipes/:id/versions', async (c) => {
+  const user = await requireUser(c.env, requestAuthorization(c));
+  const input = parseSignalRecipeInput(await readJsonRecord(c.req.raw));
+  const idempotencyKey = parseOptionalIdempotencyKey(c.req.header('Idempotency-Key'));
+  let recipe;
+  try {
+    recipe = await createSignalRecipeVersion(
+      c.env,
+      user.id,
+      c.req.param('id'),
+      input,
+      idempotencyKey
+    );
+  } catch (error) {
+    throw invalidParameter('signalRecipe', error instanceof Error ? error.message : String(error));
+  }
+  if (!recipe) {
+    throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Signal recipe not found', 'signal recipe');
+  }
+  return ok(c, recipe);
+});
+
+api.patch('/me/signal-recipes/:id', async (c) => {
+  const user = await requireUser(c.env, requestAuthorization(c));
+  const update = parseSignalRecipeUpdate(await readJsonRecord(c.req.raw));
+  let recipe;
+  try {
+    recipe = await updateSignalRecipe(c.env, user.id, c.req.param('id'), update);
+  } catch (error) {
+    throw invalidParameter('signalRecipe', error instanceof Error ? error.message : String(error));
+  }
+  if (!recipe) {
+    throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Signal recipe not found', 'signal recipe');
+  }
+  return ok(c, recipe);
+});
+
+api.delete('/me/signal-recipes/:id', async (c) => {
+  const user = await requireUser(c.env, requestAuthorization(c));
+  return ok(c, await deleteSignalRecipe(c.env, user.id, c.req.param('id')));
 });
 
 api.get('/alpha-feed', async (c) => {
@@ -2050,7 +2245,9 @@ api.get('/alpha-feed', async (c) => {
 
 api.get('/alpha-feed/:id', async (c) => {
   const item = await readAlphaFeedEvent(c.env, decodeURIComponent(c.req.param('id')));
-  if (!item) throw invalidParameter('id', 'Alpha Feed event was not found');
+  if (!item) {
+    throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Alpha Feed event was not found', 'signal');
+  }
   return ok(c, item, { source: 'd1' });
 });
 
@@ -2130,6 +2327,35 @@ api.get('/snapshots/signal/:id/og.png', async (c) => {
       'Content-Type': 'image/png',
       'Cache-Control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=3600',
       'Content-Disposition': `inline; filename="${slugify(item.id)}.png"`,
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
+});
+
+api.get('/snapshots/replay/:id/og.png', async (c) => {
+  const id = decodeURIComponent(c.req.param('id'));
+  const replay = await readMarketReplay(c.env, id);
+  const opportunityId = id.startsWith('replay:') ? `opp:${id.slice('replay:'.length)}` : null;
+  const opportunity = replay
+    ? await readOpportunityEvent(c.env, replay.opportunityId)
+    : opportunityId
+      ? await readOpportunityEvent(c.env, opportunityId)
+      : null;
+  if (!opportunity) {
+    throw new NotFoundError(ErrorCode.NOT_FOUND_DATA, 'Replay was not found', 'market replay');
+  }
+  const change = opportunity.evidence.find((item) => item.metric === 'price_return');
+  const png = await renderMarketOgPng({
+    symbol: opportunity.symbol,
+    exchange: `${opportunity.exchange} ${opportunity.horizon} replay`,
+    price: opportunity.trigger.price,
+    changePercent: typeof change?.value === 'number' ? change.value : null,
+  });
+  return new Response(png, {
+    headers: {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=300, s-maxage=300, stale-while-revalidate=3600',
+      'Content-Disposition': `inline; filename="${slugify(id)}.png"`,
       'X-Content-Type-Options': 'nosniff',
     },
   });
@@ -2549,6 +2775,73 @@ export default {
         }
         continue;
       }
+      if (isOpportunityOutcomeQueueMessage(message.body)) {
+        try {
+          await assertFaultNotInjected(env, 'queue');
+          await assertFaultNotInjected(env, 'd1');
+          await assertFaultNotInjected(env, 'r2');
+          const outcome = await readPendingOpportunityOutcome(env, message.body.opportunityId);
+          if (!outcome) {
+            message.ack();
+            continue;
+          }
+          if (outcome.exchange === 'cross') {
+            throw new Error('Cross-exchange outcomes require paired execution coverage');
+          }
+          const horizonMs =
+            outcome.horizon === '1h'
+              ? 60 * 60_000
+              : outcome.horizon === '6h'
+                ? 6 * 60 * 60_000
+                : 24 * 60 * 60_000;
+          const startTime = outcome.created_at * 1000;
+          const endTime = startTime + horizonMs;
+          const timeframe: Timeframe =
+            outcome.horizon === '1h' ? '5m' : outcome.horizon === '6h' ? '15m' : '1h';
+          const timeframeMs =
+            timeframe === '5m' ? 5 * 60_000 : timeframe === '15m' ? 15 * 60_000 : 60 * 60_000;
+          const { candles } = await loadOhlcv(env, outcome.exchange, outcome.symbol, {
+            timeframe,
+            type: outcome.market_type,
+            limit: 400,
+            since: startTime,
+            until: endTime,
+          });
+          const coverage = validateOutcomeCandleCoverage(candles, startTime, endTime, timeframeMs);
+          const covered = coverage.covered;
+          const exit = covered.at(-1)?.close;
+          if (!coverage.complete || exit === undefined) {
+            throw new Error(coverage.reason ?? 'Walk-forward candle coverage is incomplete');
+          }
+          const resolved = await resolveOpportunityOutcome(env, outcome, exit, endTime, {
+            high: Math.max(...covered.map((candle) => candle.high)),
+            low: Math.min(...covered.map((candle) => candle.low)),
+          });
+          if (!resolved) throw new Error('Opportunity outcome was not resolved');
+          message.ack();
+        } catch (error) {
+          console.warn(
+            JSON.stringify({
+              level: 'warn',
+              module: 'conviction-engine',
+              msg: 'opportunity outcome resolution failed',
+              opportunityId: message.body.opportunityId,
+              error: error instanceof Error ? error.message : String(error),
+            })
+          );
+          if (message.attempts >= 5) {
+            await markOpportunityOutcomeCoverageFailure(
+              env,
+              message.body.opportunityId,
+              error instanceof Error ? error.message : String(error)
+            );
+            message.ack();
+          } else {
+            message.retry({ delaySeconds: queueRetryDelaySeconds(message.attempts) });
+          }
+        }
+        continue;
+      }
       if (isAsyncBacktestQueueMessage(message.body)) {
         try {
           await assertFaultNotInjected(env, 'queue');
@@ -2662,7 +2955,7 @@ function sanitizeRealtimeTopic(value: string | undefined): string | null {
 }
 
 function isPrivateRealtimeTopic(topic: string): boolean {
-  return topic.startsWith('alerts:user:');
+  return topic.startsWith('alerts:user:') || topic.startsWith('recipes:user:');
 }
 
 function sanitizeMetricDimensions(value: unknown): Record<string, string> {
@@ -2694,6 +2987,7 @@ const REALTIME_PUBLIC_CHANNELS = new Set<RealtimePublicChannel>([
   'orderbook',
   'funding',
   'open-interest',
+  'opportunities',
 ]);
 
 function normalizeRealtimeIngestEvent(
@@ -3308,7 +3602,7 @@ function stableSample(value: string, every: number): boolean {
 }
 
 async function requireAccountFeatures(
-  c: Context<{ Bindings: Env }>,
+  c: Context<AppContextEnv>,
   next: Next
 ): Promise<Response | void> {
   if (!(await releaseControlEnabled(c.env, 'accounts', releaseContext(c)))) {
@@ -3317,8 +3611,43 @@ async function requireAccountFeatures(
   return next();
 }
 
+async function requireConvictionEngine(
+  c: Context<AppContextEnv>,
+  next: Next
+): Promise<Response | void> {
+  const percentage = convictionEngineRolloutPercentage(c.env);
+  const identity =
+    getCookie(c, 'lazuli_anon_subject') ?? c.req.header('CF-Connecting-IP') ?? 'anonymous';
+  if (
+    percentage <= 0 ||
+    (percentage < 100 && rolloutBucket(`conviction:${identity}`) >= percentage)
+  ) {
+    return featureDisabled(c, 'The Conviction Engine is outside this rollout cohort');
+  }
+  return next();
+}
+
+function convictionEngineRolloutPercentage(
+  env: Pick<Env, 'ENVIRONMENT' | 'CONVICTION_ENGINE_ROLLOUT_PERCENT'>
+): number {
+  const fallback = env.ENVIRONMENT === 'local' || env.ENVIRONMENT === undefined ? 100 : 10;
+  const configured = Number(env.CONVICTION_ENGINE_ROLLOUT_PERCENT ?? fallback);
+  return Number.isFinite(configured)
+    ? Math.max(0, Math.min(100, Math.floor(configured)))
+    : fallback;
+}
+
+function rolloutBucket(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % 100;
+}
+
 async function requireAsyncBacktests(
-  c: Context<{ Bindings: Env }>,
+  c: Context<AppContextEnv>,
   next: Next
 ): Promise<Response | void> {
   if (!(await releaseControlEnabled(c.env, 'async_backtests', releaseContext(c)))) {
@@ -3327,7 +3656,7 @@ async function requireAsyncBacktests(
   return next();
 }
 
-async function requireAlerts(c: Context<{ Bindings: Env }>, next: Next): Promise<Response | void> {
+async function requireAlerts(c: Context<AppContextEnv>, next: Next): Promise<Response | void> {
   if (!(await releaseControlEnabled(c.env, 'alerts', releaseContext(c)))) {
     return featureDisabled(c, 'Alerts are temporarily disabled');
   }
@@ -3335,7 +3664,7 @@ async function requireAlerts(c: Context<{ Bindings: Env }>, next: Next): Promise
 }
 
 async function requireDeliveryChannels(
-  c: Context<{ Bindings: Env }>,
+  c: Context<AppContextEnv>,
   next: Next
 ): Promise<Response | void> {
   if (!(await releaseControlEnabled(c.env, 'delivery_channels', releaseContext(c)))) {
@@ -3344,9 +3673,9 @@ async function requireDeliveryChannels(
   return next();
 }
 
-function releaseContext(c: Context<{ Bindings: Env }>) {
+function releaseContext(c: Context<AppContextEnv>) {
   return {
-    authorization: c.req.header('Authorization') ?? null,
+    authorization: requestAuthorization(c),
     signedAnonymousSubject: getCookie(c, 'lazuli_anon_subject') ?? null,
   };
 }
@@ -3357,6 +3686,9 @@ function routeFaultTargets(method: string, path: string): Array<'d1' | 'r2' | 'q
   if (
     path.startsWith('/api/v1/auth/') ||
     path.startsWith('/api/v1/me') ||
+    path.startsWith('/api/v1/opportunities') ||
+    path.startsWith('/api/v1/replays') ||
+    path.startsWith('/api/v1/snapshots/replay') ||
     path.startsWith('/api/v1/alpha-feed') ||
     path.startsWith('/api/v1/admin/metrics') ||
     path.startsWith('/api/v1/admin/observability') ||
@@ -3365,7 +3697,12 @@ function routeFaultTargets(method: string, path: string): Array<'d1' | 'r2' | 'q
   ) {
     targets.add('d1');
   }
-  if (path.startsWith('/api/v1/ohlcv/') || path.startsWith('/api/v1/backtests/')) {
+  if (
+    path.startsWith('/api/v1/ohlcv/') ||
+    path.startsWith('/api/v1/backtests/') ||
+    path.startsWith('/api/v1/replays') ||
+    path.startsWith('/api/v1/snapshots/replay')
+  ) {
     targets.add('r2');
   }
   if (
@@ -3379,7 +3716,7 @@ function routeFaultTargets(method: string, path: string): Array<'d1' | 'r2' | 'q
   return [...targets];
 }
 
-function featureDisabled(c: Context<{ Bindings: Env }>, message: string): Response {
+function featureDisabled(c: Context<AppContextEnv>, message: string): Response {
   return c.json(featureDisabledEnvelope(message), 503);
 }
 
@@ -4403,6 +4740,12 @@ function isAlertDeliveryQueueMessage(
   return 'kind' in message && message.kind === 'alert-delivery';
 }
 
+function isOpportunityOutcomeQueueMessage(
+  message: WorkerQueueMessage
+): message is OpportunityOutcomeQueueMessage {
+  return 'kind' in message && message.kind === 'opportunity-outcome';
+}
+
 function readString(value: unknown, key: string): string | undefined {
   if (!isRecord(value)) return undefined;
   const raw = value[key];
@@ -4456,6 +4799,18 @@ function readRequiredString(value: Record<string, unknown>, key: string): string
   return raw.trim();
 }
 
+function parseOptionalIdempotencyKey(value: string | undefined): string | null {
+  if (value === undefined) return null;
+  const key = value.trim();
+  if (key.length < 8 || key.length > 200 || !/^[a-zA-Z0-9._:-]+$/.test(key)) {
+    throw invalidParameter(
+      'Idempotency-Key',
+      'Idempotency-Key must contain 8 to 200 URL-safe characters'
+    );
+  }
+  return key;
+}
+
 function readRequiredRevision(value: Record<string, unknown>, key: string): number {
   const revision = value[key];
   if (typeof revision !== 'number' || !Number.isSafeInteger(revision) || revision < 0) {
@@ -4477,7 +4832,7 @@ function readReleaseControlAllowlist(
 }
 
 function setSessionCookie(
-  c: Context<{ Bindings: Env }>,
+  c: Context<AppContextEnv>,
   sessionToken: string,
   expiresAt: number
 ): void {
@@ -4491,7 +4846,7 @@ function setSessionCookie(
 }
 
 function sessionResponseForRequest(
-  c: Context<{ Bindings: Env }>,
+  c: Context<AppContextEnv>,
   session: AuthSessionResponse
 ): AuthSessionResponse | Omit<AuthSessionResponse, 'sessionToken'> {
   // Browser navigation/fetch receives only the HttpOnly cookie. Non-browser
@@ -4598,6 +4953,109 @@ function parseSignalLabStrategyInput(body: Record<string, unknown>): SaveSignalL
     ),
     timeframe: parseTimeframeString(readRequiredString(body, 'timeframe')),
     strategy: parseStrategyDefinition(body),
+  };
+}
+
+function parseSignalRecipeInput(body: Record<string, unknown>): SignalRecipeInput {
+  if (!isRecord(body.universe)) {
+    throw invalidParameter('universe', 'universe must be an object');
+  }
+  if (!Array.isArray(body.conditions)) {
+    throw invalidParameter('conditions', 'conditions must be an array of AND rules');
+  }
+  const universeKind = readRequiredString(body.universe, 'kind');
+  const universeExchange = readRequiredString(body.universe, 'exchange');
+  const marketType = readRequiredString(body.universe, 'marketType');
+  if (!['watchlist', 'exchange', 'top-liquid'].includes(universeKind)) {
+    throw invalidParameter('universe.kind', 'Unsupported universe kind');
+  }
+  if (universeExchange !== 'all' && !validateExchange(universeExchange)) {
+    throw invalidParameter('universe.exchange', 'Unsupported exchange');
+  }
+  if (!['spot', 'perp', 'both'].includes(marketType)) {
+    throw invalidParameter('universe.marketType', 'marketType must be spot, perp, or both');
+  }
+  const horizon = parseOpportunityHorizon(readRequiredString(body, 'horizon'));
+  const symbols = Array.isArray(body.universe.symbols)
+    ? body.universe.symbols.filter((symbol): symbol is string => typeof symbol === 'string')
+    : [];
+  const conditions = body.conditions.map((condition, index) => {
+    if (!isRecord(condition)) {
+      throw invalidParameter(`conditions[${index}]`, 'condition must be an object');
+    }
+    const value = condition.value;
+    if (typeof value !== 'number' && typeof value !== 'string') {
+      throw invalidParameter(
+        `conditions[${index}].value`,
+        'condition value must be a number or string'
+      );
+    }
+    return {
+      id:
+        typeof condition.id === 'string' && condition.id.trim()
+          ? condition.id.trim()
+          : `condition-${index + 1}`,
+      metric: readRequiredString(condition, 'metric'),
+      operator: readRequiredString(condition, 'operator'),
+      value,
+      window: parseOpportunityHorizon(
+        typeof condition.window === 'string' ? condition.window : horizon
+      ),
+    } as SignalRecipeInput['conditions'][number];
+  });
+  return {
+    name: readRequiredString(body, 'name'),
+    universe: {
+      kind: universeKind as SignalRecipeInput['universe']['kind'],
+      exchange: universeExchange as SignalRecipeInput['universe']['exchange'],
+      symbols,
+      marketType: marketType as SignalRecipeInput['universe']['marketType'],
+    },
+    horizon,
+    conditions,
+    minScore:
+      body.minScore === undefined ? undefined : readBoundedNumber(body, 'minScore', 60, 0, 100),
+    cooldownSeconds:
+      body.cooldownSeconds === undefined
+        ? undefined
+        : readBoundedNumber(body, 'cooldownSeconds', 3600, 60, 604800),
+    deliveryChannelIds: Array.isArray(body.deliveryChannelIds)
+      ? body.deliveryChannelIds.filter((id): id is string => typeof id === 'string')
+      : [],
+    active: body.active === true,
+  };
+}
+
+function parseSignalRecipeUpdate(body: Record<string, unknown>): SignalRecipeUpdate {
+  if (
+    body.active === undefined &&
+    body.deliveryChannelIds === undefined &&
+    body.cooldownSeconds === undefined
+  ) {
+    throw invalidParameter(
+      'signalRecipe',
+      'active, deliveryChannelIds, or cooldownSeconds is required'
+    );
+  }
+  if (body.active !== undefined && typeof body.active !== 'boolean') {
+    throw invalidParameter('active', 'active must be a boolean');
+  }
+  if (
+    body.deliveryChannelIds !== undefined &&
+    (!Array.isArray(body.deliveryChannelIds) ||
+      body.deliveryChannelIds.some((id) => typeof id !== 'string'))
+  ) {
+    throw invalidParameter('deliveryChannelIds', 'deliveryChannelIds must be an array of strings');
+  }
+  return {
+    active: typeof body.active === 'boolean' ? body.active : undefined,
+    deliveryChannelIds: Array.isArray(body.deliveryChannelIds)
+      ? (body.deliveryChannelIds as string[])
+      : undefined,
+    cooldownSeconds:
+      body.cooldownSeconds === undefined
+        ? undefined
+        : readBoundedNumber(body, 'cooldownSeconds', 3600, 60, 604800),
   };
 }
 
@@ -4764,6 +5222,72 @@ async function runReleaseControlledScheduledWork(env: Env, scheduledTime: number
   ) {
     await runScheduledAlertEvaluation(env, scheduledTime);
   }
+  if (convictionEngineRolloutPercentage(env) > 0 && Math.floor(scheduledTime / 60_000) % 5 === 0) {
+    try {
+      const institutional =
+        Math.floor(scheduledTime / 60_000) % 30 === 0
+          ? await loadConvictionInstitutionalSignals(env)
+          : undefined;
+      const [spot, perp] = await Promise.all([
+        buildOpportunityBoard(env, {
+          exchange: 'bybit',
+          marketType: 'spot',
+          horizon: '6h',
+          kind: null,
+          symbol: null,
+          minScore: 0,
+          limit: 20,
+          institutional,
+        }),
+        buildOpportunityBoard(env, {
+          exchange: 'bybit',
+          marketType: 'perp',
+          horizon: '6h',
+          kind: null,
+          symbol: null,
+          minScore: 0,
+          limit: 20,
+        }),
+      ]);
+      await evaluateActiveSignalRecipes(env, [...spot.items, ...perp.items]);
+      await publishOpportunityEvents(env, [...spot.items, ...perp.items], scheduledTime);
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          module: 'conviction-engine',
+          msg: 'scheduled opportunity and recipe cycle failed',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    }
+    try {
+      await enqueueDueOpportunityOutcomes(env, scheduledTime);
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          module: 'conviction-engine',
+          msg: 'scheduled outcome enqueue failed',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    }
+    if (Math.floor(scheduledTime / 60_000) % 30 === 0) {
+      try {
+        await rebuildCalibrationArtifacts(env, scheduledTime);
+      } catch (error) {
+        console.warn(
+          JSON.stringify({
+            level: 'warn',
+            module: 'conviction-engine',
+            msg: 'scheduled calibration rebuild failed',
+            error: error instanceof Error ? error.message : String(error),
+          })
+        );
+      }
+    }
+  }
   await reconcilePendingAlertDeliveries(env);
   try {
     await advanceBackfillCampaigns(env);
@@ -4807,6 +5331,98 @@ async function runReleaseControlledScheduledWork(env: Env, scheduledTime: number
       })
     );
   }
+}
+
+async function publishOpportunityEvents(
+  env: Env,
+  opportunities: Opportunity[],
+  scheduledTime: number
+): Promise<number> {
+  if (!env.REALTIME_HUB || !env.ADMIN_API_KEY) return 0;
+  if (
+    !(await releaseControlEnabled(env, 'realtime', {
+      subject: { kind: 'internal', id: 'conviction-scheduler' },
+    }))
+  ) {
+    return 0;
+  }
+  const publishable = opportunities.filter(
+    (opportunity): opportunity is Opportunity & { exchange: SupportedExchange } =>
+      opportunity.exchange !== 'cross'
+  );
+  const results = await Promise.allSettled(
+    publishable.map(async (opportunity) => {
+      const topic = buildRealtimeTopic(
+        'opportunities',
+        opportunity.exchange,
+        opportunity.symbol,
+        opportunity.marketType
+      );
+      const id = env.REALTIME_HUB!.idFromName(topic);
+      const url = new URL('https://realtime/publish-batch');
+      url.searchParams.set('topic', topic);
+      const response = await env.REALTIME_HUB!.get(id).fetch(url.toString(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-API-Key': env.ADMIN_API_KEY! },
+        body: JSON.stringify({
+          batchId: `conviction:${Math.floor(scheduledTime / 300_000)}:${opportunity.id}`,
+          events: [
+            {
+              eventId: opportunity.id,
+              type: 'opportunity',
+              payload: opportunity,
+              provenance: { model: 'lazuli-conviction-v1', deterministic: true },
+            },
+          ],
+        }),
+      });
+      if (!response.ok) throw new Error(`Realtime opportunity publish failed (${response.status})`);
+    })
+  );
+  const failed = results.filter((result) => result.status === 'rejected');
+  if (failed.length > 0) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        module: 'conviction-engine',
+        msg: 'some realtime opportunity events failed',
+        failed: failed.length,
+        attempted: results.length,
+      })
+    );
+  }
+  return results.length - failed.length;
+}
+
+async function loadConvictionInstitutionalSignals(
+  env: Env
+): Promise<InstitutionalConfluenceResponse[]> {
+  const results = await Promise.allSettled(
+    (['BTC', 'ETH'] as const).map(async (asset) => {
+      const market = await loadInstitutionalMarketInputs(env, asset);
+      return getInstitutionalConfluence({
+        asset,
+        env,
+        fundingRates: market.fundingRates,
+        spotTicker: market.spotTicker,
+      });
+    })
+  );
+  const available = results.flatMap((result) =>
+    result.status === 'fulfilled' ? [result.value] : []
+  );
+  if (available.length < results.length) {
+    console.warn(
+      JSON.stringify({
+        level: 'warn',
+        module: 'conviction-engine',
+        msg: 'institutional opportunity refresh is partially unavailable',
+        available: available.length,
+        attempted: results.length,
+      })
+    );
+  }
+  return available;
 }
 
 async function evaluateActiveAlerts(
@@ -4858,85 +5474,292 @@ async function evaluateActiveAlerts(
   return { evaluated, triggered: events.length, events };
 }
 
+interface OpportunityBoardOptions {
+  exchange: SupportedExchange;
+  marketType: 'spot' | 'perp';
+  horizon: OpportunityHorizon;
+  kind: OpportunityKind | null;
+  symbol: string | null;
+  minScore: number;
+  limit: number;
+  institutional?: InstitutionalConfluenceResponse[];
+}
+
+async function buildOpportunityBoard(
+  env: Env,
+  options: OpportunityBoardOptions
+): Promise<OpportunityListResponse> {
+  const exchangeSupportsType = (item: (typeof exchanges)[number]): boolean =>
+    options.marketType === 'spot' ? item.hasSpot : item.hasPerp;
+  const selectedTickers = withOpportunitySourceBudget(
+    cachedMarketData<Ticker[]>(env, 'tickers', options.exchange, options.marketType),
+    { data: [] as Ticker[], meta: { stale: true, refreshError: 'Opportunity source timed out' } }
+  );
+  const selectedFunding =
+    options.marketType === 'perp'
+      ? withOpportunitySourceBudget(
+          cachedMarketData<FundingRateData[]>(env, 'funding', options.exchange, 'perp'),
+          {
+            data: [] as FundingRateData[],
+            meta: { stale: true, refreshError: 'Opportunity source timed out' },
+          }
+        )
+      : Promise.resolve({ data: [] as FundingRateData[], meta: {} });
+  const [tickerResult, selectedFundingResult, quoteSets, fundingSets] = await Promise.all([
+    selectedTickers,
+    selectedFunding,
+    Promise.all(
+      exchanges
+        .filter((item) => item.supported && exchangeSupportsType(item))
+        .map(async (item) => ({
+          exchange: item.id as SupportedExchange,
+          ...(await (async () => {
+            const result = await (item.id === options.exchange
+              ? selectedTickers
+              : withOpportunitySourceBudget(
+                  cachedMarketData<Ticker[]>(
+                    env,
+                    'tickers',
+                    item.id as SupportedExchange,
+                    options.marketType
+                  ),
+                  {
+                    data: [] as Ticker[],
+                    meta: { stale: true, refreshError: 'Opportunity source timed out' },
+                  }
+                ));
+            return { tickers: result.data, meta: result.meta };
+          })()),
+        }))
+    ),
+    options.marketType === 'perp'
+      ? Promise.all(
+          publicFundingExchanges.map(async (exchange) => ({
+            exchange,
+            ...(await (async () => {
+              const result = await (exchange === options.exchange
+                ? selectedFunding
+                : withOpportunitySourceBudget(
+                    cachedMarketData<FundingRateData[]>(env, 'funding', exchange, 'perp'),
+                    {
+                      data: [] as FundingRateData[],
+                      meta: { stale: true, refreshError: 'Opportunity source timed out' },
+                    }
+                  ));
+              return { rates: result.data, meta: result.meta };
+            })()),
+          }))
+        )
+      : Promise.resolve([]),
+  ]);
+  const priceArbitrage = buildPriceArbitrageResponse(quoteSets, {
+    type: options.marketType,
+    quote: 'USDT',
+    minSpreadBps: 10,
+    limit: 12,
+  }).opportunities;
+  const fundingArbitrage =
+    options.marketType === 'perp' ? buildFundingArbitrage(fundingSets, 12, 12).opportunities : [];
+  let generated = buildConvictionOpportunities({
+    exchange: options.exchange,
+    marketType: options.marketType,
+    tickers: tickerResult.data,
+    fundingRates: selectedFundingResult.data,
+    priceArbitrage,
+    fundingArbitrage,
+    institutional: options.institutional,
+    horizon: options.horizon,
+    limit: 50,
+  });
+  if (!options.institutional || options.institutional.length === 0) {
+    try {
+      const institutional = await readRecentOpportunityEvents(env, {
+        exchange: options.exchange,
+        marketType: options.marketType,
+        horizon: options.horizon,
+        kind: 'institutional',
+        limit: 8,
+      });
+      if (institutional.length > 0) {
+        const known = new Set(generated.items.map((item) => item.id));
+        generated = {
+          ...generated,
+          items: [...generated.items, ...institutional.filter((item) => !known.has(item.id))].sort(
+            (left, right) => right.score - left.score
+          ),
+        };
+      }
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          module: 'conviction-engine',
+          msg: 'persisted institutional opportunities unavailable',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    }
+  }
+  const sourceStatus = (
+    count: number,
+    meta: Record<string, unknown>
+  ): 'live' | 'stale' | 'unavailable' =>
+    count === 0 ? 'unavailable' : meta.stale === true ? 'stale' : 'live';
+  const sourceMessage = (meta: Record<string, unknown>, fallback: string): string | null =>
+    typeof meta.refreshError === 'string' ? meta.refreshError : fallback;
+  const sources: OpportunityListResponse['sourceHealth']['sources'] = [
+    {
+      name: `${options.exchange}:tickers`,
+      status: sourceStatus(tickerResult.data.length, tickerResult.meta),
+      itemCount: tickerResult.data.length,
+      message:
+        sourceStatus(tickerResult.data.length, tickerResult.meta) === 'live'
+          ? null
+          : sourceMessage(tickerResult.meta, 'The selected market feed returned no observations'),
+    },
+  ];
+  if (options.marketType === 'perp') {
+    sources.push({
+      name: `${options.exchange}:funding`,
+      status: sourceStatus(selectedFundingResult.data.length, selectedFundingResult.meta),
+      itemCount: selectedFundingResult.data.length,
+      message:
+        sourceStatus(selectedFundingResult.data.length, selectedFundingResult.meta) === 'live'
+          ? null
+          : sourceMessage(selectedFundingResult.meta, 'Funding evidence is currently incomplete'),
+    });
+  }
+  const crossQuoteCount = quoteSets.reduce((total, set) => total + set.tickers.length, 0);
+  const crossQuoteStale = quoteSets.some((set) => set.meta.stale === true);
+  sources.push({
+    name: 'cross-exchange-quotes',
+    status: crossQuoteCount === 0 ? 'unavailable' : crossQuoteStale ? 'stale' : 'live',
+    itemCount: crossQuoteCount,
+    message:
+      crossQuoteCount === 0
+        ? 'Cross-exchange comparison is unavailable'
+        : crossQuoteStale
+          ? 'Some exchange comparisons use stale or missing data'
+          : null,
+  });
+  generated = {
+    ...generated,
+    sourceHealth: {
+      status:
+        sources[0]?.status === 'unavailable'
+          ? 'unavailable'
+          : sources.some((source) => source.status !== 'live')
+            ? 'stale'
+            : 'live',
+      sources,
+    },
+  };
+  if (options.marketType === 'perp') {
+    try {
+      const markets = generated.items.flatMap((item) =>
+        item.exchange === 'cross' ? [] : [{ exchange: item.exchange, symbol: item.symbol }]
+      );
+      const openInterestChanges = await loadOpenInterestChangesForMarkets(env, markets);
+      generated = enrichOpportunityOpenInterest(generated, openInterestChanges);
+    } catch (error) {
+      console.warn(
+        JSON.stringify({
+          level: 'warn',
+          module: 'conviction-engine',
+          msg: 'open-interest evidence unavailable',
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+    }
+  }
+  const filtered = generated.items
+    .filter((item) => options.kind === null || item.kind === options.kind)
+    .filter((item) => options.symbol === null || opportunitySymbolMatches(item, options.symbol))
+    .filter((item) => item.score >= options.minScore)
+    .slice(0, options.limit);
+  const hydrated = await hydrateOpportunityCalibrations(env, {
+    ...generated,
+    items: filtered,
+    count: filtered.length,
+  });
+  const items = await persistOpportunities(env, hydrated.items);
+  return { ...hydrated, items, count: items.length };
+}
+
+async function withOpportunitySourceBudget<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise.catch(() => fallback),
+      new Promise<T>((resolve) => {
+        timeout = setTimeout(() => resolve(fallback), 3_500);
+      }),
+    ]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+function opportunitySymbolMatches(opportunity: Opportunity, symbol: string): boolean {
+  const normalize = (value: string) =>
+    value
+      .toUpperCase()
+      .replace(/\.P$/, '')
+      .replace(/[^A-Z0-9]/g, '');
+  const candidate = normalize(opportunity.symbol);
+  const query = normalize(symbol);
+  return candidate === query || candidate.startsWith(query) || query.startsWith(candidate);
+}
+
 async function buildAlphaFeed(
   env: Env,
   exchange: SupportedExchange,
   limit: number
 ): Promise<AlphaFeedResponse> {
-  const [trendingResult, arbitrageResult, fundingResult] = await Promise.all([
-    cachedMarketData<Ticker[]>(env, 'tickers', exchange, 'spot').then(async ({ data }) => {
-      const candidates = data
-        .filter((ticker) => (ticker.quoteVolume24h ?? 0) > 0 && ticker.last !== null)
-        .sort((a, b) => Math.abs(b.percentage24h ?? 0) - Math.abs(a.percentage24h ?? 0))
-        .slice(0, 8);
-      return candidates.map<AlphaFeedItem>((ticker, index) => ({
-        id: `trend:${exchange}:${ticker.symbol}:${index}`,
-        kind: 'trending',
-        title: `${ticker.symbol} ${formatSignedPercent(ticker.percentage24h)} in 24h`,
-        summary: `Live ${exchange} spot move with ${formatUsd(ticker.quoteVolume24h ?? ticker.volume24h)} 24h volume.`,
-        score: Math.min(100, Math.abs(ticker.percentage24h ?? 0) * 3 + index),
-        href: `/markets/${exchange}/${encodeURIComponent(ticker.symbol)}`,
-        payload: {
-          exchange,
-          symbol: ticker.symbol,
-          price: ticker.last,
-          change24h: ticker.percentage24h,
-          volume24h: ticker.quoteVolume24h ?? ticker.volume24h,
-        },
-        timestamp: Date.now(),
-      }));
+  const [spot, perp] = await Promise.all([
+    buildOpportunityBoard(env, {
+      exchange,
+      marketType: 'spot',
+      horizon: '6h',
+      kind: null,
+      symbol: null,
+      minScore: 0,
+      limit: Math.max(limit, 12),
     }),
-    Promise.all(
-      exchanges
-        .filter((item) => item.supported && item.hasSpot)
-        .map(async (item) => ({
-          exchange: item.id as SupportedExchange,
-          tickers: (
-            await cachedMarketData<Ticker[]>(env, 'tickers', item.id as SupportedExchange, 'spot')
-          ).data,
-        }))
-    ).then((sets) =>
-      buildPriceArbitrageResponse(sets, {
-        type: 'spot',
-        quote: 'USDT',
-        minSpreadBps: 10,
-        limit: 6,
-      }).opportunities.map<AlphaFeedItem>((item, index) => ({
-        id: `price-arb:${item.asset}:${index}`,
-        kind: 'price-arbitrage',
-        title: `${item.asset} spread: ${item.spreadBps.toFixed(1)} bps`,
-        summary: `Buy ${item.bestBuyExchange}, sell ${item.bestSellExchange} from live exchange quotes.`,
-        score: Math.min(100, item.spreadBps),
-        href: '/price-arbitrage',
-        payload: item as unknown as Record<string, unknown>,
-        timestamp: item.timestamp,
-      }))
-    ),
-    Promise.all(
-      publicFundingExchanges.map(async (item) => ({
-        exchange: item,
-        rates: (
-          await cachedMarketData<FundingRateData[]>(env, 'funding', item, 'perp').catch(() => ({
-            data: [] as FundingRateData[],
-            meta: {},
-          }))
-        ).data,
-      }))
-    ).then((inputs) =>
-      buildFundingArbitrage(inputs, 6, 12).opportunities.map<AlphaFeedItem>((item, index) => ({
-        id: `funding-arb:${item.asset}:${index}`,
-        kind: 'funding-arbitrage',
-        title: `${item.asset} funding carry`,
-        summary: `${item.longExchange} vs ${item.shortExchange}, net annualized ${item.netAnnualizedYield.toFixed(2)}%.`,
-        score: Math.min(100, Math.abs(item.netAnnualizedYield)),
-        href: '/funding-arbitrage',
-        payload: item as unknown as Record<string, unknown>,
-        timestamp: Date.now(),
-      }))
-    ),
+    buildOpportunityBoard(env, {
+      exchange,
+      marketType: 'perp',
+      horizon: '6h',
+      kind: null,
+      symbol: null,
+      minScore: 0,
+      limit: Math.max(limit, 12),
+    }),
   ]);
-
-  const generatedItems = [...trendingResult, ...arbitrageResult, ...fundingResult]
+  const generatedItems = [...spot.items, ...perp.items]
+    .map<AlphaFeedItem>((opportunity) => ({
+      id: opportunity.id,
+      kind:
+        opportunity.kind === 'price-arbitrage'
+          ? 'price-arbitrage'
+          : opportunity.kind === 'funding-arbitrage'
+            ? 'funding-arbitrage'
+            : 'trending',
+      title: opportunity.title,
+      summary: `${opportunity.marketType === 'perp' ? 'Perpetual' : 'Spot'} ${opportunity.horizon} setup: ${opportunity.thesis}`,
+      score: opportunity.score,
+      href: opportunity.workspaceHref,
+      payload: {
+        opportunityId: opportunity.id,
+        replayId: opportunity.replayId,
+        exchange: opportunity.exchange,
+        symbol: opportunity.symbol,
+        marketType: opportunity.marketType,
+        direction: opportunity.direction,
+        calibration: opportunity.calibration,
+      },
+      timestamp: opportunity.createdAt,
+    }))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
   const items = await persistAlphaFeedEvents(env, generatedItems);
@@ -5084,16 +5907,6 @@ function slugify(value: string): string {
     .slice(0, 80);
 }
 
-function formatSignedPercent(value: number | null): string {
-  const normalized = value ?? 0;
-  return `${normalized >= 0 ? '+' : ''}${normalized.toFixed(2)}%`;
-}
-
-function formatUsd(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return 'unknown';
-  return `$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(value)}`;
-}
-
 function periodToTimeframe(period: string | undefined): Timeframe {
   if (period === '1h') return '1m';
   if (period === '4h') return '5m';
@@ -5107,6 +5920,39 @@ function requireExchange(value: string): SupportedExchange {
     throw invalidExchange(value);
   }
   return exchange;
+}
+
+function parseOpportunityMarketType(value: string | undefined): 'spot' | 'perp' {
+  if (value === undefined || value === 'perp') return 'perp';
+  if (value === 'spot') return 'spot';
+  throw invalidMarketType(value);
+}
+
+function parseOpportunityHorizon(value: string | undefined): OpportunityHorizon {
+  if (value === undefined || value === '6h') return '6h';
+  if (value === '1h' || value === '24h') return value;
+  throw invalidParameter('horizon', 'horizon must be 1h, 6h, or 24h');
+}
+
+function parseOpportunityKind(value: string | undefined): OpportunityKind | null {
+  if (value === undefined || value === 'all') return null;
+  if (
+    value === 'momentum' ||
+    value === 'mean-reversion' ||
+    value === 'breakout' ||
+    value === 'price-arbitrage' ||
+    value === 'funding-arbitrage' ||
+    value === 'institutional'
+  ) {
+    return value;
+  }
+  throw invalidParameter('kind', 'Unsupported opportunity kind');
+}
+
+function parseReplayWindow(value: string | undefined): MarketReplay['window'] {
+  if (value === undefined || value === '6h') return '6h';
+  if (value === '1h' || value === '24h') return value;
+  throw invalidParameter('window', 'window must be 1h, 6h, or 24h');
 }
 
 function safeDivide(a: number, b: number): number {

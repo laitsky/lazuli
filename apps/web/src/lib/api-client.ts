@@ -60,6 +60,15 @@ import {
   WatchlistRecord,
   AsyncBacktestJob,
   AsyncBacktestJobRequest,
+  MarketReplay,
+  Opportunity,
+  OpportunityHorizon,
+  OpportunityKind,
+  OpportunityListResponse,
+  SignalCalibration,
+  SignalRecipe,
+  SignalRecipeCondition,
+  SignalRecipeUniverse,
 } from '@lazuli/shared';
 
 // API base URL - defaults to same-origin for Cloudflare Workers Static Assets.
@@ -90,6 +99,50 @@ export interface SignalStrategyInput {
   timeframe: Timeframe;
   strategy: StrategyDefinition;
   autoBacktest?: boolean;
+}
+
+export interface OpportunityQueryParams {
+  exchange?: SupportedExchange;
+  marketType?: 'spot' | 'perp';
+  horizon?: OpportunityHorizon;
+  kind?: OpportunityKind | 'all';
+  symbol?: string;
+  minScore?: number;
+  limit?: number;
+}
+
+export interface SignalRecipeRequest {
+  name: string;
+  universe: SignalRecipeUniverse;
+  horizon: OpportunityHorizon;
+  conditions: SignalRecipeCondition[];
+  minScore?: number;
+  cooldownSeconds?: number;
+  deliveryChannelIds?: string[];
+  active?: boolean;
+}
+
+export type NotificationChannelKind = 'email' | 'discord' | 'telegram' | 'webhook';
+
+export interface NotificationChannelRecord {
+  id: string;
+  kind: NotificationChannelKind;
+  label: string;
+  endpointMasked: string;
+  config: Record<string, string | number | boolean>;
+  enabled: boolean;
+  verifiedAt: number | null;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface NotificationChannelRequest {
+  kind: NotificationChannelKind;
+  label: string;
+  endpoint: string;
+  secret?: string;
+  enabled?: boolean;
 }
 
 /**
@@ -412,12 +465,13 @@ async function apiFetch<T>(
       timeout
     );
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data: ApiResponse<T> = await response.json();
-    return data;
+    const data = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+    if (data && typeof data === 'object') return data;
+    throw new Error(
+      response.ok
+        ? 'API returned an invalid JSON response'
+        : `HTTP error! status: ${response.status}`
+    );
   } catch (error) {
     // Return error in standard API response format
     return {
@@ -451,12 +505,13 @@ async function apiPost<T>(
       timeout
     );
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    const data: ApiResponse<T> = await response.json();
-    return data;
+    const data = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+    if (data && typeof data === 'object') return data;
+    throw new Error(
+      response.ok
+        ? 'API returned an invalid JSON response'
+        : `HTTP error! status: ${response.status}`
+    );
   } catch (error) {
     return {
       success: false,
@@ -692,6 +747,103 @@ export class LazuliAPI {
   static async deleteSignalStrategy(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
     return apiFetch<{ deleted: boolean }>(
       `${API_VERSION}/me/signal-strategies/${encodeURIComponent(id)}`,
+      undefined,
+      undefined,
+      { method: 'DELETE' }
+    );
+  }
+
+  static async getOpportunities(
+    queryParams?: OpportunityQueryParams
+  ): Promise<ApiResponse<OpportunityListResponse>> {
+    return apiFetch<OpportunityListResponse>(`${API_VERSION}/opportunities`, queryParams, 60000);
+  }
+
+  static async getOpportunity(id: string): Promise<ApiResponse<Opportunity>> {
+    return apiFetch<Opportunity>(`${API_VERSION}/opportunities/${encodeURIComponent(id)}`);
+  }
+
+  static async getOpportunityCalibration(id: string): Promise<ApiResponse<SignalCalibration>> {
+    return apiFetch<SignalCalibration>(
+      `${API_VERSION}/opportunities/${encodeURIComponent(id)}/calibration`
+    );
+  }
+
+  static async getMarketReplay(
+    id: string,
+    window: MarketReplay['window'] = '6h'
+  ): Promise<ApiResponse<MarketReplay>> {
+    return apiFetch<MarketReplay>(`${API_VERSION}/replays/${encodeURIComponent(id)}`, { window });
+  }
+
+  static async listSignalRecipes(): Promise<ApiResponse<SignalRecipe[]>> {
+    return apiFetch<SignalRecipe[]>(`${API_VERSION}/me/signal-recipes`);
+  }
+
+  static async listNotificationChannels(): Promise<ApiResponse<NotificationChannelRecord[]>> {
+    return apiFetch<NotificationChannelRecord[]>(`${API_VERSION}/me/notification-channels`);
+  }
+
+  static async createNotificationChannel(
+    input: NotificationChannelRequest
+  ): Promise<ApiResponse<NotificationChannelRecord>> {
+    return apiPost<NotificationChannelRecord>(`${API_VERSION}/me/notification-channels`, input);
+  }
+
+  static async deleteNotificationChannel(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return apiFetch<{ deleted: boolean }>(
+      `${API_VERSION}/me/notification-channels/${encodeURIComponent(id)}`,
+      undefined,
+      undefined,
+      { method: 'DELETE' }
+    );
+  }
+
+  static async createSignalRecipe(input: SignalRecipeRequest): Promise<ApiResponse<SignalRecipe>> {
+    return apiFetch<SignalRecipe>(`${API_VERSION}/me/signal-recipes`, undefined, undefined, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': `recipe:${crypto.randomUUID()}`,
+      },
+      body: JSON.stringify(input),
+    });
+  }
+
+  static async createSignalRecipeVersion(
+    id: string,
+    input: SignalRecipeRequest
+  ): Promise<ApiResponse<SignalRecipe>> {
+    return apiFetch<SignalRecipe>(
+      `${API_VERSION}/me/signal-recipes/${encodeURIComponent(id)}/versions`,
+      undefined,
+      undefined,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `recipe-version:${crypto.randomUUID()}`,
+        },
+        body: JSON.stringify(input),
+      }
+    );
+  }
+
+  static async updateSignalRecipe(
+    id: string,
+    update: { active?: boolean; deliveryChannelIds?: string[]; cooldownSeconds?: number }
+  ): Promise<ApiResponse<SignalRecipe>> {
+    return apiFetch<SignalRecipe>(
+      `${API_VERSION}/me/signal-recipes/${encodeURIComponent(id)}`,
+      undefined,
+      undefined,
+      { method: 'PATCH', body: JSON.stringify(update) }
+    );
+  }
+
+  static async deleteSignalRecipe(id: string): Promise<ApiResponse<{ deleted: boolean }>> {
+    return apiFetch<{ deleted: boolean }>(
+      `${API_VERSION}/me/signal-recipes/${encodeURIComponent(id)}`,
       undefined,
       undefined,
       { method: 'DELETE' }

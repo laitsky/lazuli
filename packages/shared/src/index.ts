@@ -272,6 +272,215 @@ export interface AlphaFeedResponse {
 }
 
 /**
+ * Explainable opportunity contracts shared by the public feed, Workspace,
+ * replay pages, and authenticated monitoring recipes.
+ */
+export type OpportunityKind =
+  | 'momentum'
+  | 'mean-reversion'
+  | 'breakout'
+  | 'price-arbitrage'
+  | 'funding-arbitrage'
+  | 'institutional';
+
+export type OpportunityDirection = 'long' | 'short' | 'neutral';
+export type OpportunityHorizon = '1h' | '6h' | '24h';
+
+export type OpportunityMetric =
+  | 'price_return'
+  | 'range_position'
+  | 'volume_percentile'
+  | 'volume_ratio'
+  | 'rsi'
+  | 'cvd_delta'
+  | 'open_interest'
+  | 'open_interest_change'
+  | 'funding_rate'
+  | 'funding_percentile'
+  | 'liquidation_imbalance'
+  | 'basis'
+  | 'price_spread'
+  | 'etf_flow'
+  | 'iv_rank'
+  | 'options_skew'
+  | 'institutional_regime';
+
+export interface OpportunityEvidence {
+  id: string;
+  metric: OpportunityMetric;
+  label: string;
+  value: number | string | null;
+  unit: 'percent' | 'usd' | 'ratio' | 'score' | 'text' | null;
+  /** Percentile or bounded model value in the inclusive 0-100 range. */
+  normalizedValue: number | null;
+  contribution: 'bullish' | 'bearish' | 'neutral';
+  /** Relative deterministic model weight in the inclusive 0-1 range. */
+  weight: number;
+  summary: string;
+  source: string;
+  observedAt: number;
+  freshness: 'live' | 'fresh' | 'stale' | 'missing';
+}
+
+export interface OpportunityProvenance {
+  source: string;
+  quality: 'live' | 'snapshot' | 'fallback' | 'stale' | 'missing';
+  observedAt: number | null;
+  ageMs: number | null;
+  note?: string;
+}
+
+export interface SignalCalibration {
+  /** Stable pointer to the latest compatible dense calibration artifact. */
+  artifactId?: string | null;
+  status: 'experimental' | 'calibrated' | 'insufficient-data';
+  sampleSize: number;
+  /** Complete outcomes divided by all terminal coverage attempts. */
+  coveragePercent?: number;
+  /** Probability and hit rate are 0-1 fractions and remain null before calibration. */
+  probability: number | null;
+  hitRate: number | null;
+  medianReturnPercent: number | null;
+  lowerReturnPercent: number | null;
+  upperReturnPercent: number | null;
+  medianAdverseExcursionPercent: number | null;
+  regime: string;
+  methodology: string;
+}
+
+export interface Opportunity {
+  id: string;
+  kind: OpportunityKind;
+  exchange: SupportedExchange | 'cross';
+  symbol: string;
+  marketType: 'spot' | 'perp';
+  direction: OpportunityDirection;
+  horizon: OpportunityHorizon;
+  /** Explainable rank in the inclusive 0-100 range; not a probability. */
+  score: number;
+  title: string;
+  thesis: string;
+  trigger: { description: string; price: number | null };
+  invalidation: { description: string; price: number | null };
+  expectedMove: {
+    lowerPercent: number | null;
+    medianPercent: number | null;
+    upperPercent: number | null;
+  };
+  estimatedCosts: {
+    totalBps: number;
+    feeBps: number;
+    slippageBps: number;
+    fundingBps: number;
+  };
+  evidence: OpportunityEvidence[];
+  calibration: SignalCalibration;
+  provenance: OpportunityProvenance[];
+  workspaceHref: string;
+  replayId: string | null;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export interface OpportunityListResponse {
+  items: Opportunity[];
+  count: number;
+  generatedAt: number;
+  sourceHealth: {
+    status: 'live' | 'stale' | 'unavailable';
+    sources: Array<{
+      name: string;
+      status: 'live' | 'stale' | 'unavailable';
+      itemCount: number;
+      message: string | null;
+    }>;
+  };
+  model: {
+    id: 'lazuli-conviction-v1';
+    explainable: true;
+    probabilitySampleMinimum: 100;
+  };
+}
+
+export type SignalRecipeOperator = 'gt' | 'gte' | 'lt' | 'lte' | 'eq';
+
+export interface SignalRecipeCondition {
+  id: string;
+  metric: OpportunityMetric;
+  operator: SignalRecipeOperator;
+  value: number | string;
+  window: OpportunityHorizon;
+}
+
+export interface SignalRecipeUniverse {
+  kind: 'watchlist' | 'exchange' | 'top-liquid';
+  exchange: SupportedExchange | 'all';
+  symbols: string[];
+  marketType: 'spot' | 'perp' | 'both';
+}
+
+export interface SignalRecipePreview {
+  status: 'ready' | 'insufficient-data' | 'unavailable';
+  sampleSize: number;
+  coveragePercent: number;
+  estimatedMatchesPerWeek: number | null;
+  /** Median modeled round-trip fees, funding, and slippage for matched setups. */
+  estimatedCostBps: number | null;
+  calibration: SignalCalibration;
+  warnings: string[];
+}
+
+export interface SignalRecipe {
+  id: string;
+  rootId: string;
+  userId: string;
+  name: string;
+  version: number;
+  universe: SignalRecipeUniverse;
+  horizon: OpportunityHorizon;
+  conditions: SignalRecipeCondition[];
+  minScore: number;
+  cooldownSeconds: number;
+  deliveryChannelIds: string[];
+  active: boolean;
+  preview: SignalRecipePreview;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MarketReplayPoint {
+  timestamp: number;
+  value: number;
+}
+
+export interface MarketReplaySeries {
+  metric: OpportunityMetric | 'price';
+  label: string;
+  unit: 'percent' | 'usd' | 'ratio' | 'score' | 'price';
+  source: string;
+  points: MarketReplayPoint[];
+}
+
+export interface MarketReplay {
+  id: string;
+  opportunityId: string;
+  exchange: SupportedExchange | 'cross';
+  symbol: string;
+  marketType: 'spot' | 'perp';
+  direction: OpportunityDirection;
+  horizon: OpportunityHorizon;
+  window: '1h' | '6h' | '24h';
+  triggerAt: number;
+  title: string;
+  narrative: string;
+  uncertainty: string[];
+  series: MarketReplaySeries[];
+  provenance: OpportunityProvenance[];
+  createdAt: number;
+  expiresAt: number | null;
+}
+
+/**
  * Per-exchange quote used for cross-exchange price arbitrage discovery.
  */
 export interface PriceArbitrageQuote {
@@ -822,7 +1031,8 @@ export type RealtimePublicChannel =
   | 'cvd'
   | 'orderbook'
   | 'funding'
-  | 'open-interest';
+  | 'open-interest'
+  | 'opportunities';
 
 /**
  * Convert provider, CCXT, and Lazuli symbols into the single market identity
@@ -864,7 +1074,9 @@ export type RealtimeTopic =
   | `orderbook:${SupportedExchange}:${string}`
   | `funding:${SupportedExchange}:${string}`
   | `open-interest:${SupportedExchange}:${string}`
-  | `alerts:user:${string}`;
+  | `opportunities:${SupportedExchange}:${string}`
+  | `alerts:user:${string}`
+  | `recipes:user:${string}`;
 
 /** Provenance travels with every event so native, modeled, and fallback data cannot be confused. */
 export interface RealtimeProvenance {

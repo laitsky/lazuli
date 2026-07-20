@@ -9,6 +9,7 @@ import {
   ListPlus,
   LogOut,
   RefreshCw,
+  Radar,
   ShieldCheck,
   Trash2,
   UserRound,
@@ -20,10 +21,16 @@ import type {
   PriceAlertRecord,
   SavedBacktestRecord,
   SavedWorkspaceRecord,
+  SignalRecipe,
+  SignalRecipeCondition,
   WatchlistRecord,
 } from '@lazuli/shared';
 import { useAuth } from '@/lib/auth';
-import { LazuliAPI } from '@/lib/api-client';
+import {
+  LazuliAPI,
+  type NotificationChannelKind,
+  type NotificationChannelRecord,
+} from '@/lib/api-client';
 import { usePreferences } from '@/lib/preferences';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -41,6 +48,8 @@ interface AccountResources {
   apiKeys: ApiKeyRecord[];
   passkeys: PasskeyRecord[];
   backtests: SavedBacktestRecord[];
+  signalRecipes: SignalRecipe[];
+  notificationChannels: NotificationChannelRecord[];
 }
 
 const EMPTY_RESOURCES: AccountResources = {
@@ -50,6 +59,8 @@ const EMPTY_RESOURCES: AccountResources = {
   apiKeys: [],
   passkeys: [],
   backtests: [],
+  signalRecipes: [],
+  notificationChannels: [],
 };
 
 function message(error: unknown, fallback: string): string {
@@ -83,12 +94,19 @@ export default function AccountPage() {
     if (!magicToken || processedToken.current === magicToken) return;
     processedToken.current = magicToken;
     // Remove the credential from history immediately, while retaining it in this closure.
-    navigate('/account', { replace: true });
+    const continuation = new URLSearchParams(searchParams);
+    continuation.delete('token');
+    const savedContinuation = window.sessionStorage.getItem('lazuli:auth-continuation') ?? '';
+    const continuationQuery = continuation.toString() || savedContinuation;
+    navigate(`/account${continuationQuery ? `?${continuationQuery}` : ''}`, { replace: true });
     void auth
       .verifyMagicLink(magicToken)
-      .then(() => toast.success('Signed in securely.'))
+      .then(() => {
+        window.sessionStorage.removeItem('lazuli:auth-continuation');
+        toast.success('Signed in securely.');
+      })
       .catch((error: unknown) => setVerificationError(message(error, 'Sign-in failed.')));
-  }, [auth, magicToken, navigate]);
+  }, [auth, magicToken, navigate, searchParams]);
 
   if (auth.status === 'loading' || magicToken) {
     return <AccountLoading />;
@@ -115,6 +133,7 @@ function AccountLoading() {
 
 function SignInView({ verificationError }: { verificationError: string | null }) {
   const { requestMagicLink, signInWithPasskey, supportsPasskeys } = useAuth();
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [pending, setPending] = useState<'magic' | 'passkey' | null>(null);
   const [error, setError] = useState<string | null>(verificationError);
@@ -126,14 +145,24 @@ function SignInView({ verificationError }: { verificationError: string | null })
     setPending('magic');
     setError(null);
     try {
+      const continuation = new URLSearchParams(searchParams);
+      continuation.delete('token');
+      const continuationQuery = continuation.toString();
+      if (continuationQuery) {
+        window.sessionStorage.setItem('lazuli:auth-continuation', continuationQuery);
+      }
       const result = await requestMagicLink(email);
       setSentTo(result.email);
       if (result.magicLink) {
         const url = new URL(result.magicLink, window.location.origin);
         const token = url.searchParams.get('token');
-        setDevelopmentLink(
-          token ? `/account?token=${encodeURIComponent(token)}` : result.magicLink
-        );
+        if (token) {
+          const localParams = new URLSearchParams(searchParams);
+          localParams.set('token', token);
+          setDevelopmentLink(`/account?${localParams.toString()}`);
+        } else {
+          setDevelopmentLink(result.magicLink);
+        }
       } else {
         setDevelopmentLink(null);
       }
@@ -272,6 +301,8 @@ function AccountSettings() {
       LazuliAPI.listApiKeys(),
       LazuliAPI.listPasskeys(),
       LazuliAPI.listSavedBacktests(),
+      LazuliAPI.listSignalRecipes(),
+      LazuliAPI.listNotificationChannels(),
     ]);
     const failures = responses.filter((response) => !response.success);
     setResources({
@@ -281,6 +312,8 @@ function AccountSettings() {
       apiKeys: responses[3].success && responses[3].data ? responses[3].data : [],
       passkeys: responses[4].success && responses[4].data ? responses[4].data : [],
       backtests: responses[5].success && responses[5].data ? responses[5].data : [],
+      signalRecipes: responses[6].success && responses[6].data ? responses[6].data : [],
+      notificationChannels: responses[7].success && responses[7].data ? responses[7].data : [],
     });
     if (failures.length > 0) {
       setError('Some account data could not be loaded. Retry to restore the missing sections.');
@@ -414,7 +447,7 @@ function AccountSettings() {
           aria-busy="true"
           aria-label="Loading account data"
         >
-          {Array.from({ length: 6 }).map((_, index) => (
+          {Array.from({ length: 8 }).map((_, index) => (
             <CardSkeleton key={index} />
           ))}
         </div>
@@ -427,6 +460,16 @@ function AccountSettings() {
             onChanged={loadResources}
           />
           <AlertSection items={resources.alerts} email={user.email} onChanged={loadResources} />
+          <NotificationChannelSection
+            items={resources.notificationChannels}
+            accountEmail={user.email}
+            onChanged={loadResources}
+          />
+          <SignalRecipeSection
+            items={resources.signalRecipes}
+            channels={resources.notificationChannels}
+            onChanged={loadResources}
+          />
           <PasskeySection
             items={resources.passkeys}
             supportsPasskeys={supportsPasskeys}
@@ -590,6 +633,614 @@ function WatchlistSection({
                 await onChanged();
               }}
             />
+          </ResourceRow>
+        ))}
+      </ResourceList>
+    </SettingsCard>
+  );
+}
+
+function NotificationChannelSection({
+  items,
+  accountEmail,
+  onChanged,
+}: {
+  items: NotificationChannelRecord[];
+  accountEmail: string;
+  onChanged: () => Promise<void>;
+}) {
+  const [kind, setKind] = useState<NotificationChannelKind>('email');
+  const [label, setLabel] = useState('Account email');
+  const [endpoint, setEndpoint] = useState(accountEmail);
+  const [secret, setSecret] = useState('');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const changeKind = (next: NotificationChannelKind) => {
+    setKind(next);
+    setLabel(next === 'email' ? 'Account email' : `${next} alerts`);
+    setEndpoint(next === 'email' ? accountEmail : '');
+    setSecret('');
+  };
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+    try {
+      const response = await LazuliAPI.createNotificationChannel({
+        kind,
+        label,
+        endpoint,
+        ...(secret ? { secret } : {}),
+        enabled: true,
+      });
+      if (!response.success) {
+        setError(response.error || 'Could not create the delivery channel.');
+        return;
+      }
+      await onChanged();
+      toast.success('Delivery channel saved securely.');
+      if (kind !== 'email') {
+        setEndpoint('');
+        setSecret('');
+      }
+    } catch (caught) {
+      setError(message(caught, 'Could not create the delivery channel.'));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const endpointPlaceholder =
+    kind === 'email'
+      ? accountEmail
+      : kind === 'telegram'
+        ? '@channel_name or chat id'
+        : kind === 'discord'
+          ? 'https://discord.com/api/webhooks/…'
+          : 'https://your-service.example/hooks/lazuli';
+
+  return (
+    <SettingsCard
+      icon={Bell}
+      title="Alert delivery channels"
+      description="Connect email, Discord, Telegram, or a signed HTTPS webhook for Thesis Autopilot. Endpoints and secrets are encrypted at rest."
+    >
+      <form onSubmit={save} className="mb-4 space-y-2">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Channel kind
+            <select
+              value={kind}
+              onChange={(event) => changeKind(event.target.value as NotificationChannelKind)}
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-foreground"
+            >
+              <option value="email">Email</option>
+              <option value="discord">Discord</option>
+              <option value="telegram">Telegram</option>
+              <option value="webhook">Webhook</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Label
+            <Input
+              value={label}
+              onChange={(event) => setLabel(event.target.value)}
+              required
+              maxLength={80}
+            />
+          </label>
+        </div>
+        <label className="block space-y-1 text-xs text-muted-foreground">
+          {kind === 'telegram' ? 'Chat destination' : kind === 'email' ? 'Email' : 'Endpoint'}
+          <Input
+            type={kind === 'email' ? 'email' : 'text'}
+            value={endpoint}
+            onChange={(event) => setEndpoint(event.target.value)}
+            required
+            placeholder={endpointPlaceholder}
+            spellCheck={false}
+          />
+        </label>
+        {(kind === 'telegram' || kind === 'webhook') && (
+          <label className="block space-y-1 text-xs text-muted-foreground">
+            {kind === 'telegram' ? 'Bot token' : 'Signing secret (optional)'}
+            <Input
+              type="password"
+              value={secret}
+              onChange={(event) => setSecret(event.target.value)}
+              required={kind === 'telegram'}
+              autoComplete="new-password"
+            />
+          </label>
+        )}
+        {error && <InlineError message={error} />}
+        <Button type="submit" disabled={pending} aria-busy={pending}>
+          {pending ? 'Saving securely…' : 'Add delivery channel'}
+        </Button>
+      </form>
+      <ResourceList
+        emptyTitle="No delivery channels"
+        emptyDescription="Realtime in-app recipe matches still work; add a channel for off-app alerts."
+      >
+        {items.map((item) => (
+          <ResourceRow
+            key={item.id}
+            title={item.label}
+            detail={`${item.kind} · ${item.endpointMasked}${item.lastError ? ` · ${item.lastError}` : ''}`}
+            badge={item.enabled ? 'enabled' : 'paused'}
+          >
+            <DeleteControl
+              label={`Delete ${item.label}`}
+              onDelete={async () => {
+                const response = await LazuliAPI.deleteNotificationChannel(item.id);
+                if (!response.success) throw new Error(response.error || 'Delete failed.');
+                await onChanged();
+              }}
+            />
+          </ResourceRow>
+        ))}
+      </ResourceList>
+    </SettingsCard>
+  );
+}
+
+const RECIPE_METRICS: Array<{ value: SignalRecipeCondition['metric']; label: string }> = [
+  { value: 'price_return', label: 'Price return %' },
+  { value: 'volume_percentile', label: 'Volume percentile' },
+  { value: 'volume_ratio', label: 'Volume anomaly ratio' },
+  { value: 'rsi', label: 'RSI' },
+  { value: 'cvd_delta', label: 'CVD delta' },
+  { value: 'open_interest_change', label: 'Open interest change' },
+  { value: 'funding_rate', label: 'Funding rate %' },
+  { value: 'liquidation_imbalance', label: 'Liquidation imbalance' },
+  { value: 'basis', label: 'Basis %' },
+  { value: 'price_spread', label: 'Price spread' },
+  { value: 'etf_flow', label: 'ETF flow' },
+  { value: 'iv_rank', label: 'IV rank' },
+  { value: 'options_skew', label: 'Options skew' },
+  { value: 'institutional_regime', label: 'Institutional regime' },
+];
+const RECIPE_EXCHANGES: SignalRecipe['universe']['exchange'][] = [
+  'all',
+  'bybit',
+  'binance',
+  'okx',
+  'hyperliquid',
+  'upbit',
+];
+
+function SignalRecipeSection({
+  items,
+  channels,
+  onChanged,
+}: {
+  items: SignalRecipe[];
+  channels: NotificationChannelRecord[];
+  onChanged: () => Promise<void>;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [searchParams] = useSearchParams();
+  const prefilledSymbol = searchParams.get('recipeSymbol') ?? '';
+  const prefilledExchange = searchParams.get('recipeExchange');
+  const [name, setName] = useState(prefilledSymbol ? `${prefilledSymbol} conviction monitor` : '');
+  const [exchange, setExchange] = useState<SignalRecipe['universe']['exchange']>(
+    RECIPE_EXCHANGES.includes(prefilledExchange as SignalRecipe['universe']['exchange'])
+      ? (prefilledExchange as SignalRecipe['universe']['exchange'])
+      : 'bybit'
+  );
+  const [universeKind, setUniverseKind] = useState<SignalRecipe['universe']['kind']>(
+    prefilledSymbol ? 'watchlist' : 'exchange'
+  );
+  const [marketType, setMarketType] = useState<SignalRecipe['universe']['marketType']>(
+    searchParams.get('recipeMarketType') === 'spot' ? 'spot' : 'perp'
+  );
+  const [horizon, setHorizon] = useState<'1h' | '6h' | '24h'>(() => {
+    const value = searchParams.get('recipeHorizon');
+    return value === '1h' || value === '24h' ? value : '6h';
+  });
+  const [symbol, setSymbol] = useState(prefilledSymbol);
+  const [minScore, setMinScore] = useState(60);
+  const [conditions, setConditions] = useState<SignalRecipeCondition[]>([
+    { id: crypto.randomUUID(), metric: 'price_return', operator: 'gte', value: 3, window: horizon },
+  ]);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [deliveryChannelIds, setDeliveryChannelIds] = useState<string[]>([]);
+  const [revisionSource, setRevisionSource] = useState<SignalRecipe | null>(null);
+
+  useEffect(() => {
+    setConditions((current) => current.map((condition) => ({ ...condition, window: horizon })));
+  }, [horizon]);
+
+  function updateCondition(index: number, patch: Partial<SignalRecipeCondition>) {
+    setConditions((current) =>
+      current.map((condition, itemIndex) =>
+        itemIndex === index ? { ...condition, ...patch } : condition
+      )
+    );
+  }
+
+  async function create(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending(true);
+    setError(null);
+    const normalizedSymbol = symbol.trim().toUpperCase();
+    try {
+      const input = {
+        name,
+        universe: {
+          kind: universeKind,
+          exchange,
+          symbols: universeKind === 'watchlist' && normalizedSymbol ? [normalizedSymbol] : [],
+          marketType,
+        },
+        horizon,
+        conditions,
+        minScore,
+        cooldownSeconds: 3600,
+        deliveryChannelIds,
+        active: false,
+      };
+      const response = revisionSource
+        ? await LazuliAPI.createSignalRecipeVersion(revisionSource.rootId, input)
+        : await LazuliAPI.createSignalRecipe(input);
+      if (!response.success || !response.data) {
+        setError(response.error || 'Could not create the monitoring recipe.');
+        return;
+      }
+      await onChanged();
+      setName('');
+      setRevisionSource(null);
+      toast.success(
+        revisionSource
+          ? `Version ${revisionSource.version + 1} preview created.`
+          : 'Historical preview created. Review it before activation.'
+      );
+    } catch (caught) {
+      setError(
+        caught instanceof Error ? caught.message : 'Could not create the monitoring recipe.'
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <SettingsCard
+      icon={Radar}
+      title="Thesis Autopilot"
+      description="Build transparent AND-rule monitors. Every recipe is versioned and previewed before activation."
+    >
+      <form ref={formRef} onSubmit={create} className="mb-5 space-y-3">
+        {revisionSource && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-accent/30 bg-accent/5 p-2.5 text-xs">
+            <span className="text-foreground">
+              Revising {revisionSource.name} · v{revisionSource.version}
+            </span>
+            <Button type="button" variant="ghost" size="xs" onClick={() => setRevisionSource(null)}>
+              Cancel revision
+            </Button>
+          </div>
+        )}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Universe
+            <select
+              value={universeKind}
+              onChange={(event) =>
+                setUniverseKind(event.target.value as SignalRecipe['universe']['kind'])
+              }
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-foreground"
+            >
+              <option value="exchange">Exchange</option>
+              <option value="watchlist">Symbol watchlist</option>
+              <option value="top-liquid">Top liquid markets</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Recipe name
+            <Input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              required
+              minLength={2}
+              maxLength={80}
+              placeholder="Funding unwind monitor"
+            />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Symbol {universeKind === 'watchlist' ? '(required)' : '(not used)'}
+            <Input
+              value={symbol}
+              onChange={(event) => setSymbol(event.target.value)}
+              disabled={universeKind !== 'watchlist'}
+              required={universeKind === 'watchlist'}
+              placeholder="BTC-USDT"
+              spellCheck={false}
+            />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Exchange
+            <select
+              value={exchange}
+              onChange={(event) =>
+                setExchange(event.target.value as SignalRecipe['universe']['exchange'])
+              }
+              className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-foreground"
+            >
+              {RECIPE_EXCHANGES.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Market
+              <select
+                value={marketType}
+                onChange={(event) =>
+                  setMarketType(event.target.value as SignalRecipe['universe']['marketType'])
+                }
+                className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-foreground"
+              >
+                <option value="spot">spot</option>
+                <option value="perp">perp</option>
+                <option value="both">both</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-xs text-muted-foreground">
+              Horizon
+              <select
+                value={horizon}
+                onChange={(event) => setHorizon(event.target.value as '1h' | '6h' | '24h')}
+                className="h-9 w-full rounded-md border border-border bg-surface-1 px-3 text-sm text-foreground"
+              >
+                <option value="1h">1 hour</option>
+                <option value="6h">6 hours</option>
+                <option value="24h">24 hours</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-border bg-surface-2 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+              All conditions must pass
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              disabled={conditions.length >= 5}
+              onClick={() =>
+                setConditions((current) => [
+                  ...current,
+                  {
+                    id: crypto.randomUUID(),
+                    metric: 'funding_rate',
+                    operator: 'gte',
+                    value: 0.01,
+                    window: horizon,
+                  },
+                ])
+              }
+            >
+              <ListPlus aria-hidden /> Add rule
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {conditions.map((condition, index) => (
+              <div
+                key={condition.id}
+                className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-1.5 sm:grid-cols-[minmax(0,1fr)_82px_100px_auto]"
+              >
+                <select
+                  aria-label={`Condition ${index + 1} metric`}
+                  value={condition.metric}
+                  onChange={(event) => {
+                    const metric = event.target.value as SignalRecipeCondition['metric'];
+                    updateCondition(index, {
+                      metric,
+                      operator: metric === 'institutional_regime' ? 'eq' : condition.operator,
+                      value: metric === 'institutional_regime' ? 'mixed' : 0,
+                    });
+                  }}
+                  className="col-span-3 h-9 min-w-0 rounded-md border border-border bg-surface-1 px-2 text-xs text-foreground sm:col-span-1"
+                >
+                  {RECIPE_METRICS.map((metric) => (
+                    <option key={metric.value} value={metric.value}>
+                      {metric.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label={`Condition ${index + 1} operator`}
+                  value={condition.operator}
+                  disabled={condition.metric === 'institutional_regime'}
+                  onChange={(event) =>
+                    updateCondition(index, {
+                      operator: event.target.value as SignalRecipeCondition['operator'],
+                    })
+                  }
+                  className="h-9 rounded-md border border-border bg-surface-1 px-2 text-xs text-foreground"
+                >
+                  {condition.metric !== 'institutional_regime' && <option value="gt">&gt;</option>}
+                  {condition.metric !== 'institutional_regime' && <option value="gte">≥</option>}
+                  {condition.metric !== 'institutional_regime' && <option value="lt">&lt;</option>}
+                  {condition.metric !== 'institutional_regime' && <option value="lte">≤</option>}
+                  <option value="eq">=</option>
+                </select>
+                {condition.metric === 'institutional_regime' ? (
+                  <select
+                    aria-label={`Condition ${index + 1} threshold`}
+                    value={condition.value}
+                    onChange={(event) => updateCondition(index, { value: event.target.value })}
+                    className="h-9 rounded-md border border-border bg-surface-1 px-2 text-xs text-foreground"
+                  >
+                    {['spot-led', 'etf-led', 'options-led', 'leverage-led', 'fragile', 'mixed'].map(
+                      (regime) => (
+                        <option key={regime} value={regime}>
+                          {regime}
+                        </option>
+                      )
+                    )}
+                  </select>
+                ) : (
+                  <Input
+                    aria-label={`Condition ${index + 1} threshold`}
+                    type="number"
+                    step="any"
+                    value={condition.value}
+                    onChange={(event) =>
+                      updateCondition(index, { value: Number(event.target.value) })
+                    }
+                    required
+                  />
+                )}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Remove condition ${index + 1}`}
+                  disabled={conditions.length === 1}
+                  onClick={() =>
+                    setConditions((current) =>
+                      current.filter((_, itemIndex) => itemIndex !== index)
+                    )
+                  }
+                >
+                  <Trash2 aria-hidden />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <label className="block space-y-1 text-xs text-muted-foreground">
+          Minimum opportunity score: <span className="font-mono text-foreground">{minScore}</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            step="5"
+            value={minScore}
+            onChange={(event) => setMinScore(Number(event.target.value))}
+            className="block w-full accent-[var(--accent)]"
+          />
+        </label>
+        <fieldset className="rounded-md border border-border bg-surface-2 p-3">
+          <legend className="px-1 text-xs font-medium text-muted-foreground">
+            Delivery channels (optional)
+          </legend>
+          {channels.filter((channel) => channel.enabled).length > 0 ? (
+            <div className="mt-1 flex flex-wrap gap-3">
+              {channels
+                .filter((channel) => channel.enabled)
+                .map((channel) => (
+                  <label
+                    key={channel.id}
+                    className="flex items-center gap-2 text-xs text-foreground"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={deliveryChannelIds.includes(channel.id)}
+                      onChange={(event) =>
+                        setDeliveryChannelIds((current) =>
+                          event.target.checked
+                            ? [...new Set([...current, channel.id])]
+                            : current.filter((id) => id !== channel.id)
+                        )
+                      }
+                    />
+                    {channel.label} ({channel.kind})
+                  </label>
+                ))}
+            </div>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              No enabled channel is connected. Matches will remain available through private
+              realtime updates.
+            </p>
+          )}
+        </fieldset>
+        {error && <InlineError message={error} />}
+        <Button type="submit" disabled={pending} aria-busy={pending}>
+          {pending
+            ? 'Building preview…'
+            : revisionSource
+              ? `Create v${revisionSource.version + 1} preview`
+              : 'Create historical preview'}
+        </Button>
+      </form>
+
+      <ResourceList
+        emptyTitle="No monitoring recipes"
+        emptyDescription="Create a preview to see sample coverage before activation."
+      >
+        {items.map((item) => (
+          <ResourceRow
+            key={item.id}
+            title={`${item.name} · v${item.version}`}
+            detail={`${item.conditions.length} AND rule${item.conditions.length === 1 ? '' : 's'} · ${item.preview.sampleSize} samples · ${item.preview.coveragePercent.toFixed(0)}% coverage · ${item.preview.estimatedCostBps?.toFixed(1) ?? '—'} bps median costs`}
+            badge={item.active ? 'active' : item.preview.status}
+          >
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setRevisionSource(item);
+                  setName(item.name);
+                  setUniverseKind(item.universe.kind);
+                  setExchange(item.universe.exchange);
+                  setMarketType(item.universe.marketType);
+                  setHorizon(item.horizon);
+                  setSymbol(item.universe.symbols[0] ?? '');
+                  setMinScore(item.minScore);
+                  setDeliveryChannelIds(item.deliveryChannelIds);
+                  setConditions(
+                    item.conditions.map((condition) => ({
+                      ...condition,
+                      id: crypto.randomUUID(),
+                    }))
+                  );
+                  formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+              >
+                Revise
+              </Button>
+              <Button
+                variant={item.active ? 'secondary' : 'outline'}
+                size="sm"
+                disabled={!item.active && item.preview.status === 'unavailable'}
+                onClick={async () => {
+                  const response = await LazuliAPI.updateSignalRecipe(item.id, {
+                    active: !item.active,
+                  });
+                  if (!response.success) {
+                    toast.error(response.error || 'Recipe update failed.');
+                    return;
+                  }
+                  await onChanged();
+                  toast.success(item.active ? 'Recipe paused.' : 'Recipe activated.');
+                }}
+              >
+                {item.active ? 'Pause' : 'Activate'}
+              </Button>
+              <DeleteControl
+                label={`Delete ${item.name}`}
+                onDelete={async () => {
+                  const response = await LazuliAPI.deleteSignalRecipe(item.id);
+                  if (!response.success) throw new Error(response.error || 'Delete failed.');
+                  await onChanged();
+                }}
+              />
+            </div>
           </ResourceRow>
         ))}
       </ResourceList>
@@ -961,7 +1612,7 @@ function SettingsCard({
   children: ReactNode;
 }) {
   return (
-    <Card>
+    <Card className="min-w-0 overflow-hidden">
       <CardHeader>
         <div className="flex items-center gap-2">
           <Icon className="h-4 w-4 text-accent" aria-hidden />

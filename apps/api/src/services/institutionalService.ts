@@ -591,7 +591,7 @@ export async function getInstitutionalConfluence(params: {
     params.macro === undefined &&
     !(params.etf !== undefined && params.options !== undefined && params.volatility !== undefined);
   const [etf, options, volatility, macro] = await Promise.all([
-    params.etf ?? getEtfFlows(params.asset, '30d'),
+    params.etf ?? getEtfFlows(params.asset, '30d', params.env),
     params.options ?? getOptionsExpiries(params.asset),
     params.volatility ?? getOptionsVolatility(params.asset, '90d'),
     params.macro ?? (shouldLoadMacro ? getMacroHistory('90d', params.env) : Promise.resolve(null)),

@@ -8,7 +8,7 @@
     "dev": "bunx --bun vite",
     "dev:worker": "wrangler dev --port 8788",
     "build": "bunx --bun vite build",
-    "build:worker": "bun run build && wrangler deploy --dry-run",
+    "build:worker": "bun run build && wrangler deploy --dry-run --env=\"\"",
     "deploy": "bun run build && wrangler deploy",
     "preview": "bunx --bun vite preview",
     "test": "bun test src/**/*.test.ts",

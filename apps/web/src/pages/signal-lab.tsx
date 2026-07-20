@@ -33,6 +33,7 @@ import type {
 } from '@lazuli/shared';
 import { toast } from 'sonner';
 import { PageHeader } from '@/components/ui/page-header';
+import { OpportunityCard } from '@/components/todays-edge';
 import { Panel } from '@/components/ui/panel';
 import { SegmentedControl } from '@/components/ui/segmented-control';
 import { SearchInput } from '@/components/ui/search-input';
@@ -49,7 +50,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useExchanges, useTickers } from '@/lib/queries';
+import { useExchanges, useOpportunities, useTickers } from '@/lib/queries';
 import { LazuliAPI, type SignalStrategyInput } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth';
 import {
@@ -218,6 +219,19 @@ export default function SignalLabPage() {
     page: 1,
     limit: 500,
   });
+  const conviction = useOpportunities({
+    exchange: filters.exchange,
+    marketType: filters.type,
+    horizon: '6h',
+    kind:
+      filters.mode === 'contrarian'
+        ? 'mean-reversion'
+        : filters.mode === 'breakout'
+          ? 'breakout'
+          : 'momentum',
+    symbol: filters.search || undefined,
+    limit: 24,
+  });
 
   const exchanges = exchangesData?.data.filter((exchange) => exchange.supported) ?? [];
   const rawTickers = tickers.data?.data.tickers ?? [];
@@ -306,8 +320,8 @@ export default function SignalLabPage() {
       <PageHeader
         icon={Crosshair}
         title="Signal Lab"
-        description="Live ticker snapshots converted into ranked momentum, contrarian, and breakout setups. Scores are triage, not trade instructions."
-        freshnessMeta={tickers.data?.meta ?? null}
+        description="Advanced filters for the same explainable opportunity engine used by Today’s Edge. Saved strategy prototypes remain available for historical verification."
+        freshnessMeta={conviction.data?.meta ?? tickers.data?.meta ?? null}
         actions={
           auth.status === 'authenticated' ? (
             <Tag variant="accent">
@@ -432,13 +446,93 @@ export default function SignalLabPage() {
         </div>
       </Panel>
 
+      <section aria-labelledby="conviction-results-heading" className="space-y-3">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h2
+              id="conviction-results-heading"
+              className="font-display text-lg font-semibold text-foreground"
+            >
+              Conviction Engine Results
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The displayed filters query the shared opportunity model; every result carries the
+              same score, provenance, calibration gate, and replay identity as the homepage.
+            </p>
+          </div>
+          <Tag>{conviction.data?.data.count ?? 0} matches</Tag>
+        </div>
+        {conviction.data?.data.sourceHealth.status === 'stale' && (
+          <Panel className="border-warning/30 bg-warning/5" role="status">
+            <p className="text-xs text-muted-foreground">
+              Some source evidence is stale or missing. The model keeps its direction deterministic
+              and lowers confidence rather than silently substituting data.
+            </p>
+          </Panel>
+        )}
+        {conviction.isLoading ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Skeleton className="h-72" />
+            <Skeleton className="h-72" />
+          </div>
+        ) : conviction.isError ? (
+          <Panel className="border-destructive/30 bg-destructive/5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-destructive">Conviction scan unavailable</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {conviction.error.message || 'Retry after live evidence feeds recover.'}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => void conviction.refetch()}>
+                Retry
+              </Button>
+            </div>
+          </Panel>
+        ) : conviction.data?.data.sourceHealth.status === 'unavailable' ? (
+          <Panel className="border-warning/30 bg-warning/5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  Live opportunity evidence is unavailable
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {conviction.data.data.sourceHealth.sources
+                    .filter((source) => source.status !== 'live')
+                    .map((source) => source.message)
+                    .filter(Boolean)
+                    .join(' · ') || 'The selected market feed returned no observations.'}
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => void conviction.refetch()}>
+                Retry
+              </Button>
+            </div>
+          </Panel>
+        ) : conviction.data?.data.items.length ? (
+          <div className="grid gap-3 lg:grid-cols-2">
+            {conviction.data.data.items.map((opportunity, index) => (
+              <OpportunityCard key={opportunity.id} opportunity={opportunity} rank={index + 1} />
+            ))}
+          </div>
+        ) : (
+          <Panel>
+            <EmptyState
+              icon={SearchX}
+              title="No explainable setup matches"
+              description="Try a broader mode, market type, exchange, or symbol query."
+            />
+          </Panel>
+        )}
+      </section>
+
       <Panel className="border-warning/30 bg-warning/5">
         <div className="flex items-start gap-3">
           <BadgeAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
           <p className="text-xs text-muted-foreground">
-            Signal Lab ranks candidates from public ticker data only. Confirm structure on the
-            chart, check order book depth, and account for fees, funding, and slippage before
-            placing any trade.
+            The Conviction Engine results above are the canonical ranking. The strategy prototype
+            library below remains a technical-backtest workbench and does not create a competing
+            probability claim.
           </p>
         </div>
       </Panel>

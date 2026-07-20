@@ -23,10 +23,12 @@ interface CandidateQuote extends PriceArbitrageQuote {
   sellPrice: number;
 }
 
-// Identical tickers can represent unrelated newly listed assets on different
-// venues. A >50% executable gap is treated as an identity/data-quality conflict,
-// not a tradeable arbitrage opportunity.
-const MAX_CREDIBLE_SPREAD_BPS = 5_000;
+// Identical tickers can represent unrelated assets on different venues. Without
+// contract-address identity metadata, very large cross-venue gaps cannot be
+// represented safely as executable arbitrage. Ten percent is deliberately
+// conservative: larger observations remain visible in raw market data but are
+// excluded from rankings and derived signals as data-quality conflicts.
+export const MAX_CREDIBLE_SPREAD_BPS = 1_000;
 
 /**
  * Build cross-exchange price discrepancy opportunities from already-fetched

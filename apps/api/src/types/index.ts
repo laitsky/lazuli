@@ -214,6 +214,8 @@ export interface Env {
   CORS_ORIGIN?: string;
   ENVIRONMENT?: 'local' | 'staging' | 'production';
   ACCOUNT_FEATURES_ENABLED?: string;
+  CONVICTION_ENGINE_ROLLOUT_PERCENT?: string;
+  CONVICTION_PROBABILITIES_ENABLED?: string;
   ALERT_EVALUATION_ENABLED?: string;
   ADMIN_ROUTES_ENABLED?: string;
   HISTORY_DAILY_REFRESH_ENABLED?: string;
@@ -299,12 +301,19 @@ export interface AlertDeliveryQueueMessage {
   attemptId: string;
 }
 
+/** Idempotent post-horizon opportunity outcome resolution. */
+export interface OpportunityOutcomeQueueMessage {
+  kind: 'opportunity-outcome';
+  opportunityId: string;
+}
+
 /** Shared Queue payload union; legacy backfill payloads intentionally remain unchanged. */
 export type WorkerQueueMessage =
   | BackfillQueueMessage
   | HistoricalBackfillQueueMessage
   | AsyncBacktestQueueMessage
-  | AlertDeliveryQueueMessage;
+  | AlertDeliveryQueueMessage
+  | OpportunityOutcomeQueueMessage;
 
 /**
  * Parameters passed to the durable Cloudflare Workflow that fans a backfill job

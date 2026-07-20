@@ -41,6 +41,7 @@ const ExchangeDetailPage = lazy(() => import('./pages/exchange-detail'));
 const SignalDetailPage = lazy(() => import('./pages/signal-detail'));
 const AccountPage = lazy(() => import('./pages/account'));
 const OperationsPage = lazy(() => import('./pages/operations'));
+const MarketReplayPage = lazy(() => import('./pages/market-replay'));
 
 /** Preserve query string on legacy redirects */
 function LegacyRedirect({ to }: { to: string }) {
@@ -71,6 +72,7 @@ export default function App() {
               <Route path="/signal-lab" element={<SignalLabPage />} />
               <Route path="/alpha-feed" element={<AlphaFeedPage />} />
               <Route path="/signals/:id" element={<SignalDetailPage />} />
+              <Route path="/replays/:id" element={<MarketReplayPage />} />
               <Route path="/institutional" element={<InstitutionalPage />} />
               <Route path="/etf-flows" element={<EtfFlowsPage />} />
               <Route path="/options" element={<OptionsPage />} />

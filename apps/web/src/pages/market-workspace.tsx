@@ -20,6 +20,7 @@ import {
   type SupportedExchange,
 } from '@lazuli/shared';
 import { CandlestickChartWithIndicators } from '@/components/candlestick-chart-with-indicators';
+import { OpportunityCard } from '@/components/todays-edge';
 import { PageHeader } from '@/components/ui/page-header';
 import { Panel, PanelHeader, PanelTitle } from '@/components/ui/panel';
 import { SegmentedControl } from '@/components/ui/segmented-control';
@@ -48,6 +49,7 @@ import {
   useOrderBook,
   useLiquidationRadar,
   useOrderFlow,
+  useOpportunity,
 } from '@/lib/queries';
 import { usePreferences, watchlistKey } from '@/lib/preferences';
 import { formatPrice } from '@/lib/format';
@@ -64,12 +66,14 @@ function useWorkspaceParams() {
   const [type, setType] = useStringParam('type', 'spot');
   const [timeframe, setTimeframe] = useStringParam('timeframe', '1h');
   const [layers, setLayers] = useStringParam('layers', RESOURCE_POLICY.defaultWorkspaceLayers);
+  const [opportunity] = useStringParam('opportunity', '');
   return {
     exchange,
     symbol,
     type: type as 'spot' | 'perp',
     timeframe: timeframe as TimeframeValue,
     layers,
+    opportunity,
     setExchange,
     setSymbol,
     setType,
@@ -83,6 +87,7 @@ export default function MarketWorkspacePage() {
   const { exchange, symbol, type, timeframe } = params;
   const { data: exchangesData } = useExchanges();
   const { toggleWatchlist, isWatched } = usePreferences();
+  const carriedThesis = useOpportunity(params.opportunity);
 
   // Primary data
   const ticker = useTicker(exchange, symbol);
@@ -186,6 +191,34 @@ export default function MarketWorkspacePage() {
           </>
         }
       />
+
+      {params.opportunity && (
+        <section aria-label="Carried opportunity thesis">
+          {carriedThesis.isLoading ? (
+            <Skeleton className="h-56" />
+          ) : carriedThesis.isError || !carriedThesis.data?.data ? (
+            <Panel>
+              <EmptyState
+                compact
+                title="The carried thesis is unavailable"
+                description="The chart remains usable. The opportunity may have expired or its immutable event is temporarily unavailable."
+                action={
+                  <Button variant="outline" size="sm" onClick={() => void carriedThesis.refetch()}>
+                    Retry thesis
+                  </Button>
+                }
+              />
+            </Panel>
+          ) : (
+            <div>
+              <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.16em] text-accent">
+                Carried thesis · evidence and invalidation stay attached to this workspace
+              </p>
+              <OpportunityCard opportunity={carriedThesis.data.data} compact />
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Header controls — exchange / type / symbol search / timeframe */}
       <Panel>

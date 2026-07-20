@@ -10,7 +10,10 @@ const ADMIN_SIGNATURE_TTL_MS = 5 * 60 * 1000;
 const ADMIN_NONCE_TTL_MS = 10 * 60 * 1000;
 const verifiedAdminRequests = new WeakSet<Request>();
 
-type AppContext = Context<{ Bindings: Env }>;
+type AppContext = Context<{
+  Bindings: Env;
+  Variables: { sessionAuthorization: string };
+}>;
 
 export type RouteLimitClass = 'public' | 'expensive' | 'admin';
 export type RateLimitBindingName =
@@ -48,6 +51,30 @@ export function resolveCorsOrigin(origin: string | undefined, env: Env): string 
   }
 
   return origin && allowed.includes(origin) ? origin : undefined;
+}
+
+export function trustedCookieWriteOrigin(
+  origin: string | undefined,
+  fetchSite: string | undefined,
+  env: Env,
+  sameOriginProxy: string | undefined = undefined
+): boolean {
+  if (origin) return configuredApplicationOrigin(origin, env);
+  if (sameOriginProxy) return configuredApplicationOrigin(sameOriginProxy, env);
+  // Same-origin browser fetches routed through a Worker service binding may
+  // omit Origin. Fetch Metadata remains browser-controlled and lets those
+  // requests pass without opening cookie writes to non-browser clients.
+  return fetchSite?.toLowerCase() === 'same-origin';
+}
+
+function configuredApplicationOrigin(origin: string, env: Env): boolean {
+  if (resolveCorsOrigin(origin, env)) return true;
+  if (!env.APP_BASE_URL) return false;
+  try {
+    return new URL(env.APP_BASE_URL).origin === new URL(origin).origin;
+  } catch {
+    return false;
+  }
 }
 
 export function applySecurityHeaders(c: AppContext): void {

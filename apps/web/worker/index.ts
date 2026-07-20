@@ -53,7 +53,7 @@ export default {
     }
 
     if (url.pathname.startsWith('/api/')) {
-      return env.API_SERVICE.fetch(request);
+      return proxyApiRequest(request, url, env.API_SERVICE);
     }
 
     if (url.pathname === '/robots.txt') {
@@ -167,6 +167,39 @@ export default {
   },
 } satisfies ExportedHandler<WebEnv>;
 
+function proxyApiRequest(request: Request, url: URL, apiService: Fetcher): Promise<Response> {
+  const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase());
+  const hasCookieSession = /(?:^|;\s*)lazuli_session=/.test(request.headers.get('Cookie') ?? '');
+  const hasExplicitAuthorization = Boolean(request.headers.get('Authorization'));
+  if (!isWrite || !hasCookieSession || hasExplicitAuthorization) {
+    return apiService.fetch(request);
+  }
+
+  const origin = request.headers.get('Origin');
+  const fetchSite = request.headers.get('Sec-Fetch-Site')?.toLowerCase();
+  if ((origin && origin !== url.origin) || (!origin && fetchSite !== 'same-origin')) {
+    return Promise.resolve(
+      Response.json(
+        {
+          success: false,
+          data: null,
+          error: 'Cookie-authenticated write rejected by origin policy',
+          timestamp: Date.now(),
+        },
+        { status: 403 }
+      )
+    );
+  }
+
+  // Cloudflare service bindings can omit browser-managed fetch metadata. The
+  // edge check above verifies the original browser request, then forwards an
+  // explicit same-origin value for the API Worker's defense-in-depth check.
+  const headers = new Headers(request.headers);
+  headers.set('Origin', url.origin);
+  headers.set('X-Lazuli-Same-Origin-Proxy', url.origin);
+  return apiService.fetch(new Request(request, { headers }));
+}
+
 async function authorizeOpsRequest(request: Request, env: WebEnv): Promise<boolean> {
   if (!env.ENVIRONMENT || env.ENVIRONMENT === 'local') return true;
   if (!env.CF_ACCESS_TEAM_DOMAIN || !env.CF_ACCESS_AUD || !env.OPERATIONAL_OWNER_EMAIL) {
@@ -232,13 +265,15 @@ function isSeoPath(pathname: string): boolean {
   return (
     /^\/markets\/[^/]+\/[^/]+$/.test(pathname) ||
     /^\/exchanges\/[^/]+$/.test(pathname) ||
-    /^\/signals\/[^/]+$/.test(pathname)
+    /^\/signals\/[^/]+$/.test(pathname) ||
+    /^\/replays\/[^/]+$/.test(pathname)
   );
 }
 
 function seoRouteClass(pathname: string): string {
   if (pathname.startsWith('/markets/')) return 'market';
   if (pathname.startsWith('/exchanges/')) return 'exchange';
+  if (pathname.startsWith('/replays/')) return 'replay';
   return 'signal';
 }
 
@@ -323,6 +358,41 @@ async function loadSeoMetadata(url: URL, env: WebEnv): Promise<SeoMetadata | nul
         headline: payload.data?.title ?? 'Market Signal',
         description,
         url: `${url.origin}${url.pathname}`,
+        isAccessibleForFree: true,
+        publisher: { '@type': 'Organization', name: 'Lazuli' },
+      },
+    };
+  }
+  const replay = url.pathname.match(/^\/replays\/([^/]+)$/);
+  if (replay) {
+    const id = decodeURIComponent(replay[1]!);
+    const response = await env.API_SERVICE.fetch(
+      `https://api/api/v1/replays/${encodeURIComponent(id)}?window=6h`
+    );
+    if (!response.ok) return null;
+    const payload = (await response.json()) as {
+      data?: { title?: string; narrative?: string; symbol?: string; triggerAt?: number };
+    };
+    const title = `${payload.data?.title ?? 'Market Replay'} | Lazuli`;
+    const description =
+      payload.data?.narrative ??
+      'A deterministic why-it-moved timeline with synchronized market evidence.';
+    return {
+      title,
+      description,
+      canonical: `${url.origin}${url.pathname}`,
+      image: `${url.origin}/api/v1/snapshots/replay/${encodeURIComponent(id)}/og.png`,
+      jsonLd: {
+        '@context': 'https://schema.org',
+        '@type': 'Article',
+        headline: payload.data?.title ?? 'Market Replay',
+        description,
+        url: `${url.origin}${url.pathname}`,
+        datePublished:
+          typeof payload.data?.triggerAt === 'number'
+            ? new Date(payload.data.triggerAt).toISOString()
+            : undefined,
+        about: payload.data?.symbol,
         isAccessibleForFree: true,
         publisher: { '@type': 'Organization', name: 'Lazuli' },
       },

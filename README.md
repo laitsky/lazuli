@@ -118,9 +118,9 @@ From the root directory:
 
 Local base URL: `http://localhost:8787/api/v1`
 
-Production Worker URL: `https://lazuli-api.vincent-diamond15.workers.dev/api/v1`
+Production API URL: `https://api.lazuli.now/api/v1`
 
-Production Web URL: `https://lazuli-web.vincent-diamond15.workers.dev`
+Production Web URL: `https://lazuli.now`
 
 ### Core Endpoints (Live Data - No DB Required)
 
@@ -128,6 +128,9 @@ Production Web URL: `https://lazuli-web.vincent-diamond15.workers.dev`
 - `GET /tickers/:exchange` - Get all tickers for an exchange
 - `GET /tickers/:exchange/:symbol` - Get specific ticker data
 - `GET /markets/:exchange` - Get all available markets
+- `GET /opportunities` - Ranked explainable setups with evidence and calibrated outcomes
+- `GET /opportunities/:id` - Read an immutable opportunity event
+- `GET /replays/:id` - Read a deterministic why-it-moved replay
 
 ### Historical / Advanced Endpoints
 
@@ -141,14 +144,17 @@ Production Web URL: `https://lazuli-web.vincent-diamond15.workers.dev`
 
 ## Web Interface
 
-Access the production web interface at `https://lazuli-web.vincent-diamond15.workers.dev`.
+Access the production web interface at `https://lazuli.now`.
 
 **Pages:**
 
-- **/** - Dashboard with system status and exchange overview
+- **/** - Today’s Edge conviction board with the existing live market pulse below it
 - **/exchanges** - List of all supported exchanges
 - **/tickers** - Live price data with search and filtering
 - **/markets** - Browse all available trading pairs
+- **/workspace** - Analyze a symbol with its carried opportunity thesis
+- **/replays/:id** - Shareable why-it-moved market timeline
+- **/account** - Passwordless account, saved state, alerts, and Thesis Autopilot recipes
 
 **Features:**
 

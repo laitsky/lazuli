@@ -96,6 +96,10 @@ export const OPENAPI_DOCUMENT = {
       name: 'Growth',
       description: 'Public Alpha Feed, API keys, and shareable snapshots',
     },
+    {
+      name: 'Conviction',
+      description: 'Explainable opportunities, monitoring recipes, calibration, and market replays',
+    },
   ],
   paths: {
     '/ws': {
@@ -3294,6 +3298,401 @@ export const OPENAPI_DOCUMENT = {
         },
       },
     },
+    '/opportunities': {
+      get: {
+        summary: 'Rank explainable market opportunities',
+        description:
+          'Returns deterministic, percentile-normalized setups with opposing evidence, freshness, costs, and gated walk-forward calibration.',
+        tags: ['Conviction'],
+        parameters: [
+          {
+            name: 'exchange',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['binance', 'bybit', 'okx', 'hyperliquid', 'upbit'],
+              default: 'bybit',
+            },
+          },
+          {
+            name: 'marketType',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['spot', 'perp'],
+              default: 'perp',
+            },
+          },
+          {
+            name: 'horizon',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['1h', '6h', '24h'],
+              default: '6h',
+            },
+          },
+          {
+            name: 'kind',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: [
+                'all',
+                'momentum',
+                'mean-reversion',
+                'breakout',
+                'price-arbitrage',
+                'funding-arbitrage',
+                'institutional',
+              ],
+              default: 'all',
+            },
+          },
+          {
+            name: 'symbol',
+            in: 'query',
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'minScore',
+            in: 'query',
+            schema: {
+              type: 'number',
+              minimum: 0,
+              maximum: 100,
+              default: 0,
+            },
+          },
+          {
+            name: 'limit',
+            in: 'query',
+            schema: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 50,
+              default: 12,
+            },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Ranked opportunity board',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/opportunities/{id}': {
+      get: {
+        summary: 'Read an immutable opportunity event',
+        tags: ['Conviction'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Opportunity with displayed evidence and provenance',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/opportunities/{id}/calibration': {
+      get: {
+        summary: 'Read walk-forward calibration for an opportunity',
+        tags: ['Conviction'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Calibration with probability hidden below 100 samples',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/replays/{id}': {
+      get: {
+        summary: 'Read a deterministic why-it-moved replay',
+        tags: ['Conviction'],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'window',
+            in: 'query',
+            schema: {
+              type: 'string',
+              enum: ['1h', '6h', '24h'],
+              default: '6h',
+            },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Synchronized replay series, narrative, uncertainty, and provenance',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/me/signal-recipes': {
+      get: {
+        summary: "List the current user's latest signal recipe versions",
+        tags: ['Conviction'],
+        security: [
+          {
+            UserBearerSession: [],
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Signal recipes',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+        },
+      },
+      post: {
+        summary: 'Create a versioned no-code signal recipe',
+        tags: ['Conviction'],
+        security: [
+          {
+            UserBearerSession: [],
+          },
+        ],
+        parameters: [
+          {
+            name: 'Idempotency-Key',
+            in: 'header',
+            required: false,
+            schema: {
+              type: 'string',
+              minLength: 8,
+              maxLength: 200,
+            },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/SignalRecipeInput',
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Created recipe with historical preview',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/me/signal-recipes/{id}/versions': {
+      post: {
+        summary: 'Create an immutable version of a signal recipe',
+        tags: ['Conviction'],
+        security: [
+          {
+            UserBearerSession: [],
+          },
+        ],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+          {
+            name: 'Idempotency-Key',
+            in: 'header',
+            required: false,
+            schema: {
+              type: 'string',
+              minLength: 8,
+              maxLength: 200,
+            },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                $ref: '#/components/schemas/SignalRecipeInput',
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'New latest recipe version',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    '/me/signal-recipes/{id}': {
+      patch: {
+        summary: 'Update recipe activation, cooldown, or delivery settings',
+        tags: ['Conviction'],
+        security: [
+          {
+            UserBearerSession: [],
+          },
+        ],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  active: {
+                    type: 'boolean',
+                  },
+                  cooldownSeconds: {
+                    type: 'integer',
+                    minimum: 60,
+                    maximum: 604800,
+                  },
+                  deliveryChannelIds: {
+                    type: 'array',
+                    items: {
+                      type: 'string',
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          '200': {
+            description: 'Updated latest recipe version',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/ApiSuccessResponse',
+                },
+              },
+            },
+          },
+        },
+      },
+      delete: {
+        summary: 'Delete a signal recipe and all versions',
+        tags: ['Conviction'],
+        security: [
+          {
+            UserBearerSession: [],
+          },
+        ],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: {
+              type: 'string',
+            },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Deletion status',
+            content: {
+              'application/json': {
+                schema: {
+                  $ref: '#/components/schemas/DeletionApiResponse',
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     '/alpha-feed': {
       get: {
         summary: 'Public Alpha Feed',
@@ -3455,6 +3854,33 @@ export const OPENAPI_DOCUMENT = {
         responses: {
           '200': {
             description: 'Dynamic public signal card rendered with the embedded local font',
+            content: {
+              'image/png': {},
+            },
+          },
+          default: {
+            $ref: '#/components/responses/InternalServerError',
+          },
+        },
+      },
+    },
+    '/snapshots/replay/{id}/og.png': {
+      parameters: [
+        {
+          name: 'id',
+          in: 'path',
+          required: true,
+          schema: {
+            type: 'string',
+          },
+        },
+      ],
+      get: {
+        summary: 'Render a cached 1200x630 Market Replay Open Graph PNG',
+        tags: ['Conviction'],
+        responses: {
+          '200': {
+            description: 'Deterministic replay share image',
             content: {
               'image/png': {},
             },
@@ -5683,6 +6109,123 @@ export const OPENAPI_DOCUMENT = {
             },
           },
         ],
+      },
+      SignalRecipeInput: {
+        type: 'object',
+        required: ['name', 'universe', 'horizon', 'conditions'],
+        properties: {
+          name: {
+            type: 'string',
+            minLength: 2,
+            maxLength: 80,
+          },
+          universe: {
+            type: 'object',
+            required: ['kind', 'exchange', 'symbols', 'marketType'],
+            properties: {
+              kind: {
+                type: 'string',
+                enum: ['watchlist', 'exchange', 'top-liquid'],
+              },
+              exchange: {
+                type: 'string',
+                enum: ['all', 'binance', 'bybit', 'okx', 'hyperliquid', 'upbit'],
+              },
+              symbols: {
+                type: 'array',
+                maxItems: 100,
+                items: {
+                  type: 'string',
+                },
+              },
+              marketType: {
+                type: 'string',
+                enum: ['spot', 'perp', 'both'],
+              },
+            },
+          },
+          horizon: {
+            type: 'string',
+            enum: ['1h', '6h', '24h'],
+          },
+          conditions: {
+            type: 'array',
+            minItems: 1,
+            maxItems: 5,
+            items: {
+              type: 'object',
+              required: ['id', 'metric', 'operator', 'value', 'window'],
+              properties: {
+                id: {
+                  type: 'string',
+                },
+                metric: {
+                  type: 'string',
+                  enum: [
+                    'price_return',
+                    'range_position',
+                    'volume_percentile',
+                    'volume_ratio',
+                    'rsi',
+                    'cvd_delta',
+                    'open_interest',
+                    'open_interest_change',
+                    'funding_rate',
+                    'funding_percentile',
+                    'liquidation_imbalance',
+                    'basis',
+                    'price_spread',
+                    'etf_flow',
+                    'iv_rank',
+                    'options_skew',
+                    'institutional_regime',
+                  ],
+                },
+                operator: {
+                  type: 'string',
+                  enum: ['gt', 'gte', 'lt', 'lte', 'eq'],
+                },
+                value: {
+                  oneOf: [
+                    {
+                      type: 'number',
+                    },
+                    {
+                      type: 'string',
+                    },
+                  ],
+                },
+                window: {
+                  type: 'string',
+                  enum: ['1h', '6h', '24h'],
+                },
+              },
+            },
+          },
+          minScore: {
+            type: 'number',
+            minimum: 0,
+            maximum: 100,
+            default: 60,
+          },
+          cooldownSeconds: {
+            type: 'integer',
+            minimum: 60,
+            maximum: 604800,
+            default: 3600,
+          },
+          deliveryChannelIds: {
+            type: 'array',
+            maxItems: 20,
+            items: {
+              type: 'string',
+            },
+          },
+          active: {
+            type: 'boolean',
+            default: false,
+          },
+        },
       },
       DeletionResponse: {
         type: 'object',

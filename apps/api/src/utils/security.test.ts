@@ -7,6 +7,7 @@ import {
   shouldFailClosedWhenLimiterUnavailable,
   shouldResolvePublicApiKey,
   signAdminRequest,
+  trustedCookieWriteOrigin,
   verifyAdminSignature,
   verifyAdminSignatureWithRotation,
 } from './security';
@@ -152,6 +153,33 @@ describe('admin request signing', () => {
 });
 
 describe('rate limiter hardening helpers', () => {
+  test('accepts service-bound same-origin cookie writes without weakening CSRF checks', () => {
+    const localEnv = {
+      ENVIRONMENT: 'local',
+      APP_BASE_URL: 'http://localhost:8788',
+      CORS_ORIGIN: '',
+    } as Env;
+    const productionEnv = {
+      ENVIRONMENT: 'production',
+      CORS_ORIGIN: 'https://lazuli.now',
+    } as Env;
+
+    expect(trustedCookieWriteOrigin(undefined, 'same-origin', localEnv)).toBe(true);
+    expect(trustedCookieWriteOrigin('http://localhost:8788', undefined, localEnv)).toBe(true);
+    expect(
+      trustedCookieWriteOrigin(undefined, undefined, productionEnv, 'https://lazuli.now')
+    ).toBe(true);
+    expect(
+      trustedCookieWriteOrigin(undefined, undefined, productionEnv, 'https://attacker.example')
+    ).toBe(false);
+    expect(trustedCookieWriteOrigin(undefined, undefined, localEnv)).toBe(false);
+    expect(trustedCookieWriteOrigin(undefined, 'cross-site', localEnv)).toBe(false);
+    expect(trustedCookieWriteOrigin('https://lazuli.now', undefined, productionEnv)).toBe(true);
+    expect(trustedCookieWriteOrigin('https://attacker.example', 'cross-site', productionEnv)).toBe(
+      false
+    );
+  });
+
   test('fails closed only for admin and expensive route classes', () => {
     expect(classifyRouteLimit('/api/v1/admin/health').routeClass).toBe('admin');
     expect(classifyRouteLimit('/api/v1/orderbook/bybit/BTC-USDT').routeClass).toBe('expensive');

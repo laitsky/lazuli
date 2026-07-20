@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import type { SupportedExchange, Ticker } from '@lazuli/shared';
-import { buildPriceArbitrageResponse, normalizeArbitrageAsset } from './priceArbitrageService';
+import {
+  buildPriceArbitrageResponse,
+  MAX_CREDIBLE_SPREAD_BPS,
+  normalizeArbitrageAsset,
+} from './priceArbitrageService';
 
 function ticker(
   exchange: SupportedExchange,
@@ -126,6 +130,30 @@ describe('price arbitrage service', () => {
         {
           exchange: 'binance',
           tickers: [ticker('binance', 'U-USDT', 'spot', { bid: 12, ask: 13, last: 12.5 })],
+        },
+      ],
+      { type: 'spot', quote: 'USDT', minSpreadBps: 1, limit: 20 }
+    );
+
+    expect(response.opportunities).toEqual([]);
+  });
+
+  test('applies the conservative identity boundary before ranking', () => {
+    const response = buildPriceArbitrageResponse(
+      [
+        {
+          exchange: 'bybit',
+          tickers: [ticker('bybit', 'NEW-USDT', 'spot', { bid: 1, ask: 1, last: 1 })],
+        },
+        {
+          exchange: 'okx',
+          tickers: [
+            ticker('okx', 'NEW-USDT', 'spot', {
+              bid: 1 + (MAX_CREDIBLE_SPREAD_BPS + 1) / 10_000,
+              ask: 1.2,
+              last: 1.1,
+            }),
+          ],
         },
       ],
       { type: 'spot', quote: 'USDT', minSpreadBps: 1, limit: 20 }

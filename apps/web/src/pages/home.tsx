@@ -15,7 +15,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { Activity, ArrowRight, Flame, Radar, Star, TrendingDown, TrendingUp } from 'lucide-react';
 import type { Ticker, PriceArbitrageOpportunity, FundingSentiment } from '@lazuli/shared';
-import { PageHeader } from '@/components/ui/page-header';
+import { TodaysEdge } from '@/components/todays-edge';
 import { Panel, PanelHeader, PanelTitle } from '@/components/ui/panel';
 import { Metric } from '@/components/ui/metric';
 import { PriceText, ChangeText } from '@/components/ui/price-text';
@@ -82,11 +82,17 @@ export default function HomePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Dashboard"
-        description="Live market pulse across supported exchanges."
-        freshnessMeta={arbitrageFreshness ?? null}
-      />
+      <TodaysEdge />
+
+      <div className="flex items-end justify-between border-t border-border pt-6">
+        <div>
+          <h2 className="font-display text-xl font-semibold text-foreground">Market Pulse</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            The existing live dashboard remains available beneath the ranked opportunity board.
+          </p>
+        </div>
+        <FreshnessBadge meta={arbitrageFreshness ?? null} />
+      </div>
 
       {/* KPI strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

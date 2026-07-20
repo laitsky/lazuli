@@ -43,7 +43,9 @@ import {
   type InstitutionalAssetQueryParams,
   type InstitutionalRangeQueryParams,
   type OptionsChainQueryParams,
+  type OpportunityQueryParams,
 } from '@/lib/api-client';
+import type { MarketReplay } from '@lazuli/shared';
 import { STALE_TIMES } from '@/lib/query-client';
 import { RESOURCE_POLICY } from '@/lib/resource-policy';
 
@@ -138,6 +140,13 @@ export const queryKeys = {
   alphaFeed: {
     list: (params: AlphaFeedQueryParams) => ['alpha-feed', params] as const,
     detail: (id: string) => ['alpha-feed', 'detail', id] as const,
+  },
+
+  opportunities: {
+    list: (params: OpportunityQueryParams) => ['opportunities', params] as const,
+    detail: (id: string) => ['opportunities', 'detail', id] as const,
+    replay: (id: string, window: MarketReplay['window']) =>
+      ['opportunities', 'replay', id, window] as const,
   },
 
   backtest: {
@@ -295,6 +304,46 @@ export function useAlphaFeedEvent(id: string) {
     queryFn: async () => {
       const res = await LazuliAPI.getAlphaFeedEvent(id);
       if (!res.success || !res.data) throw new Error(res.error ?? 'Failed to load signal');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.reference,
+    enabled: id.length > 0,
+  });
+}
+
+export function useOpportunities(params: OpportunityQueryParams = {}) {
+  return useQuery({
+    queryKey: queryKeys.opportunities.list(params),
+    queryFn: async () => {
+      const res = await LazuliAPI.getOpportunities(params);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Failed to load opportunities');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.realtime,
+    refetchInterval: RESOURCE_POLICY.alphaFeedPollMs,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useOpportunity(id: string) {
+  return useQuery({
+    queryKey: queryKeys.opportunities.detail(id),
+    queryFn: async () => {
+      const res = await LazuliAPI.getOpportunity(id);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Opportunity not found');
+      return { data: res.data, meta: res.meta };
+    },
+    staleTime: STALE_TIMES.reference,
+    enabled: id.length > 0,
+  });
+}
+
+export function useMarketReplay(id: string, window: MarketReplay['window']) {
+  return useQuery({
+    queryKey: queryKeys.opportunities.replay(id, window),
+    queryFn: async () => {
+      const res = await LazuliAPI.getMarketReplay(id, window);
+      if (!res.success || !res.data) throw new Error(res.error ?? 'Replay not found');
       return { data: res.data, meta: res.meta };
     },
     staleTime: STALE_TIMES.reference,

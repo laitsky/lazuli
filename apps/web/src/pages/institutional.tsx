@@ -182,6 +182,12 @@ export default function InstitutionalPage() {
               </PanelHeader>
               {flows.isLoading ? (
                 <div className="h-48 skeleton-shimmer rounded-md" />
+              ) : flows.isError ? (
+                <ErrorPanel
+                  title="ETF flow feed unavailable"
+                  message={flows.error.message}
+                  onRetry={() => flows.refetch()}
+                />
               ) : flowData && flowData.flows.length > 0 ? (
                 <>
                   <FlowBars flows={flowData.flows} height={190} />
@@ -221,6 +227,12 @@ export default function InstitutionalPage() {
                     <div key={index} className="h-5 skeleton-shimmer rounded-sm" />
                   ))}
                 </div>
+              ) : chain.isError ? (
+                <ErrorPanel
+                  title="Options chain unavailable"
+                  message={chain.error.message}
+                  onRetry={() => chain.refetch()}
+                />
               ) : chainData && chainData.strikes.length > 0 ? (
                 <>
                   <StrikeWallChart strikes={chainData.strikes} />
